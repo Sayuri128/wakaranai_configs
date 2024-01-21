@@ -1,0 +1,179 @@
+import "http";
+import "io";
+import "json";
+import "date";
+import "html";
+import "manga_models";
+import "converter";
+
+function handleMangaItem(manga) {
+    uid = manga["id"];
+    title = manga["title"].values.first;
+
+    cover = "https://t7.nhentai.net/galleries/" + manga["media_id"] + "/thumb";
+
+    if(manga["images"]["thumbnail"]["t"] == "p") {
+        cover = cover + ".png";
+    } else {
+        cover = cover + ".jpg";
+    }
+
+    return buildGallery({
+        "uid": parseString(uid),
+        "title": title,
+        "cover": cover,
+        "data": manga
+    });
+}
+
+
+function getGallery(page, query, filters) {
+    result = httpGet({
+        "url": "https://nhentai.net/api/galleries/all?" + "page=" + parseString(page) + "&limit=25",
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    });
+
+    decoded = jsonDecode(result["body"]);
+    data = decoded["result"];
+
+    mangas = [];
+
+    for(i = 0; i < data.length; i = i + 1) {
+        mangas.push(handleMangaItem( {"manga": data[i]} ));
+    }
+
+    return mangas;
+}
+
+function getPages(uid) {
+
+    result = httpGet({
+        "url": "https://nhentai.net/g/" + uid + "/",
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    });
+
+    document = createHTMLParser(result["body"]);
+
+    print("https://nhentai.net/g/" + uid + "/");
+    print(document);
+
+    thumbContainers = document.getElementsByClassName("thumb-container");
+    print(thumbContainers);
+
+    value = [];
+
+    for(i = 0; i < thumbContainers.length; i = i + 1) {
+        imgUrl = thumbContainers[i].getElementsByTagName("img")[0].attributes["data-src"];
+        print(imgUrl);
+        value.push(imgUrl
+                .replaceAll(parseString(i + 1) + "t", parseString(i + 1))
+                .replaceAll("t7", "i3")
+                .replaceAll("t3", "i3")
+                .replaceAll("t5", "i3")
+                .replaceAll("t4", "i3")
+                .replaceAll("t2", "i3")
+                );
+    }
+
+    print(value);
+
+    return buildPages({ "uid": uid,
+                        "value": value });
+
+}
+
+function getConcrete(uid) {
+
+    result = httpGet({
+        "url": "https://nhentai.net/g/" + uid + "/",
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    });
+
+    document = createHTMLParser(result["body"]);
+
+    info = document.getElementById("info");
+    titleElements = document.getElementsByClassName("title");
+
+    title = titleElements[0].text;
+
+    if(titleElements.length > 1) {
+        pretty = titleElements[1].text;
+    }
+
+    coverElement = document.getElementById("cover");
+    img = coverElement.getElementsByTagName("img");
+    firstImg = img[0];
+    cover = firstImg.attributes["data-src"];
+
+    tags = [];
+
+    rawTags = document.getElementById("tags");
+    rawTags = rawTags.getElementsByClassName("tags");
+
+    for(i = 0; i < rawTags.length; i = i + 1) {
+        elem = rawTags[i];
+        elems = elem.getElementsByClassName("name");
+        if(elems.length > 0) {
+            for(j = 0; j < (elems.length - 1); j = j + 1) {
+                tags.push(elems[j].text);
+            }
+        }
+    }
+
+    chapters = [];
+
+    chapters.push(buildChapter({"uid": uid, "title": "Chapter 1", "timestamp": "", "data": {}}));
+
+    description = "";
+
+    description = description + "English title: " + titleElements[0].text + "\n";
+    if (titleElements.length > 1) {
+        description = description + "Original title: " + titleElements[1].text + "\n";
+    }
+    description = description + "Pages: " + tags.last + "\n";
+
+    favoritedBy = document.getElementsByClassName("buttons")[0].getElementsByClassName("nobold")[0].text;
+    favoritedBy = favoritedBy.substring(1, favoritedBy.length - 1);
+
+    description = description + "Favoried by: " + favoritedBy + "\n";
+
+    description = description + "ID: " + document.getElementById("gallery_id").text;
+
+    return buildConcrete({
+        "uid": uid,
+        "title": title,
+        "description": description,
+        "cover": cover,
+        "tags": tags,
+        "status": null,
+        "alternativeTitles": [],
+        "groups": [
+            buildChapterGroups({
+                        "title": "Default",
+                        "elements": chapters,
+                        "data": {}
+                    })
+        ]
+    });
+}
+
+function getImageHeaders(uid) {
+    return {};
+}
+
+function passProtector(body, headers, cookies) {
+
+    headers["Accept"] = "*/*";
+    headers["Connection"] = "keep-alive";
+
+    useHeaders({"headers": headers});
+}

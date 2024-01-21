@@ -1,0 +1,280 @@
+import "http";
+import "io";
+import "json";
+import "date";
+import "html";
+import "manga_models";
+import "converter";
+
+
+function getGallery(page, query, filters) {
+
+    result = null;
+
+    if(query == "") {
+        result = httpGet({
+            "url": "https://manga.in.ua/mangas/page/" + parseString(page),
+            "params": {},
+            "paths": {},
+            "headers": {},
+            "throughWeb": true
+        });
+    } else {
+        result = httpPost({
+            "url": "https://manga.in.ua/index.php",
+            "params": {
+                "do": "search",
+                "subaction": "search",
+                "full_search": "0",
+                "story": query,
+                "search_start": page
+            },
+            "paths": {},
+            "body": {},
+            "headers": {},
+            "throughWeb": false
+        });
+    }
+
+    document = createHTMLParser(result["body"]);
+
+    movie = document.getElementsByClassName("movie");
+
+    items = [];
+
+    print(movie);
+
+    for(i = 0; i < movie.length - 1; i = i + 1) {
+        e = movie[i];
+
+        uid = "";
+        title = "";
+        cover = "";
+
+        if(e.getElementsByTagName("h3")[0] == null ||
+           e.getElementsByTagName("h3")[0].getElementsByTagName("a")[0] == null ||
+           e.getElementsByTagName("h3")[0].getElementsByTagName("a")[0].attributes["href"] == null) {
+           uid = "";
+        } else {
+            uid = e.getElementsByTagName("h3")[0].getElementsByTagName("a")[0].attributes["href"];
+        }
+
+        if(e.getElementsByTagName("h3")[0] == null ||
+            e.getElementsByTagName("h3")[0].getElementsByTagName("a")[0] == null) {
+            title = "";
+        } else {
+            title = e.getElementsByTagName("h3")[0].getElementsByTagName("a")[0].text;
+        }
+
+        if(e.getElementsByTagName("figure").isEmpty) {
+            cover = "";
+        } else if (e.getElementsByTagName("figure")[0] == null ||
+            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0] == null ||
+            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0].attributes["data-src"] == null
+        ) {
+            cover = "";
+        } else {
+            dataSrc = e.getElementsByTagName("figure")[0]
+                .getElementsByTagName("img")[0].attributes["data-src"];
+            if(dataSrc == null) {
+                cover = "https://manga.in.ua/" + e.getElementsByTagName("figure")[0]
+                .getElementsByTagName("img")[0].attributes["src"];
+            } else {
+                cover = "https://manga.in.ua/" + dataSrc;
+            }
+        }
+
+        items.push(buildGallery({
+                      "uid": uid,
+                      "title": title,
+                      "cover": cover,
+                      "data": {}
+                  }));
+    }
+
+    return items;
+
+}
+
+function getConcrete(uid) {
+
+    result = httpGet({
+        "url": uid,
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+
+    jsScript = `
+        let fun = () => {
+
+            const news_id = $("#linkstocomics").data("news_id");
+            const news_category = $("#linkstocomics").data("news_category");
+            const this_link = news_category === 54 ? $("#linkstocomics").data("this_link") : "";
+
+            const body = {
+                action: 'show',
+                news_id: news_id.toString(),
+                news_category: news_category.toString(),
+                this_link: this_link,
+                user_hash: site_login_hash
+            };
+
+            return body;
+        }
+
+        return fun();
+    `
+
+    requestBody = executeJsScript({"code": jsScript});
+
+    response = httpPost({
+        "url": "https://manga.in.ua/engine/ajax/controller.php",
+        "params": {
+          "mod": "load_chapters"
+        },
+        "paths": {},
+        "body": requestBody,
+        "headers": {},
+        "throughWeb": false
+    });
+
+
+    pageDocument = createHTMLParser(result["body"]);
+    document = createHTMLParser(response["body"]);
+
+    print(document);
+    print(uid);
+    print(result["body"]);
+
+    chaptersTags = document.getElementsByClassName("ltcitems");
+    chapters = [];
+
+    print(chaptersTags);
+
+    for(i = 0; i < chaptersTags.length; i = i + 1) {
+        chapterUid = chaptersTags[i].getElementsByClassName("forfastnavigation")[0].attributes["href"];
+        title = chaptersTags[i].getElementsByClassName("forfastnavigation")[0].text;
+        timestamp = chaptersTags[i].getElementsByClassName("ltcright")[0].text;
+        chapters.push(buildChapter({
+            "uid": chapterUid,
+            "title": title,
+            "timestamp": timestamp,
+             "data": {}
+         }));
+    }
+    print(chapters);
+
+    cover = "https://manga.in.ua" + pageDocument.getElementsByClassName("item__full-sidebar--poster")[0].getElementsByTagName("img")[0].attributes["src"];
+
+    tagsDocs = pageDocument.getElementsByClassName("item__full-sidebar--section")[1].getElementsByClassName("item__full-sideba--header");
+
+    tags = [];
+
+    for(i = 0; i < tagsDocs.length; i = i + 1) {
+        e = tagsDocs[i];
+        if(e.text.contains("Жанри")) {
+            genresDocs = e.getElementsByTagName("a");
+            for(j = 0; j < genresDocs.length; j = j + 1) {
+                tags.push(genresDocs[j].text);
+            }
+        }
+    }
+
+    description = pageDocument.getElementsByClassName("item__full-description")[0].text;
+
+    return buildConcrete({
+        "uid": uid,
+        "title": pageDocument.getElementsByClassName("UAname")[0].text,
+        "description": description,
+        "cover": cover,
+        "tags": tags,
+        "alternativeTitles": [],
+        "status": null,
+        "groups": [
+            buildChapterGroups({
+                        "title": "Default",
+                        "elements": chapters,
+                        "data": {}
+                    })
+        ]
+    });
+}
+
+function getPages(uid) {
+
+    result = httpGet({
+        "url": uid,
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+
+    jsScript = `
+        let fun = () => {
+
+            const news_id = $("#linkstocomics").data("news_id");
+
+            return {
+                action: 'show',
+                news_id: $("#comics").data("news_id").toString(),
+                user_hash: site_login_hash,
+                mod: "load_chapters_image"
+            };
+
+        }
+
+        return fun();
+    `
+
+    requestParams = executeJsScript({"code": jsScript});
+
+    result = httpGet({
+        "url": "https://manga.in.ua/engine/ajax/controller.php",
+        "params": requestParams,
+        "paths": {},
+        "body": {},
+        "headers": {},
+        "throughWeb": false
+    });
+
+    print(result["body"]);
+    document = createHTMLParser(result["body"]);
+
+
+    value = [];
+
+    images = document.getElementsByTagName("img");
+    print(images);
+
+    for(i = 0; i < images.length; i = i + 1) {
+       value.push(images[i].attributes["data-src"]);
+    }
+
+    print(value);
+
+    return buildPages({ "uid": uid,
+                        "value": value });
+
+}
+
+function getImageHeaders(uid) {
+
+    headers = getHeaders();
+
+    return {
+        "user-agent": headers["user-agent"],
+        "Accept": "image/avif,image/webp,*/*",
+        "referer": "https://manga.in.ua/",
+    };
+}
+
+function passProtector(body, headers, cookies) {
+    useHeaders({"headers": headers});
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}

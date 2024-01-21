@@ -1,0 +1,16 @@
+{
+  "name": "NHentai",
+  "uid": "26bf8976-5952-461c-b9c1-fdc505be275c",
+  "logoUrl": "https://i.kym-cdn.com/entries/icons/facebook/000/026/029/n.jpg",
+  "type": 0,
+  "nsfw": true,
+  "language": "Mixed",
+  "version": 1,
+  "filters": [],
+  "protectorConfig": {
+    "pingUrl": "https://nhentai.net",
+    "needToLogin": false,
+    "inAppBrowserInterceptor": false
+  },
+  "searchAvailable": false
+}
