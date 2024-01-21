@@ -1,0 +1,16 @@
+{
+  "name": "HentaiLib",
+  "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
+  "logoUrl": "https://i.imgur.com/n4G5Fif.png",
+  "type": 0,
+  "nsfw": false,
+  "language": "Russian",
+  "version": 1,
+  "filters": [],
+  "protectorConfig": {
+    "pingUrl": "https://hentailib.me/manga-list",
+    "needToLogin": true,
+    "inAppBrowserInterceptor": true
+  },
+  "searchAvailable": true
+}
