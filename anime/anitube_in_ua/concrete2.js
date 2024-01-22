@@ -34,9 +34,9 @@ let getVideoSrc = () => {
                         const videoAuthorId = video.getAttribute("data-id");
                         if (videoAuthorId.startsWith(videoPlayerId || videoTypeId || authorId)) {
                             let title = "";
-                            if (videoType) title += videoType?.textContent
-                            if (videoPlayer) title += ` ${videoPlayer?.textContent}` + " - ";
-                            title += ` ${video?.textContent}`;
+                            if (videoType) title += videoType?.textContent ?? ""
+                            if (videoPlayer) title += " " +  videoPlayer?.textContent ?? "" + " - ";
+                            title += " " + video?.textContent ?? "";
 
                             group.videos.push({
                                 title: title,
