@@ -19,26 +19,29 @@ function getGallery(page, query, filters) {
             "headers": {}
         });
     } else {
-        result = httpPost({
+        result = httpGet({
             "url": "https://anitube.in.ua/index.php",
             "params": {
                 "do": "search",
                 "subaction": "search",
+                "search_start": parseString(page),
                 "full_search": "0",
-                "story": query,
-                "from_page": page
+                "story": query
             },
             "paths": {},
             "body": {},
-            "throughWeb": false,
-            "headers": {}
+            "headers": {},
+            "throughWeb": true
         });
     }
 
     document = createHTMLParser(result["body"]);
 
+    print(result["body"]);
 
     stories = document.querySelectorAll("#dle-content > .story");
+
+    print(stories.length);
 
     items = [];
 
