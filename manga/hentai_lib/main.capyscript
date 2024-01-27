@@ -163,10 +163,7 @@ function getConcrete(uid) {
 
         chapterGroups.push(buildChapterGroups({
             "title": title,
-            "elements": chapters,
-            "data": {
-                "teams": teams
-            }
+            "elements": chapters
         }));
     } else {
         for(j = 0; j < teams.length; j = j + 1) {
@@ -194,11 +191,7 @@ function getConcrete(uid) {
 
             chapterGroups.push(buildChapterGroups({
                 "title": team.name,
-                "elements": chapters,
-                "data": {
-                    "branch": branch,
-                    "team": team
-                }
+                "elements": chapters
             }));
 
         }
