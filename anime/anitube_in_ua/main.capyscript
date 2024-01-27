@@ -235,8 +235,7 @@ return getVideoSrc();
 
         videoGroups.push(buildAnimeVideoGroup({
                  "title": player.title,
-                 "videos": videos,
-                 "data": {}
+                 "videos": videos
         }));
 
     }
