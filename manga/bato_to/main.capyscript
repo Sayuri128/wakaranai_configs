@@ -1,0 +1,266 @@
+import "http";
+import "io";
+import "json";
+import "date";
+import "html";
+import "manga_models";
+import "converter";
+
+function handleGalleryHtml(item) {
+    uid = item.getElementsByTagName("a")[0].attributes["href"];
+    title = item.getElementsByTagName("a")[1].text;
+    cover = item.getElementsByTagName("img")[0].attributes["src"];
+
+    gallery =  buildGallery({
+        "uid": uid,
+        "title": title,
+        "cover": cover,
+        "data": {},
+    });
+
+    return gallery;
+}
+
+function getGallerySearch(page, query, filters, galleries) {
+
+    response = httpGet({
+        "url": "https://bato.to/search",
+        "paths": {},
+        "params": {
+            "word": query,
+            "page": page,
+        },
+        "throughWeb": false,
+        "headers": { }
+    });
+
+    parser = createHTMLParser(response.body);
+
+    list = parser.getElementById("series-list").children;
+
+    for(i = 0; i < list.length; i++) {
+        galleries.push(handleGalleryHtml(list[i]));
+    }
+}
+
+function getGalleryHome(page, galleries) {
+  response = httpGet({
+        "url": "https://bato.to/latest",
+        "params": {
+            "page": page,
+        },
+        "paths": {
+                    coverArtId: coverArtUid
+                },
+        "throughWeb": false,
+                "headers": {
+                    "Content-Type": "application/json"
+            },
+        "headers": {}
+    });
+
+    list = null;
+
+    if (page == 1) {
+        parser = createHTMLParser(response.body);
+        list = parser.getElementById("series-list").children;
+    } else {
+        json = jsonDecode(response.body);
+        list = createHTMLParser(json["res"]["html"]).querySelectorAll("div.col");
+    }
+
+    if (list == null) {
+        return null;
+    }
+
+    for(i = 0; i < list.length; i++) {
+        galleries.push(handleGalleryHtml(list[i]));
+    }
+
+}
+
+function getGallery(page, query, filters) {
+    galleries = [];
+
+    if(query.isEmpty) {
+        getGalleryHome(page, galleries);
+    } else {
+        getGallerySearch(page, query, filters, galleries);
+    }
+
+    return galleries;
+}
+
+function getConcrete(uid, data) {
+
+    response = httpGet({
+        "url": "https://bato.to" + uid,
+        "params": {},
+        "paths": {},
+        "throughWeb": false,
+        "headers": {}
+    });
+
+    parser = createHTMLParser(response.body);
+    title = parser.querySelector(".item-title").text.trim();
+    cover = parser.querySelector("img").attributes["src"];
+
+    tags = [];
+
+    tagsDiv = null;
+    rankDiv = null;
+    authorDiv = null;
+    artistDiv = null;
+    languageDiv = null;
+
+    divs = parser.querySelectorAll("div.attr-item");
+    for(i = 0; i < divs.length; i++) {
+        div = divs[i];
+        if(div.text.contains("Genres:")) {
+            tagsDiv = div;
+        } else if(div.text.contains("Rank:")) {
+            rankDiv = div;
+        } else if(div.text.contains("Authors:")) {
+            authorDiv = div;
+        } else if(div.text.contains("Artists:")) {
+            artistDiv = div;
+        } else if(div.text.contains("language:")) {
+            languageDiv = div;
+        }
+    }
+
+    if(tagsDiv != null) {
+       tagsDivs =  tagsDiv.getElementsByTagName("span");
+         for(i = 1; i < tagsDivs.length; i++) {
+              tags.push(tagsDivs[i].text.trim());
+         }
+    }
+
+    aliasSet = parser.getElementsByClassName("alias-set");
+
+    alternativeTitles = [];
+
+    if(aliasSet.length > 0) {
+        alias = aliasSet[0].text.split("/");
+        for(i = 0; i < alias.length; i++) {
+            alternativeTitles.push(alias[i].trim());
+        }
+    }
+
+    description = "";
+
+    if(rankDiv != null) {
+        description = "Rank: " + rankDiv.getElementsByTagName("span")[0].text.trim() + "\n";
+    }
+    if(authorDiv != null) {
+        description = description + "Author: " + authorDiv.getElementsByTagName("span")[0].text.trim() + "\n";
+    }
+    if(artistDiv != null) {
+        description = description + "Artist: " + artistDiv.getElementsByTagName("span")[0].text.trim() + "\n";
+    }
+    if(languageDiv != null) {
+        description = description + "Translated language: " + languageDiv.getElementsByTagName("span")[0].text.trim() + "\n";
+    }
+
+   limitHtml = parser.getElementsByClassName("limit-html");
+   if(limitHtml.isNotEmpty) {
+       description = description + "Summary: "+ "\n" + limitHtml[0].text.trim() + "\n";
+   }
+
+   chapters = [];
+
+   main = parser.querySelector("div.main");
+
+   if(main != null) {
+       items = main.getElementsByClassName("item");
+       for(i = 0; i < items.length; i++) {
+           item = items[i];
+           chapter = item.getElementsByTagName("a")[0];
+           if(chapter != null) {
+                chapterTitle = chapter.getElementsByTagName("b")[0].text.trim();
+                chapterUid = chapter.attributes["href"];
+                extra = item.getElementsByClassName("extra")[0];
+
+                if(extra != null) {
+                    chapterTimestamp = extra.children.last.text.trim();
+                } else {
+                    chapterTimestamp = null;
+                }
+
+                chapters.push(buildChapter({
+                     "uid": chapterUid,
+                     "title": chapterTitle.trim(),
+                     "timestamp": chapterTimestamp,
+                     "data": {}
+                }));
+           }
+       }
+   }
+
+   return buildConcrete({
+        "uid": uid,
+        "title": title,
+        "description": description,
+        "cover": cover,
+        "tags": tags,
+        "status": null,
+        "alternativeTitles": alternativeTitles,
+        "groups": [
+            buildChapterGroups({
+                        "title": "Chapters" + " (" + parseString(chapters.length) + ")",
+                        "elements": chapters,
+                        "data": {}
+                    })
+        ]
+    });
+}
+
+function getPages(uid, data) {
+    response = httpGet({
+        "url": "https://bato.to" + uid,
+        "params": {},
+        "paths": {},
+        "throughWeb": true,
+        "headers": {}
+    });
+
+    parser = createHTMLParser(response.body);
+
+    code = `
+        let fun = () => {
+            try {
+
+                return Array.from(document.querySelectorAll("div .item")).map((e) => {
+                    return e.querySelector("img").getAttribute("src");
+                });
+            } catch (e) {
+                return [];
+            }
+        }
+
+        return fun();
+    `;
+
+    items = executeJsScript({"code": code});
+
+    for(;items.isEmpty;) {
+        items = executeJsScript({"code": code});
+    }
+
+    print(pages);
+
+    return buildPages({ "uid": uid,
+                        "value": items });
+}
+
+function getImageHeaders(uid) {
+    return {};
+}
+
+function passProtector(body, headers, cookies) {
+    useHeaders({"headers": headers});
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}
