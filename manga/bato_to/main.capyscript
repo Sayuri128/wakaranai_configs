@@ -25,10 +25,13 @@ function getGallerySearch(page, query, filters, galleries) {
 
     response = httpGet({
         "url": "https://bato.to/search",
+        "paths": {},
         "params": {
             "word": query,
             "page": page,
         },
+        "throughWeb": false,
+        "headers": { }
     });
 
     parser = createHTMLParser(response.body);
@@ -46,6 +49,14 @@ function getGalleryHome(page, galleries) {
         "params": {
             "page": page,
         },
+        "paths": {
+                    coverArtId: coverArtUid
+                },
+        "throughWeb": false,
+                "headers": {
+                    "Content-Type": "application/json"
+            },
+        "headers": {}
     });
 
     list = null;
@@ -84,6 +95,10 @@ function getConcrete(uid, data) {
 
     response = httpGet({
         "url": "https://bato.to" + uid,
+        "params": {},
+        "paths": {},
+        "throughWeb": false,
+        "headers": {}
     });
 
     parser = createHTMLParser(response.body);
@@ -202,7 +217,10 @@ function getConcrete(uid, data) {
 function getPages(uid, data) {
     response = httpGet({
         "url": "https://bato.to" + uid,
+        "params": {},
+        "paths": {},
         "throughWeb": true,
+        "headers": {}
     });
 
     parser = createHTMLParser(response.body);
