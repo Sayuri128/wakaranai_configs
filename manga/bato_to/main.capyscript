@@ -130,20 +130,18 @@ function getConcrete(uid, data) {
     }
 
     if(tagsDiv != null) {
-       tagsDivs =  tagsDiv.querySelectorAll("span");
+       tagsDivs =  tagsDiv.getElementsByTagName("span");
          for(i = 1; i < tagsDivs.length; i++) {
               tags.push(tagsDivs[i].text.trim());
          }
     }
 
-    aliasSet = parser.querySelector("div.alias-set");
+    aliasSet = parser.getElementsByClassName("alias-set");
 
     alternativeTitles = [];
 
-    print(aliasSet);
-
-    if(aliasSet != null) {
-        alias = aliasSet.text.split("/");
+    if(aliasSet.length > 0) {
+        alias = aliasSet[0].text.split("/");
         for(i = 0; i < alias.length; i++) {
             alternativeTitles.push(alias[i].trim());
         }
@@ -152,34 +150,36 @@ function getConcrete(uid, data) {
     description = "";
 
     if(rankDiv != null) {
-        description = "Rank: " + rankDiv.querySelector("span").text.trim() + "\n";
+        description = "Rank: " + rankDiv.getElementsByTagName("span")[0].text.trim() + "\n";
     }
     if(authorDiv != null) {
-        description = description + "Author: " + authorDiv.querySelector("span").text.trim() + "\n";
+        description = description + "Author: " + authorDiv.getElementsByTagName("span")[0].text.trim() + "\n";
     }
     if(artistDiv != null) {
-        description = description + "Artist: " + artistDiv.querySelector("span").text.trim() + "\n";
+        description = description + "Artist: " + artistDiv.getElementsByTagName("span")[0].text.trim() + "\n";
     }
     if(languageDiv != null) {
-        description = description + "Translated language: " + languageDiv.querySelector("span").text.trim() + "\n";
+        description = description + "Translated language: " + languageDiv.getElementsByTagName("span")[0].text.trim() + "\n";
     }
 
-   description = description + "Summary: "+ "\n" + parser.querySelector(".limit-html").text.trim() + "\n";
-
+   limitHtml = parser.getElementsByClassName("limit-html");
+   if(limitHtml.isNotEmpty) {
+       description = description + "Summary: "+ "\n" + limitHtml[0].text.trim() + "\n";
+   }
 
    chapters = [];
 
    main = parser.querySelector("div.main");
 
    if(main != null) {
-       items = main.querySelectorAll("div.item");
+       items = main.getElementsByClassName("item");
        for(i = 0; i < items.length; i++) {
            item = items[i];
-           chapter = item.querySelector("a");
+           chapter = item.getElementsByTagName("a")[0];
            if(chapter != null) {
-                chapterTitle = chapter.querySelector("b").text.trim();
+                chapterTitle = chapter.getElementsByTagName("b")[0].text.trim();
                 chapterUid = chapter.attributes["href"];
-                extra = item.querySelector("div.extra");
+                extra = item.getElementsByClassName("extra")[0];
 
                 if(extra != null) {
                     chapterTimestamp = extra.children.last.text.trim();
@@ -207,8 +207,9 @@ function getConcrete(uid, data) {
         "alternativeTitles": alternativeTitles,
         "groups": [
             buildChapterGroups({
-                        "title": "Default",
+                        "title": "Chapters" + " (" + parseString(chapters.length) + ")",
                         "elements": chapters,
+                        "data": {}
                     })
         ]
     });
