@@ -8,76 +8,48 @@ import "converter";
 
 function getGallery(page, query, filters) {
 
-    name = null;
+    params = {
+         "site_id": [
+             4
+         ],
+         "sort": "rate",
+         "dir": "desc",
+         "caution_list": [
+            "Отсутствует",
+            "16+",
+            "18+"
+         ]
+     };
 
-    if(query.isNotEmpty) {
-        name = query;
-    }
+     if(query.isNotEmpty) {
+        params["q"] = query;
+     }
+
+     if(page > 1) {
+        params["page"] = page;
+     }
 
     result = httpGet({
-        "url": "https://hentailib.me/manga-list",
-        "params": {
-            "page": page,
-            "name": query,
-            "site_id": 4,
-            "sort": "rate",
-            "dir": "desc",
-            "caution_list": [
-               "Отсутствует",
-               "16+",
-               "18+"
-            ]
-        },
+        "url": "https://api.lib.social/api/manga",
+        "params": params,
         "paths": {},
-        "headers": {},
-        "throughWeb": true
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
     });
-
-    jsScript = `let fun = async () => {
-                    const canvas = document.createElement("canvas");
-                    const body = document.querySelector("body");
-                    body.appendChild(canvas);
-
-                    const ctx = canvas.getContext("2d");
-                    const res = await Promise.all(Array.from(document.querySelectorAll('.media-card')).map(card => {
-                        const image = document.createElement("img");
-                        return new Promise((resolve, reject) => {
-                            image.src = "https://hentailib.me" + card.getAttribute("data-src");
-                            image.onload = () => {
-
-                                canvas.width = image.naturalWidth;
-                                canvas.height = image.naturalHeight;
-                                ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight);
-                                const base64 = canvas.toDataURL("image/jpeg");
-
-                                resolve({
-                                    uid: card.href.split('/').pop(),
-                                    title: card.querySelector(".media-card__title").textContent,
-                                    // url: "https://hentailib.me" + card.getAttribute("data-src"),
-                                    cover: base64,
-                                    data: card.textContent
-                                });
-
-                            };
-                        });
-                    }));
-                    body.removeChild(canvas);
-                    return res;
-                }
-
-                return await fun();`;
-
-    data = executeJsScript({"code": jsScript});
-
+    
+    serialized = jsonDecode(result["body"]);
+    data = serialized["data"];
 
     result = [];
 
     for(i = 0; i < data.length; i = i + 1) {
         element = data[i];
         result.push(buildGallery({
-            "uid": element["uid"],
-            "title": element["title"],
-            "cover": element["cover"],
+            "uid": element["slug_url"],
+            "title": element["rus_name"],
+            "cover": element["cover"]["default"],
             "data": element
         }));
 
@@ -87,144 +59,148 @@ function getGallery(page, query, filters) {
 
 }
 
-function processChapter(chapter, data, branch, uid) {
+function processChapter(chapter, data, uid, team) {
     chapterName = "";
     chapterNumber = "";
     chapterVolume = 1;
 
-    if(chapter.chapter_name != null) {
-        chapterName = chapter.chapter_name;
+    if(chapter.name != null) {
+        chapterName = chapter.name;
     }
 
-    if(chapter.chapter_number != null) {
-        chapterNumber = chapter.chapter_number;
+    if(chapter.number != null) {
+        chapterNumber = chapter.number;
     }
 
-    if(chapter.chapter_volume != null) {
-        chapterVolume = chapter.chapter_volume;
+    if(chapter.volume != null) {
+        chapterVolume = chapter.volume;
     }
 
 
-    chapter["slug"] = uid;
     if(data.user != null) {
         chapter["id"] = data.user.id;
     }
 
-    if(branch != null) {
-        chapter["bid"] = branch.id;
-    }
 
     print(chapter);
 
     return buildChapter({
-                       "uid": chapter.chapter_slug,
+                       "uid": parseString(chapter.id),
                        "title": "Том " + parseString(chapterVolume) + " Глава " + chapterNumber  + " " + chapterName,
                        "timestamp": chapter.chapter_created_at,
-                       "data": chapter
+                       "data": {
+                        "chapter": parseString(chapterNumber),
+                        "volume": parseString(chapterVolume),
+                       }
                    });
 }
 
 function getConcrete(uid) {
 
+    paths = {};
+    paths["?"] = ""
+    paths["params"] = `?fields[]=background&fields[]=eng_name&fields[]=otherNames&fields[]=summary&fields[]=releaseDate&fields[]=type_id&fields[]=caution&fields[]=views&fields[]=close_view&fields[]=rate_avg&fields[]=rate&fields[]=genres&fields[]=tags&fields[]=teams&fields[]=franchise&fields[]=authors&fields[]=publisher&fields[]=userRating&fields[]=moderated&fields[]=metadata&fields[]=metadata.count&fields[]=metadata.close_comments&fields[]=manga_status_id&fields[]=chap_count&fields[]=status_id&fields[]=artists&fields[]=format`;
+
     result = httpGet({
-        "url": "https://hentailib.me/" + uid,
+        "url": "https://api.lib.social/api/manga/" + uid + "params",
         "params": {},
-        "paths": {},
-        "headers": {},
-        "throughWeb": true
+        "paths": paths,
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
     });
 
-    document = createHTMLParser(result["body"]);
+    serialized = jsonDecode(result["body"]);
+    
+    data = serialized.data;
+    
+    cover = data["cover"]["default"];
+    title = data["rus_name"];
+    description = data["summary"];
+    
+    tags = [];
+   
+    for(i = 0; i < data["genres"].length; i = i + 1) {
+        tag = data["genres"][i];
+        tags.add(tag["name"]);
+    }
+    for(i = 0; i < data["tags"].length; i = i + 1) {
+        tag = data["tags"][i];
+        tags.add(tag["name"]);
+    }
+    alternativeTitles = [
+        data["eng_name"]
+    ];
+    
+    for(i = 0; i < data["otherNames"].length; i = i + 1) {
+        alternativeTitles.add(data["otherNames"][i]);
+    }
+    
 
-    data = executeJsScript({"code": "return window.__DATA__"});
+    result = httpGet({
+        "url": "https://api.lib.social/api/manga/" + uid + "/chapters",
+        "params": {},
+        "paths": {},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
 
-    chaptersList = data.chapters.list;
-
+    serialized = jsonDecode(result["body"]);
+    
+    data = serialized.data;
     chapterGroups = [];
-
-    branches = data.chapters.branches;
-    teams = data.chapters.teams;
-
-    if(branches.isEmpty) {
-        chapters = [];
-
-        title = "Default";
-
-        if(teams.isNotEmpty) {
-            title = teams.first.name;
-        }
-
-        for(i = 0; i < chaptersList.length; i = i + 1) {
-            chapter = chaptersList[i];
-            chapter = processChapter(chapter, data, null, uid);
-            print(chapter);
-            chapters.push(chapter);
-        }
-
-        chapterGroups.push(buildChapterGroups({
-            "title": title,
-            "elements": chapters
-        }));
-    } else {
+    
+    for(i = 0; i < data.length; i = i + 1) {
+        branch = data[i]["branches"][0];
+        teams = branch.teams;
         for(j = 0; j < teams.length; j = j + 1) {
             team = teams[j];
-            branch = null
-
-            for(g = 0; g < branches.length; g = g + 1) {
-                branch = branches[g];
-                if(branch.id == team.branch_id) {
-                    break;
-                } else {
-                    branch = null;
+            exists = false;
+            for(k = 0; k < chapterGroups.length; k = k + 1) {
+                chapterGroup = chapterGroups[k];
+                if(chapterGroup.title == team.name) {
+                    exists = true;
                 }
             }
 
-            chapters = [];
-
-            for(i = 0; i < chaptersList.length; i = i + 1) {
-                chapter = chaptersList[i];
-
-                if(chapter.branch_id == team.branch_id) {
-                    chapters.push(processChapter(chapter, data, branch, uid));
-                }
+            if(exists == false) {
+                chapterGroups.push(buildChapterGroups({
+                            "title": team.name,
+                            "elements": []
+                        }));
             }
-
-            chapterGroups.push(buildChapterGroups({
-                "title": team.name,
-                "elements": chapters
-            }));
-
         }
     }
 
-
-
-    descriptionTags = document.getElementsByClassName("media-description__text");
-    if(descriptionTags.isNotEmpty) {
-        description = descriptionTags[0].text;
-    } else {
-        description = "";
+    for(i = 0; i < data.length; i = i + 1) {
+        chapter = data[i];
+        branch = data[i]["branches"][0];
+        for(j = 0; j < branch.teams.length; j = j + 1) {
+            team = branch.teams[j];
+            processedChapter = processChapter(chapter, branch, parseString(branch.id), team);
+            processedChapter.data["slug"] = uid;
+            
+            for(k = 0; k < chapterGroups.length; k = k + 1) {
+                chapterGroup = chapterGroups[k];
+                if(chapterGroup.title == team.name) {
+                    chapterGroup.elements.push(processedChapter);
+                }
+            }
+        }
     }
 
-    cover = document.getElementsByClassName("media-sidebar__cover")[0].getElementsByTagName("img")[0].attributes["src"];
-
-    tags = [];
-
-    tagsHtml = document.getElementsByClassName("media-tags")[0].getElementsByTagName("a");
-
-    for(i = 0; i < tagsHtml.length; i = i + 1) {
-        tagHtml = tagsHtml[i];
-        tags.push(tagHtml.text);
-    }
 
     return buildConcrete({
         "uid": uid,
         "cover": cover,
-        "title": data.manga.rusName,
+        "title": title,
         "description": description,
         "tags": tags,
         "status": null,
-        "alternativeTitles": [],
+        "alternativeTitles": alternativeTitles,
         "groups": chapterGroups
     });
 }
@@ -240,39 +216,38 @@ function getPages(uid, data) {
         chapterName = chapter.chapter_name;
     }
 
-    if(chapter.chapter_number != null) {
-        chapterNumber = chapter.chapter_number;
+    if(chapter.chapter != null) {
+        chapterNumber = chapter.chapter;
     }
 
-    if(chapter.chapter_volume != null) {
-        chapterVolume = chapter.chapter_volume;
+    if(chapter.volume != null) {
+        chapterVolume = chapter.volume;
     }
 
-    url = "https://hentailib.me/" + chapter["slug"] + "/v" + parseString(chapterVolume) + "/c" + chapterNumber;
+    url = "https://api.lib.social/api/manga/" + chapter["slug"] + "/chapter";
 
     params = {
-        ui: chapter["id"]
+        number: chapterNumber,
+        volume: chapterVolume
     };
-
-    if(chapter["bid"] != null) {
-        params["bid"]= chapter["bid"];
-    }
 
     result = httpGet({
         "url": url,
         "params": params,
         "paths": {},
         "headers": {},
-        "throughWeb": true
+        "throughWeb": false
     });
 
-    pages = executeJsScript({"code": "return window.__pg"});
+    deserialized = jsonDecode(result["body"]);
+
+    pages = deserialized["data"]["pages"];
 
     value = [];
 
     for(i = 0; i < pages.length; i = i + 1) {
         page = pages[i];
-        pageImageUrl = "https://img3.imglib.info//manga/" + chapter["slug"] + "/chapters/" + chapter.chapter_slug + "/" + page.u;
+        pageImageUrl = "https://img2.hentaicdn.org" + page["url"];
         value.push(pageImageUrl);
     }
 
@@ -287,8 +262,8 @@ function getImageHeaders(uid) {
 
     return {
         "user-agent": headers["user-agent"],
-        "Accept": "image/avif,image/webp,*/*",
-        "referer": "https://hentailib.me/",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Referer": "https://hentailib.me/",
     };
 }
 
@@ -319,6 +294,11 @@ function passProtector(body, headers, cookies) {
           headers["x-csrf-token"] = e.attributes["content"];
        }
     }
+
+    auth = executeJsScript({"code": "return window.localStorage.auth"});
+    decoded = jsonDecode(auth);
+
+    headers["Authorization"] = "Bearer " + decoded["token"]["access_token"];
 
     print("x-csrf-token");
     print(headers["x-csrf-token"]);
