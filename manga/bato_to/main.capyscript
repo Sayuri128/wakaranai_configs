@@ -103,7 +103,7 @@ function getConcrete(uid, data) {
 
     parser = createHTMLParser(response.body);
     title = parser.querySelector(".item-title").text.trim();
-    cover = parser.querySelector("img").attributes["src"];
+    cover = parser.querySelector("img.shadow-6").attributes["src"];
 
     tags = [];
 
