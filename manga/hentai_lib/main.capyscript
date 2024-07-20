@@ -169,7 +169,8 @@ function getConcrete(uid) {
             if(exists == false) {
                 chapterGroups.push(buildChapterGroups({
                             "title": team.name,
-                            "elements": []
+                            "elements": [],
+                            "data": {}
                         }));
             }
         }
