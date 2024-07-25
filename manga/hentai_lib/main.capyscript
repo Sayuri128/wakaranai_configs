@@ -76,14 +76,6 @@ function processChapter(chapter, data, uid, team) {
         chapterVolume = chapter.volume;
     }
 
-
-    if(data.user != null) {
-        chapter["id"] = data.user.id;
-    }
-
-
-    print(chapter);
-
     return buildChapter({
                        "uid": parseString(chapter.id),
                        "title": "Том " + parseString(chapterVolume) + " Глава " + chapterNumber  + " " + chapterName,
@@ -169,8 +161,7 @@ function getConcrete(uid) {
             if(exists == false) {
                 chapterGroups.push(buildChapterGroups({
                             "title": team.name,
-                            "elements": [],
-                            "data": {}
+                            "elements": []
                         }));
             }
         }
