@@ -1,0 +1,16 @@
+{
+  "name": "MangaLife",
+  "uid": "38d33e0d-1df5-4275-b5eb-fc1f26ede5dd",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_life/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "language": "English",
+  "version": 1,
+  "filters": [],
+  "protectorConfig": {
+    "pingUrl": "https://manga4life.com/",
+    "needToLogin": false,
+    "inAppBrowserInterceptor": true
+  },
+  "searchAvailable": true
+}
