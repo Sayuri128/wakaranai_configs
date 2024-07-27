@@ -1,0 +1,184 @@
+import "http";
+import "io";
+import "json";
+import "date";
+import "html";
+import "manga_models";
+import "converter";
+
+
+
+function getGallery(page, query, filters) {
+
+    if(page > 1) {
+        return [];
+    }
+
+    response = httpGet({
+        "url": "https://manga4life.com/",
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+
+    response = executeJsScript({"code": `return angular.element(document).controller().QuickResult`});
+
+
+   result = [];
+
+   for(i = 0; i < response.length; i = i + 1) {
+
+        item = response[i];
+
+        uid = item["i"];
+        title = item["s"];
+        cover = "https://temp.compsci88.com/cover/" + item["i"] + ".jpg";
+
+        if(query == null || title.toLowerCase().contains(query.trim().toLowerCase())) {
+            result.push(buildGallery({
+                    "uid": uid,
+                    "title": title,
+                    "cover": cover,
+                    "data": {},
+                }));
+        }
+   }
+
+
+    return result;
+
+
+}
+
+function getConcrete(uid, data) {
+
+    result = httpGet({
+        "url": "https://manga4life.com/manga/" + uid,
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+
+    code = `
+        const showAll = document.querySelector(".ShowAllChapters");
+        if(showAll) {
+            showAll.click();
+        }
+        return true;
+    `;
+    executeJsScript({"code": code});
+
+    body = executeJsScript({"code": `return document.body.innerHTML`});
+
+    page = createHTMLParser(body);
+
+    links = page.querySelectorAll("a");
+
+    title = page.querySelector("h1").text;
+    description = page.querySelector(".top-5.Content").text;
+    cover = page.querySelector(".img-fluid").attributes["src"];
+    tags = []
+
+    chapterElements = []
+
+
+    for(i = 0; i < links.length; i = i + 1) {
+        link = links[i];
+        if(link.attributes["href"].contains("genre")) {
+            tags.push(link.text);
+        }
+        if(link.attributes["href"].contains("read-online")) {
+            uid = link.attributes["href"].split("/")[2];
+            href = link.attributes["href"];
+            split = href.split("-");
+            name = "Chapter " + split[split.length - 3];
+            timestamp = link.querySelectorAll("div").last.text;
+            chapterElements.push(buildChapter({
+                "uid": uid,
+                "title": name,
+                "timestamp": timestamp,
+                "data": {}
+            }));
+        }
+    }
+
+    chapterGroups = [];
+    chapterGroups.push(buildChapterGroups({
+           "title": "default",
+           "elements": chapterElements
+       }));
+
+
+   return buildConcrete({
+       "uid": uid,
+       "title": title,
+       "description": description,
+       "cover": cover,
+       "tags": tags,
+       "status": null,
+       "alternativeTitles": [],
+       "groups": chapterGroups
+   });
+
+}
+
+function getPages(uid, data) {
+
+    result = httpGet({
+        "url": "https://manga4life.com/read-online/" + uid,
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+
+    code = `
+        let fun = async () => {
+
+            const controller = angular.element(document).controller();
+            const pagesCount = controller.CurChapter.Page;
+            let currentPage = controller.CurPage;
+
+            const urls = [];
+            const pushImg = () => {
+                const img = document.querySelector(".img-fluid");
+                urls.push(img.src);
+            }
+            const next = () => {
+                const button = document.querySelector(".fas.fa-step-forward");
+                button.click();
+            }
+            while (currentPage != pagesCount) {
+                pushImg();
+                next();
+                currentPage = controller.CurPage;
+            }
+            pushImg();
+
+            return urls;
+        }
+
+        return await fun();
+    `;
+
+    pages = executeJsScript({"code": code});
+
+    return buildPages({
+        "uid": uid,
+        "value": pages
+    });
+}
+
+function getImageHeaders(uid) {
+    return {};
+}
+
+function passProtector(body, headers, cookies) {
+    useHeaders({"headers": headers});
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}
