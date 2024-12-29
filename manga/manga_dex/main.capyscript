@@ -300,7 +300,8 @@ function handleConcreteView(data) {
         "groups": [
             buildChapterGroups({
                         "title": "Default",
-                        "elements": getChapters({ "uid": data["id"] })
+                        "elements": getChapters({ "uid": data["id"] }),
+                        "data": {}
                     })
         ]
     });
