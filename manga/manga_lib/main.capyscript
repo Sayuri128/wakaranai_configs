@@ -6,7 +6,6 @@ import "html";
 import "manga_models";
 import "converter";
 
-
 function getGallery(page, query, filters) {
 
     name = null;
@@ -15,59 +14,37 @@ function getGallery(page, query, filters) {
         name = query;
     }
 
-    result = httpPost({
-        "url": "https://mangalib.me/api/list",
-        "params": {},
+    result = httpGet({
+        "url": "https://api2.mangalib.me/api/manga",
+        "params": {
+            "page": page,
+            "name": query,
+            "site_id": [1],
+            "sort": "rate",
+            "dir": "desc",
+            "field": [
+               "rate",
+               "rave_avg",
+               "userBookmark"
+            ]
+        },
         "paths": {},
-        "body": jsonEncode({
-                   "sort": "rate",
-                   "dir": "desc",
-                   "page": page,
-                   "name": name,
-                   "site_id": "1",
-                   "caution_list": [
-                       "Отсутствует",
-                       "16+",
-                       "18+"
-                   ]
-               }),
         "headers": {},
         "throughWeb": false
     });
 
-    decoded = jsonDecode(result["body"]);
-
-    print("Current page: " + parseString(decoded.items.current_page));
-
-    data = decoded.items.data;
+    data = jsonDecode(result.body).data;
 
 
     result = [];
 
     for(i = 0; i < data.length; i = i + 1) {
-
-        item = data[i];
-
-        uid = item["slug"];
-        title = item["rus_name"];
-
-        cover = null;
-
-        covers = item["covers"];
-
-        print(covers);
-
-        if(covers["coverImage"] != null) {
-            cover = covers["coverImage"];
-        } else if(covers["default"] != null) {
-            cover = covers["default"];
-        }
-
+        element = data[i];
         result.push(buildGallery({
-            "uid": parseString(uid),
-            "title": title,
-            "cover": cover,
-            "data": item
+            "uid": element.slug_url,
+            "title": element.rus_name,
+            "cover": element.cover.default,
+            "data": element
         }));
 
     }
@@ -81,30 +58,33 @@ function processChapter(chapter, data, branch, uid) {
     chapterNumber = "";
     chapterVolume = 1;
 
-    if(chapter.chapter_name != null) {
-        chapterName = chapter.chapter_name;
+    if(chapter.name != null) {
+        chapterName = chapter.name;
     }
 
-    if(chapter.chapter_number != null) {
-        chapterNumber = chapter.chapter_number;
+    if(chapter.number != null) {
+        chapterNumber = chapter.number;
     }
 
-    if(chapter.chapter_volume != null) {
-        chapterVolume = chapter.chapter_volume;
+    if(chapter.volume != null) {
+        chapterVolume = chapter.volume;
     }
 
 
     chapter["slug"] = uid;
+    chapter["branch_id"] = branch.branch_id;
     if(data.user != null) {
         chapter["id"] = data.user.id;
     }
 
     if(branch != null) {
-        chapter["bid"] = branch.id;
+        chapter["bid"] = branch.branch_id;
     }
 
+    print(chapter);
+
     return buildChapter({
-                       "uid": chapter.chapter_slug,
+                       "uid": uid + "_" + chapterNumber + "_" + chapterVolume,
                        "title": "Том " + parseString(chapterVolume) + " Глава " + chapterNumber  + " " + chapterName,
                        "timestamp": chapter.chapter_created_at,
                        "data": chapter
@@ -114,145 +94,157 @@ function processChapter(chapter, data, branch, uid) {
 function getConcrete(uid) {
 
     result = httpGet({
-        "url": "https://mangalib.me/" + uid,
+        "url": "https://api2.mangalib.me/api/manga/" + uid,
+        "params": {
+            "fields": [
+                "background",
+                "eng_name",
+                "otherNames",
+                "summary",
+                "releaseDate",
+                "type_id",
+                "caution",
+                "views",
+                "close_view",
+                "rate_avg",
+                "rate",
+                "genres",
+                "tags",
+                "teams",
+                "user",
+                "franchise",
+                "authors",
+                "publisher",
+                "userRating",
+                "moderated",
+                "metadata",
+                "metadata.count",
+                "metadata.close_comments",
+                "manga_status_id",
+                "chap_count",
+                "status_id",
+                "artists",
+                "format"
+            ]
+        },
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    });
+    data = jsonDecode(result.body).data;
+    print(data);
+
+    chapters = jsonDecode(httpGet({
+        "url": "https://api2.mangalib.me/api/manga/" + uid + "/chapters",
         "params": {},
         "paths": {},
         "headers": {},
-        "throughWeb": true
-    });
+        "throughWeb": false
+    }).body).data;
+    branches = jsonDecode(httpGet({
+        "url": "https://api2.mangalib.me/api/branches/" + uid.split("-")[0],
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    }).body).data;
 
-    document = createHTMLParser(result["body"]);
-
-    data = executeJsScript({"code": "return window.__DATA__"});
-
-    chaptersList = data.chapters.list;
 
     chapterGroups = [];
-
-    branches = data.chapters.branches;
-    teams = data.chapters.teams;
-
-    if(branches.isEmpty) {
-        chapters = [];
-
-        title = "Default";
-
-        if(teams.isNotEmpty) {
-            title = teams.first.name;
-        }
-
-        for(i = 0; i < chaptersList.length; i = i + 1) {
-            chapter = chaptersList[i];
-            chapters.push(processChapter(chapter, data, null, uid));
-        }
-
+    
+    for (i = 0; i < branches.length; i = i + 1) {
+        branch = branches[i];
         chapterGroups.push(buildChapterGroups({
-            "title": title,
-            "elements": chapters
+            "title": branch.name,
+            "elements": [],
+            "data": {
+                "branch": branch
+            }
         }));
-    } else {
-        for(j = 0; j < teams.length; j = j + 1) {
-            team = teams[j];
-            branch = null
+    }
+    
+ 
 
-            for(g = 0; g < branches.length; g = g + 1) {
-                branch = branches[g];
-                if(branch.id == team.branch_id) {
-                    break;
-                } else {
-                    branch = null;
+    for (i = 0; i < chapters.length; i = i + 1) {
+    
+        chapter = chapters[i];
+     
+        for (j = 0; j < chapter.branches.length; j = j + 1) {
+            branch = chapter.branches[j];
+            if (branches.isEmpty) {
+               if (chapterGroups.isEmpty) {
+                    chapterGroups.push(buildChapterGroups({
+                        "title": branch.teams[0].name,
+                        "elements": [],
+                        "data": {}
+                    }));
+                }
+                
+                chapterGroups[0].elements.push(processChapter(chapter, data, branch, uid));
+            } else {
+                 for (k = 0; k < branches.length; k = k + 1) {
+                    if (branches[k].id == branch.branch_id || branch.branch_id == null) {
+                        chapterGroups[k].elements.push(processChapter(chapter, data, branch, uid));
+                    }
                 }
             }
-
-            chapters = [];
-
-            for(i = 0; i < chaptersList.length; i = i + 1) {
-                chapter = chaptersList[i];
-
-                if(chapter.branch_id == team.branch_id) {
-                    chapters.push(processChapter(chapter, data, branch, uid));
-                }
-            }
-
-            chapterGroups.push(buildChapterGroups({
-                "title": team.name,
-                "elements": chapters
-            }));
-
+            
         }
     }
-
-
-
-    description = document.getElementsByClassName("media-description__text")[0].text;
-
-    cover = document.getElementsByClassName("media-sidebar__cover")[0].getElementsByTagName("img")[0].attributes["src"];
 
     tags = [];
-
-    tagsHtml = document.getElementsByClassName("media-tags")[0].getElementsByTagName("a");
-
-    for(i = 0; i < tagsHtml.length; i = i + 1) {
-        tagHtml = tagsHtml[i];
-        tags.push(tagHtml.text);
+    
+   for (i = 0; i < data.genres.length; i = i + 1) {
+        tags.push(data.genres[i].name);
     }
+    for (i = 0; i < data.tags.length; i = i + 1) {
+        tags.push(data.tags[i].name);
+    }
+ 
 
     return buildConcrete({
         "uid": uid,
-        "title": data.manga.rusName,
-        "description": description,
-        "cover": cover,
+        "cover": data.cover.default
+        "title": data.rus_name,
+        "description": data.summary,
         "tags": tags,
         "status": null,
-        "alternativeTitles": [],
+        "alternativeTitles": [
+            data.eng_name,
+        ],
         "groups": chapterGroups
     });
 }
 
+
 function getPages(uid, data) {
 
     chapter = data;
-    chapterName = "";
-    chapterNumber = "";
-    chapterVolume = 1;
-
-    if(chapter.chapter_name != null) {
-        chapterName = chapter.chapter_name;
-    }
-
-    if(chapter.chapter_number != null) {
-        chapterNumber = chapter.chapter_number;
-    }
-
-    if(chapter.chapter_volume != null) {
-        chapterVolume = chapter.chapter_volume;
-    }
-
-    url = "https://mangalib.me/" + chapter["slug"] + "/v" + parseString(chapterVolume) + "/c" + chapterNumber;
 
     params = {
-        ui: chapter["id"]
-    };
 
-    if(chapter["bid"] != null) {
-        params["bid"]= chapter["bid"];
-    }
+        "number": chapter["number"],
+        "volume": chapter["volume"]
+    };
+    if(chapter["branch_id"] != null) {
+        params["branch_id"] = chapter["branch_id"];
+    }  
 
     result = httpGet({
-        "url": url,
+        "url": "https://api2.mangalib.me/api/manga/" + chapter["slug"] + "/chapter",
         "params": params,
         "paths": {},
         "headers": {},
-        "throughWeb": true
-    });
-
-    pages = executeJsScript({"code": "return window.__pg"});
+        "throughWeb": false
+    }).body;
+    
+    data = jsonDecode(result).data;
 
     value = [];
 
-    for(i = 0; i < pages.length; i = i + 1) {
-        page = pages[i];
-        pageImageUrl = "https://img33.imgslib.link//manga/" + chapter["slug"] + "/chapters/" + chapter.chapter_slug + "/" + page.u;
+    for(i = 0; i < data.pages.length; i = i + 1) {
+        page = data.pages[i];
+        pageImageUrl = "https://img33.imgslib.link" + page["url"];
         value.push(pageImageUrl);
     }
 
@@ -262,6 +254,7 @@ function getPages(uid, data) {
 }
 
 function getImageHeaders(uid) {
+
     headers = getHeaders();
 
     return {
@@ -281,10 +274,9 @@ function passProtector(body, headers, cookies) {
         "throughWeb": true
     });
 
-
     headers = result["headers"];
 
-    headers["x-xsrf-token"] = result["cookies"]["XSRF-TOKEN"].replaceAll("%3D", "=");
+    // headers["x-xsrf-token"] = result["cookies"]["XSRF-TOKEN"].replaceAll("%3D", "=");
     headers["x-requested-with"] = "XMLHttpRequest";
     headers["Content-Type"] = "application/json;charset=UTF-8";
 
@@ -299,13 +291,28 @@ function passProtector(body, headers, cookies) {
           headers["x-csrf-token"] = e.attributes["content"];
        }
     }
+    
+    code = `let getAuth = () => {
+           const auth = JSON.parse(localStorage.getItem("auth"));
+        
+           if (auth) {
+               return auth.token.token_type + " " + auth.token.access_token;
+           }
+           
+           return null;
+       }
+       
+       return getAuth();`;
+                   
+    token = executeJsScript({"code": code});
+    headers["Authorization"] = token;
 
-    print("x-csrf-token");
-    print(headers["x-csrf-token"]);
-    print("x-xsrf-token");
-    print(headers["x-xsrf-token"]);
-    print("user-agent");
-    print(headers["user-agent"]);
+    // print("x-csrf-token");
+    // print(headers["x-csrf-token"]);
+    // print("x-xsrf-token");
+    // print(headers["x-xsrf-token"]);
+    // print("user-agent");
+    // print(headers["user-agent"]);
     print("cookie");
     print(headers["cookie"]);
 
