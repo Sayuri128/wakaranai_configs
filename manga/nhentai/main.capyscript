@@ -6,17 +6,22 @@ import "html";
 import "manga_models";
 import "converter";
 
+function getImageExtensionByType(type) {
+    if(type == "p") {
+        return ".png";
+    } else if (type == "w") {
+        return ".webp";
+    } else {
+        return ".jpg";
+    }
+}
+
 function handleMangaItem(manga) {
     uid = manga["id"];
     title = manga["title"].values.first;
 
-    cover = "https://t7.nhentai.net/galleries/" + manga["media_id"] + "/thumb";
-
-    if(manga["images"]["thumbnail"]["t"] == "p") {
-        cover = cover + ".png";
-    } else {
-        cover = cover + ".jpg";
-    }
+    cover = "https://t2.nhentai.net/galleries/" + manga["media_id"] + "/cover";
+    cover = cover + getImageExtensionByType(manga["images"]["thumbnail"]["t"]);
 
     return buildGallery({
         "uid": parseString(uid),
@@ -160,6 +165,7 @@ function getConcrete(uid) {
             buildChapterGroups({
                         "title": "Default",
                         "elements": chapters,
+                        "data": {}
                     })
         ]
     });

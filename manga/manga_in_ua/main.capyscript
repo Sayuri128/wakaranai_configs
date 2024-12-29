@@ -69,7 +69,8 @@ function getGallery(page, query, filters) {
         if(e.getElementsByTagName("figure").isEmpty) {
             cover = "";
         } else if (e.getElementsByTagName("figure")[0] == null ||
-            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0] == null
+            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0] == null ||
+            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0].attributes["data-src"] == null
         ) {
             cover = "";
         } else {
@@ -194,7 +195,8 @@ function getConcrete(uid) {
         "groups": [
             buildChapterGroups({
                         "title": "Default",
-                        "elements": chapters
+                        "elements": chapters,
+                        "data": {}
                     })
         ]
     });
