@@ -8,30 +8,30 @@ import "converter";
 
 function getGallery(page, query, filters) {
 
-    name = null;
-
-    if(query.isNotEmpty) {
-        name = query;
-    }
-
-    result = httpGet({
-        "url": "https://api2.mangalib.me/api/manga",
-        "params": {
-            "page": page,
-            "name": query,
-            "site_id": [1],
-            "sort": "rate",
-            "dir": "desc",
-            "field": [
-               "rate",
-               "rave_avg",
-               "userBookmark"
-            ]
-        },
-        "paths": {},
-        "headers": {},
-        "throughWeb": false
-    });
+     params = {
+          "page": page,
+          "site_id": [1],
+          "sort": "rate",
+          "dir": "desc",
+          "field": [
+             "rate",
+             "rave_avg",
+             "userBookmark"
+          ]
+      };
+ 
+     if(query.isNotEmpty) {
+         params["q"] = query;
+         params["page"] = page + 1;
+     }
+ 
+     result = httpGet({
+         "url": "https://api2.mangalib.me/api/manga",
+         "params": params,
+         "paths": {},
+         "headers": {},
+         "throughWeb": false
+     });
 
     data = jsonDecode(result.body).data;
 
