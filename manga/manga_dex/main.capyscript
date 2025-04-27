@@ -182,6 +182,8 @@ function handleChapterItem(chapter) {
     } else {
         timestamp = rawDate;
     }
+    
+    print("chapter uid " + uid + " title " + title + " date " + timestamp);
 
 
     return buildChapter({
@@ -192,37 +194,79 @@ function handleChapterItem(chapter) {
     });
 }
 
-function getChapters(uid)  {
+function handleChaptersBatch(uid, page, chapters, unique_scanlation_groups) {
 
-    firstChapters = getChaptersData({
-        "offset": 0,
+    chaptersData = getChaptersData({
+        "offset": page * 100,
         "uid": uid
     });
-    result = jsonDecode(firstChapters["body"]);
+    result = jsonDecode(chaptersData["body"]);
     data = result["data"];
-
-    chapters = [];
-
-    for(i = 0; chapters.length < result["total"]; i = i + 1) {
-        if(i == data.length) {
-            firstChapters = getChaptersData({
-                "offset": 0,
-                "uid": uid
-            });
-            result = jsonDecode(firstChapters["body"]);
-            data = result["data"];
-            i = 0;
-        }
-         if(data[i]["attributes"]["externalUrl"] == null) {
-                chapters.push(handleChapterItem({
-                                              "chapter": data[i]
-                                          }));
+    
+    for(i = 0; i < data.length; i = i + 1) {
+        if(data[i]["attributes"]["externalUrl"] == null) {
+                scanlation_group = data[i]["relationships"][0]["id"];
+                if (chapters[scanlation_group] == null) {
+                    chapters[scanlation_group] = [];
+                    unique_scanlation_groups.push(scanlation_group);
+                }
+                chapters[scanlation_group].push(handleChapterItem({
+                   "chapter": data[i]
+                }));
          }
+    }
+    
+    return result;
+}
 
+function getChapters(uid)  {
 
+    chapter_groups = [];
+    total = 100;
+
+    chapters_loaded = 0
+    chapters = {};
+    unique_scanlation_groups = [];
+    page = 0
+    
+    for(i = 0; chapters_loaded < total; i = i + 1) {
+        res = handleChaptersBatch({
+            "uid": uid,
+            "page": page,
+            "chapters": chapters,
+            "unique_scanlation_groups": unique_scanlation_groups
+        });
+        chapters_loaded = chapters_loaded + res["data"].length;
+        page = page + 1;
+        total = res["total"];
+    }
+    
+    print("unique scanlation groups");
+    print(unique_scanlation_groups);
+    
+    for (i = 0; i < unique_scanlation_groups.length; i++) {
+        key = unique_scanlation_groups[i];
+        
+        scanlationGroup = httpGet({
+            "url": "https://api.mangadex.org/group/:groupId",
+            "params": {},
+            "paths": {
+                ":groupId": key
+            },
+            "headers": {},
+            "throughWeb": false
+        });
+        print(scanlationGroup);
+        jsonScanlation = jsonDecode(scanlationGroup["body"]);
+        
+        chapter_groups.push(buildChapterGroups({
+                                        "title": jsonScanlation["data"]["attributes"]["name"],
+                                        "elements": chapters[key],
+                                        "data": {}
+                                }));
     }
 
-    return chapters;
+    return chapter_groups;
 }
 
 function getPages(uid) {
@@ -273,10 +317,10 @@ function handleConcreteView(data) {
     }
 
     cover = getCover({
-        coverArtUid: getCoverId({
+        "coverArtUid": getCoverId({
             "data": data["relationships"]
         }),
-        mangaId: data["id"]
+        "mangaId": data["id"]
     });
 
     rawTags = data["attributes"]["tags"];
@@ -297,13 +341,7 @@ function handleConcreteView(data) {
         "tags": tags,
         "status": null,
         "alternativeTitles": [],
-        "groups": [
-            buildChapterGroups({
-                        "title": "Default",
-                        "elements": getChapters({ "uid": data["id"] }),
-                        "data": {}
-                    })
-        ]
+        "groups": getChapters({ "uid": data["id"] })
     });
 }
 
