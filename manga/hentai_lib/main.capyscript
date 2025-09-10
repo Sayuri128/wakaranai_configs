@@ -306,6 +306,7 @@ function passProtector(body, headers, cookies) {
                    
     token = executeJsScript({"code": code});
     headers["Authorization"] = token;
+    headers["Site-id"] = "4";
 
     // print("x-csrf-token");
     // print(headers["x-csrf-token"]);
