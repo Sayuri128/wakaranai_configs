@@ -26,7 +26,7 @@ function getGallery(page, query, filters) {
      }
  
      result = httpGet({
-         "url": "https://api2.mangalib.me/api/manga",
+         "url": "https://hapi.hentaicdn.org/api/manga",
          "params": params,
          "paths": {},
          "headers": {},
@@ -94,7 +94,7 @@ function processChapter(chapter, data, branch, uid) {
 function getConcrete(uid) {
 
     result = httpGet({
-        "url": "https://api2.mangalib.me/api/manga/" + uid,
+        "url": "https://hapi.hentaicdn.org/api/manga/" + uid,
         "params": {
             "fields": [
                 "background",
@@ -135,14 +135,14 @@ function getConcrete(uid) {
     print(data);
 
     chapters = jsonDecode(httpGet({
-        "url": "https://api2.mangalib.me/api/manga/" + uid + "/chapters",
+        "url": "https://hapi.hentaicdn.org/api/manga/" + uid + "/chapters",
         "params": {},
         "paths": {},
         "headers": {},
         "throughWeb": false
     }).body).data;
     branches = jsonDecode(httpGet({
-        "url": "https://api2.mangalib.me/api/branches/" + uid.split("-")[0],
+        "url": "https://hapi.hentaicdn.org/api/branches/" + uid.split("-")[0],
         "params": {},
         "paths": {},
         "headers": {},
@@ -231,7 +231,7 @@ function getPages(uid, data) {
     }  
 
     result = httpGet({
-        "url": "https://api2.mangalib.me/api/manga/" + chapter["slug"] + "/chapter",
+        "url": "https://hapi.hentaicdn.org/api/manga/" + chapter["slug"] + "/chapter",
         "params": params,
         "paths": {},
         "headers": {},
