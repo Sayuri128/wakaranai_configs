@@ -1,7 +1,5 @@
 import "http";
-import "io";
 import "json";
-import "date";
 import "html";
 import "manga_models";
 import "converter";
@@ -42,8 +40,6 @@ function getGallery(page, query, filters) {
 
     items = [];
 
-    print(movie);
-
     for(i = 0; i < movie.length - 1; i = i + 1) {
         e = movie[i];
 
@@ -69,8 +65,7 @@ function getGallery(page, query, filters) {
         if(e.getElementsByTagName("figure").isEmpty) {
             cover = "";
         } else if (e.getElementsByTagName("figure")[0] == null ||
-            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0] == null ||
-            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0].attributes["data-src"] == null
+            e.getElementsByTagName("figure")[0].getElementsByTagName("img")[0] == null
         ) {
             cover = "";
         } else {
@@ -84,12 +79,14 @@ function getGallery(page, query, filters) {
             }
         }
 
-        items.push(buildGallery({
-                      "uid": uid,
-                      "title": title,
-                      "cover": cover,
-                      "data": {}
-                  }));
+        if(uid != "") {
+            items.push(buildGallery({
+                "uid": uid,
+                "title": title,
+                "cover": cover,
+                "data": {}
+            }));
+        }
     }
 
     return items;
@@ -136,57 +133,78 @@ function getConcrete(uid) {
         },
         "paths": {},
         "body": requestBody,
-        "headers": {},
+        "headers": {
+            "X-Requested-With": "XMLHttpRequest"
+        },
         "throughWeb": false
     });
-
 
     pageDocument = createHTMLParser(result["body"]);
     document = createHTMLParser(response["body"]);
 
-    print(document);
-    print(uid);
-    print(result["body"]);
-
     chaptersTags = document.getElementsByClassName("ltcitems");
     chapters = [];
 
-    print(chaptersTags);
-
     for(i = 0; i < chaptersTags.length; i = i + 1) {
-        chapterUid = chaptersTags[i].getElementsByClassName("forfastnavigation")[0].attributes["href"];
-        title = chaptersTags[i].getElementsByClassName("forfastnavigation")[0].text;
-        timestamp = chaptersTags[i].getElementsByClassName("ltcright")[0].text;
+        fastNav = chaptersTags[i].getElementsByClassName("forfastnavigation");
+        if(fastNav.isEmpty) {
+            i = i + 1;
+            continue;
+        }
+        chapterUid = fastNav[0].attributes["href"];
+        chapterTitle = fastNav[0].text;
+        ltcright = chaptersTags[i].getElementsByClassName("ltcright");
+        timestamp = "";
+        if(ltcright.length > 0) {
+            timestamp = ltcright[0].text;
+        }
         chapters.push(buildChapter({
             "uid": chapterUid,
-            "title": title,
+            "title": chapterTitle,
             "timestamp": timestamp,
-             "data": {}
-         }));
+            "data": {}
+        }));
     }
-    print(chapters);
 
-    cover = "https://manga.in.ua" + pageDocument.getElementsByClassName("item__full-sidebar--poster")[0].getElementsByTagName("img")[0].attributes["src"];
-
-    tagsDocs = pageDocument.getElementsByClassName("item__full-sidebar--section")[1].getElementsByClassName("item__full-sideba--header");
+    cover = "";
+    posterEls = pageDocument.getElementsByClassName("item__full-sidebar--poster");
+    if(posterEls.length > 0) {
+        imgEls = posterEls[0].getElementsByTagName("img");
+        if(imgEls.length > 0) {
+            cover = "https://manga.in.ua" + imgEls[0].attributes["src"];
+        }
+    }
 
     tags = [];
-
-    for(i = 0; i < tagsDocs.length; i = i + 1) {
-        e = tagsDocs[i];
-        if(e.text.contains("Жанри")) {
-            genresDocs = e.getElementsByTagName("a");
-            for(j = 0; j < genresDocs.length; j = j + 1) {
-                tags.push(genresDocs[j].text);
+    sectionEls = pageDocument.getElementsByClassName("item__full-sidebar--section");
+    if(sectionEls.length > 1) {
+        tagsDocs = sectionEls[1].getElementsByClassName("item__full-sideba--header");
+        for(i = 0; i < tagsDocs.length; i = i + 1) {
+            e = tagsDocs[i];
+            if(e.text.contains("Жанри")) {
+                genresDocs = e.getElementsByTagName("a");
+                for(j = 0; j < genresDocs.length; j = j + 1) {
+                    tags.push(genresDocs[j].text);
+                }
             }
         }
     }
 
-    description = pageDocument.getElementsByClassName("item__full-description")[0].text;
+    description = "";
+    descEls = pageDocument.getElementsByClassName("item__full-description");
+    if(descEls.length > 0) {
+        description = descEls[0].text;
+    }
+
+    concreteTitle = "";
+    titleEls = pageDocument.getElementsByClassName("UAname");
+    if(titleEls.length > 0) {
+        concreteTitle = titleEls[0].text;
+    }
 
     return buildConcrete({
         "uid": uid,
-        "title": pageDocument.getElementsByClassName("UAname")[0].text,
+        "title": concreteTitle,
         "description": description,
         "cover": cover,
         "tags": tags,
@@ -194,10 +212,9 @@ function getConcrete(uid) {
         "status": null,
         "groups": [
             buildChapterGroups({
-                        "title": "Default",
-                        "elements": chapters,
-                        "data": {}
-                    })
+                "title": "Default",
+                "elements": chapters
+            })
         ]
     });
 }
@@ -215,8 +232,6 @@ function getPages(uid) {
     jsScript = `
         let fun = () => {
 
-            const news_id = $("#linkstocomics").data("news_id");
-
             return {
                 action: 'show',
                 news_id: $("#comics").data("news_id").toString(),
@@ -231,29 +246,33 @@ function getPages(uid) {
 
     requestParams = executeJsScript({"code": jsScript});
 
+    if(requestParams == null) {
+        return buildPages({ "uid": uid, "value": [] });
+    }
+
     result = httpGet({
         "url": "https://manga.in.ua/engine/ajax/controller.php",
         "params": requestParams,
         "paths": {},
         "body": {},
-        "headers": {},
+        "headers": {
+            "X-Requested-With": "XMLHttpRequest"
+        },
         "throughWeb": false
     });
 
-    print(result["body"]);
     document = createHTMLParser(result["body"]);
-
 
     value = [];
 
     images = document.getElementsByTagName("img");
-    print(images);
 
     for(i = 0; i < images.length; i = i + 1) {
-       value.push(images[i].attributes["data-src"]);
+        dataSrc = images[i].attributes["data-src"];
+        if(dataSrc != null) {
+            value.push(dataSrc);
+        }
     }
-
-    print(value);
 
     return buildPages({ "uid": uid,
                         "value": value });

@@ -1,0 +1,301 @@
+import "http";
+import "json";
+import "manga_models";
+import "converter";
+
+// Shared implementation for the lib.social API family (now hosted at cdnlibs.org).
+// Used by manga_lib (site_id=1) and hentai_lib (site_id=4).
+// All API calls go to api.cdnlibs.org — auth cookies must be injected
+// via the site-specific passProtector before calling these functions.
+
+// Extracts plain text from a ProseMirror/TipTap rich-text document node.
+// The summary field from api.cdnlibs.org was changed from a plain string
+// to this JSON format: {"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"..."}]}]}
+function extractRichText(node) {
+    nodeType = node["type"];
+    if(nodeType == "text") {
+        text = "";
+        if(node["text"] != null) {
+            text = node["text"];
+        }
+        return text;
+    }
+    result = "";
+    if(node["content"] != null) {
+        content = node["content"];
+        for(i = 0; i < content.length; i = i + 1) {
+            result = result + extractRichText(content[i]);
+        }
+    }
+    if(nodeType == "paragraph" || nodeType == "heading") {
+        result = result + "\n";
+    }
+    return result;
+}
+
+function libSocialGetGallery(page, query, siteId) {
+    params = {
+        "site_id": [siteId],
+        "sort": "rate",
+        "dir": "desc",
+        "caution_list": ["Отсутствует", "16+", "18+"]
+    };
+
+    if(query.isNotEmpty) {
+        params["q"] = query;
+    }
+
+    if(page > 1) {
+        params["page"] = page;
+    }
+
+    result = httpGet({
+        "url": "https://api.cdnlibs.org/api/manga",
+        "params": params,
+        "paths": {},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
+
+    serialized = jsonDecode(result["body"]);
+    data = serialized["data"];
+
+    items = [];
+
+    for(i = 0; i < data.length; i = i + 1) {
+        element = data[i];
+
+        cover = "";
+        if(element["cover"] != null) {
+            if(element["cover"]["default"] != null) {
+                cover = element["cover"]["default"];
+            }
+        }
+
+        items.push(buildGallery({
+            "uid": element["slug_url"],
+            "title": element["rus_name"],
+            "cover": cover,
+            "data": element
+        }));
+    }
+
+    return items;
+}
+
+function libSocialProcessChapter(chapter, mangaSlug) {
+    chapterName = "";
+    chapterNumber = "";
+    chapterVolume = 1;
+
+    if(chapter.name != null) {
+        chapterName = chapter.name;
+    }
+    if(chapter.number != null) {
+        chapterNumber = chapter.number;
+    }
+    if(chapter.volume != null) {
+        chapterVolume = chapter.volume;
+    }
+
+    chapterTimestamp = null;
+    chapterBranchId = "";
+    if(chapter["branches"] != null) {
+        if(chapter["branches"].isNotEmpty) {
+            chapterTimestamp = chapter["branches"][0]["created_at"];
+            chapterBranchId = parseString(chapter["branches"][0]["id"]);
+        }
+    }
+
+    return buildChapter({
+        "uid": mangaSlug + "/" + parseString(chapterNumber) + "/" + parseString(chapterVolume),
+        "title": "Том " + parseString(chapterVolume) + " Глава " + chapterNumber + " " + chapterName,
+        "timestamp": chapterTimestamp,
+        "data": {
+            "chapter": parseString(chapterNumber),
+            "volume": parseString(chapterVolume),
+            "slug": mangaSlug
+        }
+    });
+}
+
+function libSocialGetConcrete(uid) {
+    // buildUri always appends "?" to the url, so we embed the query string
+    // directly and use a paths entry to consume that trailing "?".
+    result = httpGet({
+        "url": "https://api.cdnlibs.org/api/manga/" + uid + "?fields[]=background&fields[]=eng_name&fields[]=otherNames&fields[]=summary&fields[]=releaseDate&fields[]=genres&fields[]=tags&fields[]=authors&fields[]=artists&fields[]=teams&fields[]=publisher&fields[]=format",
+        "params": {},
+        "paths": {"format?": "format"},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
+
+    serialized = jsonDecode(result["body"]);
+    data = serialized["data"];
+
+    cover = "";
+    if(data["cover"] != null) {
+        if(data["cover"]["default"] != null) {
+            cover = data["cover"]["default"];
+        }
+    }
+
+    title = "";
+    if(data["rus_name"] != null) {
+        title = data["rus_name"];
+    }
+
+    description = "";
+    if(data["summary"] != null) {
+        description = extractRichText(data["summary"]).trim();
+    }
+
+    tags = [];
+    if(data["genres"] != null) {
+        genres = data["genres"];
+        for(i = 0; i < genres.length; i = i + 1) {
+            tags.push(genres[i]["name"]);
+        }
+    }
+    if(data["tags"] != null) {
+        tagsList = data["tags"];
+        for(i = 0; i < tagsList.length; i = i + 1) {
+            tags.push(tagsList[i]["name"]);
+        }
+    }
+
+    alternativeTitles = [];
+    if(data["eng_name"] != null) {
+        alternativeTitles.push(data["eng_name"]);
+    }
+    if(data["otherNames"] != null) {
+        otherNames = data["otherNames"];
+        for(i = 0; i < otherNames.length; i = i + 1) {
+            alternativeTitles.push(otherNames[i]);
+        }
+    }
+
+    chapResult = httpGet({
+        "url": "https://api.cdnlibs.org/api/manga/" + uid + "/chapters",
+        "params": {},
+        "paths": {},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
+
+    chapSerialized = jsonDecode(chapResult["body"]);
+    chapData = chapSerialized["data"];
+
+    chapterGroups = [];
+
+    if(chapData != null) {
+        for(i = 0; i < chapData.length; i = i + 1) {
+            if(chapData[i]["branches"] == null) {
+                i = i + 1;
+                continue;
+            }
+            branch = chapData[i]["branches"][0];
+            if(branch == null) {
+                i = i + 1;
+                continue;
+            }
+            teams = branch.teams;
+            if(teams == null) {
+                i = i + 1;
+                continue;
+            }
+            for(j = 0; j < teams.length; j = j + 1) {
+                team = teams[j];
+                exists = false;
+                for(k = 0; k < chapterGroups.length; k = k + 1) {
+                    if(chapterGroups[k].title == team.name) {
+                        exists = true;
+                    }
+                }
+                if(exists == false) {
+                    chapterGroups.push(buildChapterGroups({
+                        "title": team.name,
+                        "elements": []
+                    }));
+                }
+            }
+        }
+
+        for(i = 0; i < chapData.length; i = i + 1) {
+            if(chapData[i]["branches"] == null) {
+                i = i + 1;
+                continue;
+            }
+            branch = chapData[i]["branches"][0];
+            if(branch == null) {
+                i = i + 1;
+                continue;
+            }
+            if(branch.teams == null) {
+                i = i + 1;
+                continue;
+            }
+            chapter = chapData[i];
+            for(j = 0; j < branch.teams.length; j = j + 1) {
+                team = branch.teams[j];
+                processedChapter = libSocialProcessChapter(chapter, uid);
+                for(k = 0; k < chapterGroups.length; k = k + 1) {
+                    chapterGroup = chapterGroups[k];
+                    if(chapterGroup.title == team.name) {
+                        chapterGroup.elements.push(processedChapter);
+                    }
+                }
+            }
+        }
+    }
+
+    return buildConcrete({
+        "uid": uid,
+        "cover": cover,
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "status": null,
+        "alternativeTitles": alternativeTitles,
+        "groups": chapterGroups
+    });
+}
+
+// imageBaseUrl differs per site:
+//   manga_lib  → "https://img2.imglib.info"
+//   hentai_lib → "https://img2h.hentaicdn.org"
+// uid format: "{mangaSlug}/{chapterNumber}/{volume}" — encodes all routing info
+function libSocialGetPages(uid, data, imageBaseUrl) {
+    parts = uid.split("/");
+    mangaSlug = parts[0];
+    chapterNumber = parts[1];
+    chapterVolume = parts[2];
+
+    result = httpGet({
+        "url": "https://api.cdnlibs.org/api/manga/" + mangaSlug + "/chapter",
+        "params": {
+            "number": chapterNumber,
+            "volume": chapterVolume
+        },
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    });
+
+    deserialized = jsonDecode(result["body"]);
+    pages = deserialized["data"]["pages"];
+
+    value = [];
+    for(i = 0; i < pages.length; i = i + 1) {
+        pageUrl = pages[i]["url"];
+        value.push(imageBaseUrl + pageUrl.substring(1, pageUrl.length));
+    }
+
+    return buildPages({"uid": uid, "value": value});
+}

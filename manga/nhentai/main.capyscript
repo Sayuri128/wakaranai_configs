@@ -1,30 +1,23 @@
 import "http";
-import "io";
 import "json";
-import "date";
-import "html";
 import "manga_models";
 import "converter";
 
-function getImageExtensionByType(type) {
-    if(type == "p") {
-        return ".png";
-    } else if (type == "w") {
-        return ".webp";
-    } else {
-        return ".jpg";
-    }
-}
-
 function handleMangaItem(manga) {
-    uid = manga["id"];
-    title = manga["title"].values.first;
+    uid = parseString(manga["id"]);
 
-    cover = "https://t2.nhentai.net/galleries/" + manga["media_id"] + "/cover";
-    cover = cover + getImageExtensionByType(manga["images"]["thumbnail"]["t"]);
+    title = manga["english_title"];
+    if (title == null) {
+        title = manga["japanese_title"];
+    }
+    if (title == null) {
+        title = "";
+    }
+
+    cover = "https://t.nhentai.net/" + manga["thumbnail"];
 
     return buildGallery({
-        "uid": parseString(uid),
+        "uid": uid,
         "title": title,
         "cover": cover,
         "data": manga
@@ -34,7 +27,7 @@ function handleMangaItem(manga) {
 
 function getGallery(page, query, filters) {
     result = httpGet({
-        "url": "https://nhentai.net/api/galleries/all?" + "page=" + parseString(page) + "&limit=25",
+        "url": "https://nhentai.net/api/v2/galleries?page=" + parseString(page) + "&limit=25",
         "params": {},
         "paths": {},
         "headers": {},
@@ -53,105 +46,41 @@ function getGallery(page, query, filters) {
     return mangas;
 }
 
-function getPages(uid) {
-
-    result = httpGet({
-        "url": "https://nhentai.net/g/" + uid + "/",
-        "params": {},
-        "paths": {},
-        "headers": {},
-        "throughWeb": false
-    });
-
-    document = createHTMLParser(result["body"]);
-
-    print("https://nhentai.net/g/" + uid + "/");
-    print(document);
-
-    thumbContainers = document.getElementsByClassName("thumb-container");
-    print(thumbContainers);
-
-    value = [];
-
-    for(i = 0; i < thumbContainers.length; i = i + 1) {
-        imgUrl = thumbContainers[i].getElementsByTagName("img")[0].attributes["data-src"];
-        print(imgUrl);
-        value.push(imgUrl
-                .replaceAll(parseString(i + 1) + "t", parseString(i + 1))
-                .replaceAll("t7", "i3")
-                .replaceAll("t3", "i3")
-                .replaceAll("t5", "i3")
-                .replaceAll("t4", "i3")
-                .replaceAll("t2", "i3")
-                );
-    }
-
-    print(value);
-
-    return buildPages({ "uid": uid,
-                        "value": value });
-
-}
-
 function getConcrete(uid) {
-
     result = httpGet({
-        "url": "https://nhentai.net/g/" + uid + "/",
+        "url": "https://nhentai.net/api/v2/galleries/" + uid,
         "params": {},
         "paths": {},
         "headers": {},
         "throughWeb": false
     });
 
-    document = createHTMLParser(result["body"]);
+    decoded = jsonDecode(result["body"]);
 
-    info = document.getElementById("info");
-    titleElements = document.getElementsByClassName("title");
-
-    title = titleElements[0].text;
-
-    if(titleElements.length > 1) {
-        pretty = titleElements[1].text;
+    title = decoded["title"]["english"];
+    if (title == null) {
+        title = decoded["title"]["japanese"];
+    }
+    if (title == null) {
+        title = decoded["title"]["pretty"];
+    }
+    if (title == null) {
+        title = "";
     }
 
-    coverElement = document.getElementById("cover");
-    img = coverElement.getElementsByTagName("img");
-    firstImg = img[0];
-    cover = firstImg.attributes["data-src"];
+    cover = "https://t1.nhentai.net/" + decoded["cover"]["path"];
 
     tags = [];
-
-    rawTags = document.getElementById("tags");
-    rawTags = rawTags.getElementsByClassName("tags");
-
+    rawTags = decoded["tags"];
     for(i = 0; i < rawTags.length; i = i + 1) {
-        elem = rawTags[i];
-        elems = elem.getElementsByClassName("name");
-        if(elems.length > 0) {
-            for(j = 0; j < (elems.length - 1); j = j + 1) {
-                tags.push(elems[j].text);
-            }
-        }
+        tags.push(rawTags[i]["name"]);
     }
+
+    description = "Pages: " + parseString(decoded["num_pages"]) + "\n";
+    description = description + "Favorites: " + parseString(decoded["num_favorites"]);
 
     chapters = [];
-
     chapters.push(buildChapter({"uid": uid, "title": "Chapter 1", "timestamp": "", "data": {}}));
-
-    description = "";
-
-    description = description + "English title: " + titleElements[0].text + "\n";
-    if (titleElements.length > 1) {
-        description = description + "Original title: " + titleElements[1].text + "\n";
-    }
-    description = description + "Pages: " + tags.last + "\n";
-
-    favoritedBy = document.getElementsByClassName("buttons")[0].getElementsByClassName("nobold")[0].text;
-    favoritedBy = favoritedBy.substring(1, favoritedBy.length - 1);
-
-    description = description + "Favoried by: " + favoritedBy + "\n";
-
-    description = description + "ID: " + document.getElementById("gallery_id").text;
 
     return buildConcrete({
         "uid": uid,
@@ -163,12 +92,32 @@ function getConcrete(uid) {
         "alternativeTitles": [],
         "groups": [
             buildChapterGroups({
-                        "title": "Default",
-                        "elements": chapters,
-                        "data": {}
-                    })
+                "title": "Default",
+                "elements": chapters,
+            })
         ]
     });
+}
+
+function getPages(uid) {
+    result = httpGet({
+        "url": "https://nhentai.net/api/v2/galleries/" + uid,
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": false
+    });
+
+    decoded = jsonDecode(result["body"]);
+    pages = decoded["pages"];
+
+    value = [];
+
+    for(i = 0; i < pages.length; i = i + 1) {
+        value.push("https://i1.nhentai.net/" + pages[i]["path"]);
+    }
+
+    return buildPages({"uid": uid, "value": value});
 }
 
 function getImageHeaders(uid) {
@@ -176,7 +125,6 @@ function getImageHeaders(uid) {
 }
 
 function passProtector(body, headers, cookies) {
-
     headers["Accept"] = "*/*";
     headers["Connection"] = "keep-alive";
 
