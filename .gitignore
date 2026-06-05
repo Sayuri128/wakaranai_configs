@@ -1,0 +1,8 @@
+# IDE
+.idea/
+
+# Dart build artifacts and downloaded Chromium
+tests/.dart_tool/
+
+# Auth session cookies (sensitive — restore via test setup on first run)
+tests/.auth/

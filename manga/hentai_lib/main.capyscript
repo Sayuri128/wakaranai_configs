@@ -1,323 +1,69 @@
 import "http";
-import "io";
-import "json";
-import "date";
 import "html";
+import "json";
 import "manga_models";
-import "converter";
+import "../../shared/lib_social_api";
 
 function getGallery(page, query, filters) {
-
-     params = {
-          "page": page,
-          "site_id": [4],
-          "sort": "rate",
-          "dir": "desc",
-          "field": [
-             "rate",
-             "rave_avg",
-             "userBookmark"
-          ]
-      };
- 
-     if(query.isNotEmpty) {
-         params["q"] = query;
-         params["page"] = page + 1;
-     }
- 
-     result = httpGet({
-         "url": "https://hapi.hentaicdn.org/api/manga",
-         "params": params,
-         "paths": {},
-         "headers": {},
-         "throughWeb": false
-     });
-
-    data = jsonDecode(result.body).data;
-
-
-    result = [];
-
-    for(i = 0; i < data.length; i = i + 1) {
-        element = data[i];
-        result.push(buildGallery({
-            "uid": element.slug_url,
-            "title": element.rus_name,
-            "cover": element.cover.default,
-            "data": element
-        }));
-
-    }
-
-    return result;
-
-}
-
-function processChapter(chapter, data, branch, uid) {
-    chapterName = "";
-    chapterNumber = "";
-    chapterVolume = 1;
-
-    if(chapter.name != null) {
-        chapterName = chapter.name;
-    }
-
-    if(chapter.number != null) {
-        chapterNumber = chapter.number;
-    }
-
-    if(chapter.volume != null) {
-        chapterVolume = chapter.volume;
-    }
-
-
-    chapter["slug"] = uid;
-    chapter["branch_id"] = branch.branch_id;
-    if(data.user != null) {
-        chapter["id"] = data.user.id;
-    }
-
-    if(branch != null) {
-        chapter["bid"] = branch.branch_id;
-    }
-
-    print(chapter);
-
-    return buildChapter({
-                       "uid": uid + "_" + chapterNumber + "_" + chapterVolume,
-                       "title": "Том " + parseString(chapterVolume) + " Глава " + chapterNumber  + " " + chapterName,
-                       "timestamp": chapter.chapter_created_at,
-                       "data": chapter
-                   });
+    return libSocialGetGallery(page, query, 4);
 }
 
 function getConcrete(uid) {
-
-    result = httpGet({
-        "url": "https://hapi.hentaicdn.org/api/manga/" + uid,
-        "params": {
-            "fields": [
-                "background",
-                "eng_name",
-                "otherNames",
-                "summary",
-                "releaseDate",
-                "type_id",
-                "caution",
-                "views",
-                "close_view",
-                "rate_avg",
-                "rate",
-                "genres",
-                "tags",
-                "teams",
-                "user",
-                "franchise",
-                "authors",
-                "publisher",
-                "userRating",
-                "moderated",
-                "metadata",
-                "metadata.count",
-                "metadata.close_comments",
-                "manga_status_id",
-                "chap_count",
-                "status_id",
-                "artists",
-                "format"
-            ]
-        },
-        "paths": {},
-        "headers": {},
-        "throughWeb": false
-    });
-    data = jsonDecode(result.body).data;
-    print(data);
-
-    chapters = jsonDecode(httpGet({
-        "url": "https://hapi.hentaicdn.org/api/manga/" + uid + "/chapters",
-        "params": {},
-        "paths": {},
-        "headers": {},
-        "throughWeb": false
-    }).body).data;
-    branches = jsonDecode(httpGet({
-        "url": "https://hapi.hentaicdn.org/api/branches/" + uid.split("-")[0],
-        "params": {},
-        "paths": {},
-        "headers": {},
-        "throughWeb": false
-    }).body).data;
-
-
-    chapterGroups = [];
-    
-    for (i = 0; i < branches.length; i = i + 1) {
-        branch = branches[i];
-        chapterGroups.push(buildChapterGroups({
-            "title": branch.name,
-            "elements": [],
-            "data": {
-                "branch": branch
-            }
-        }));
-    }
-    
- 
-
-    for (i = 0; i < chapters.length; i = i + 1) {
-    
-        chapter = chapters[i];
-     
-        for (j = 0; j < chapter.branches.length; j = j + 1) {
-            branch = chapter.branches[j];
-            if (branches.isEmpty) {
-               if (chapterGroups.isEmpty) {
-                    chapterGroups.push(buildChapterGroups({
-                        "title": branch.teams[0].name,
-                        "elements": [],
-                        "data": {}
-                    }));
-                }
-                
-                chapterGroups[0].elements.push(processChapter(chapter, data, branch, uid));
-            } else {
-                 for (k = 0; k < branches.length; k = k + 1) {
-                    if (branches[k].id == branch.branch_id || branch.branch_id == null) {
-                        chapterGroups[k].elements.push(processChapter(chapter, data, branch, uid));
-                    }
-                }
-            }
-            
-        }
-    }
-
-    tags = [];
-    
-   for (i = 0; i < data.genres.length; i = i + 1) {
-        tags.push(data.genres[i].name);
-    }
-    for (i = 0; i < data.tags.length; i = i + 1) {
-        tags.push(data.tags[i].name);
-    }
- 
-
-    return buildConcrete({
-        "uid": uid,
-        "cover": data.cover.default
-        "title": data.rus_name,
-        "description": data.summary,
-        "tags": tags,
-        "status": null,
-        "alternativeTitles": [
-            data.eng_name,
-        ],
-        "groups": chapterGroups
-    });
+    return libSocialGetConcrete(uid);
 }
 
-
-function getPages(uid, data) {
-
-    chapter = data;
-
-    params = {
-
-        "number": chapter["number"],
-        "volume": chapter["volume"]
-    };
-    if(chapter["branch_id"] != null) {
-        params["branch_id"] = chapter["branch_id"];
-    }  
-
-    result = httpGet({
-        "url": "https://hapi.hentaicdn.org/api/manga/" + chapter["slug"] + "/chapter",
-        "params": params,
-        "paths": {},
-        "headers": {},
-        "throughWeb": false
-    }).body;
-    
-    data = jsonDecode(result).data;
-
-    value = [];
-
-    for(i = 0; i < data.pages.length; i = i + 1) {
-        page = data.pages[i];
-        pageImageUrl = "https://img3.imglib.info" + page["url"];
-        value.push(pageImageUrl);
-    }
-
-    return buildPages({ "uid": uid,
-                        "value": value });
-
+function getPages(uid, data = null) {
+    return libSocialGetPages(uid, data, "https://img2h.hentaicdn.org");
 }
 
 function getImageHeaders(uid) {
-
     headers = getHeaders();
-
     return {
         "user-agent": headers["user-agent"],
-        "Accept": "image/avif,image/webp,*/*",
-        "referer": "https://mangalib.me/",
+        "Authorization": headers["Authorization"],
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Referer": "https://hentailib.me/",
     };
 }
 
 function passProtector(body, headers, cookies) {
-
-    result = httpGet({
-        "url": "https://mangalib.me/manga-list",
-        "params": {},
-        "paths": {},
-        "headers": {},
-        "throughWeb": true
-    });
-
-    headers = result["headers"];
-
-    // headers["x-xsrf-token"] = result["cookies"]["XSRF-TOKEN"].replaceAll("%3D", "=");
-    headers["x-requested-with"] = "XMLHttpRequest";
-    headers["Content-Type"] = "application/json;charset=UTF-8";
-
-    document = createHTMLParser(result["body"]);
-
-    metas = document.getElementsByTagName("meta");
-
-
-    for(i = 0; i < metas.length; i = i + 1) {
-       e = metas[i];
-       if(e.attributes["name"] == "_token") {
-          headers["x-csrf-token"] = e.attributes["content"];
-       }
+    // hentailib.me and mangalib.me share the same backend (api.cdnlibs.org).
+    // The XSRF-TOKEN cookie from mangalib.me works for hentailib.me API calls.
+    // The JWT lives in mangalib.me's localStorage; we read it while still on that page.
+    // Navigating to hentailib.me is not necessary and causes test timing issues.
+    newHeaders = {};
+    if(headers["cookie"] != null) {
+        newHeaders["Cookie"] = headers["cookie"];
     }
-    
-    code = `let getAuth = () => {
-           const auth = JSON.parse(localStorage.getItem("auth"));
-        
-           if (auth) {
-               return auth.token.token_type + " " + auth.token.access_token;
-           }
-           
-           return null;
-       }
-       
-       return getAuth();`;
-                   
-    token = executeJsScript({"code": code});
-    headers["Authorization"] = token;
-    headers["Site-id"] = "4";
+    if(headers["user-agent"] != null) {
+        newHeaders["user-agent"] = headers["user-agent"];
+    }
+    if(cookies["XSRF-TOKEN"] != null) {
+        newHeaders["x-xsrf-token"] = cookies["XSRF-TOKEN"].replaceAll("%3D", "=");
+    }
+    newHeaders["x-requested-with"] = "XMLHttpRequest";
+    newHeaders["Content-Type"] = "application/json;charset=UTF-8";
+    newHeaders["site-id"] = "4";
+    newHeaders["Referer"] = "https://hentailib.me/";
 
-    // print("x-csrf-token");
-    // print(headers["x-csrf-token"]);
-    // print("x-xsrf-token");
-    // print(headers["x-xsrf-token"]);
-    // print("user-agent");
-    // print(headers["user-agent"]);
-    print("cookie");
-    print(headers["cookie"]);
+    document = createHTMLParser(body);
+    metas = document.getElementsByTagName("meta");
+    for(i = 0; i < metas.length; i = i + 1) {
+        e = metas[i];
+        if(e.attributes["name"] == "_token") {
+            newHeaders["x-csrf-token"] = e.attributes["content"];
+        }
+    }
 
-    useHeaders({"headers": headers});
+    auth = executeJsScript({"code": "return window.localStorage.auth"});
+    if(auth != null) {
+        decoded = jsonDecode(auth);
+        if(decoded["token"] != null) {
+            newHeaders["Authorization"] = "Bearer " + decoded["token"]["access_token"];
+        }
+    }
+
+    useHeaders({"headers": newHeaders});
 }
 
 function passWebBrowserInterceptorController(controller) {

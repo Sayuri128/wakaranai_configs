@@ -1,7 +1,5 @@
 import "http";
-import "io";
 import "json";
-import "date";
 import "html";
 import "anime_models";
 import "converter";
@@ -37,26 +35,45 @@ function getGallery(page, query, filters) {
 
     document = createHTMLParser(result["body"]);
 
-    print(result["body"]);
-
     stories = document.querySelectorAll("#dle-content > .story");
-
-    print(stories.length);
 
     items = [];
 
     for(i = 0; i < stories.length; i = i + 1) {
         story = stories[i];
 
-        aTitle = story.getElementsByClassName("story_c")[0].getElementsByTagName("h2")[0].getElementsByTagName("a")[0];
+        storyC = story.getElementsByClassName("story_c");
+        if(storyC.length == 0) {
+            i = i + 1;
+            continue;
+        }
+        h2Els = storyC[0].getElementsByTagName("h2");
+        if(h2Els.length == 0) {
+            i = i + 1;
+            continue;
+        }
+        aEls = h2Els[0].getElementsByTagName("a");
+        if(aEls.length == 0) {
+            i = i + 1;
+            continue;
+        }
+        aTitle = aEls[0];
         title = aTitle.text;
         uid = aTitle.attributes["href"].split("/").last;
-        cover = story.getElementsByClassName("story_post")[0].getElementsByTagName("img")[0]["attributes"]["src"];
+
+        cover = "";
+        postEls = story.getElementsByClassName("story_post");
+        if(postEls.length > 0) {
+            imgEls = postEls[0].getElementsByTagName("img");
+            if(imgEls.length > 0) {
+                cover = "https://anitube.in.ua" + imgEls[0].attributes["data-src"];
+            }
+        }
 
         items.push(buildGallery({
             "title": title,
             "uid": uid,
-            "cover": "https://anitube.in.ua" + cover,
+            "cover": cover,
             "data": {
                 "cover": cover,
                 "title": title
@@ -80,18 +97,20 @@ function getConcrete(uid, data) {
             });
     document = createHTMLParser(result["body"]);
 
-    // description = document.querySelector(".my-text").text;
-    description = document.querySelector(".story_c > .rcol > .story_c_r").text;
-
-    tags = [];
-
-    tagElements= document.querySelector(".story_c > .rcol > .story_c_r").getElementsByTagName("a");
-
-    for(i = 0; i < tagElements.length; i = i + 1) {
-        tags.push(tagElements[i].text);
+    description = "";
+    descEls = document.querySelector(".story_c > .rcol > .story_c_r");
+    if(descEls != null) {
+        description = descEls.text;
     }
 
-    playlistVideoPlayer = document.querySelector(".playlists-player");
+    tags = [];
+    tagContainer = document.querySelector(".story_c > .rcol > .story_c_r");
+    if(tagContainer != null) {
+        tagElements = tagContainer.getElementsByTagName("a");
+        for(i = 0; i < tagElements.length; i = i + 1) {
+            tags.push(tagElements[i].text);
+        }
+    }
 
     jsCode1 = `
         let fun = () => {
@@ -206,14 +225,13 @@ return getVideoSrc();
     `;
 
     videosData = executeJsScript({"code": jsCode1});
-    print(videosData);
-    print(videosData.length);
-    if(videosData.isEmpty) {
-        print("jsCode1 failed, trying jsCode2");
+    if(videosData == null || videosData.isEmpty) {
         videosData = executeJsScript({"code": jsCode2});
     }
 
-    print(videosData);
+    if(videosData == null) {
+        videosData = [];
+    }
 
     videoGroups = [];
 
@@ -221,8 +239,9 @@ return getVideoSrc();
         player = videosData[i];
         videos = [];
 
-        for(j = 0; j < player.videos.length; j = j + 1) {
-            video = player["videos"][j];
+        playerVideos = player["videos"];
+        for(j = 0; j < playerVideos.length; j = j + 1) {
+            video = playerVideos[j];
             videos.push(buildAnimeVideo({
                 "uid": video["src"],
                 "src": video["src"],
@@ -234,7 +253,7 @@ return getVideoSrc();
         }
 
         videoGroups.push(buildAnimeVideoGroup({
-                 "title": player.title,
+                 "title": player["title"],
                  "videos": videos
         }));
 

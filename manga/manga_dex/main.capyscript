@@ -1,135 +1,136 @@
 import "http";
-import "io";
 import "json";
 import "date";
-import "html";
 import "manga_models";
-import "converter";
 
-function getCover(coverArtUid, mangaId) {
-
-    cover = "";
-
-    coverResult = httpGet({
-        "url": "https://api.mangadex.org/cover/coverArtId",
-        "params": {},
-        "paths": {
-            coverArtId: coverArtUid
-        },
-        "throughWeb": false,
-        "headers": {
-            "Content-Type": "application/json"
-        }
-    });
-
-    decodedCover = jsonDecode(coverResult["body"]);
-
-    coverStatusResult = decodedCover["result"];
-
-    if(coverStatusResult == "ok") {
-        fileName = decodedCover["data"]["attributes"]["fileName"];
-        cover = "https://mangadex.org/covers/" + mangaId + "/" + fileName;
-    }
-
-    return cover;
-}
-
-function getCoverId(data) {
-    coverArtId = "";
-    for(i = 0; i < data.length; i = i + 1) {
-        if(data[i]["type"] == "cover_art") {
-            coverArtId = data[i]["id"];
+function getCoverUrl(mangaId, relationships) {
+    for (i = 0; i < relationships.length; i = i + 1) {
+        rel = relationships[i];
+        if (rel["type"] == "cover_art") {
+            fileName = rel["attributes"]["fileName"];
+            return "https://uploads.mangadex.org/covers/" + mangaId + "/" + fileName + ".512.jpg";
         }
     }
-    return coverArtId;
+    return "";
 }
 
-function handleMangaItem(manga) {
-    uid = manga["id"];
-    title = manga["attributes"]["title"].values.first;
-
-    cover = getCover({
-        "coverArtUid": getCoverId({
-            "data": manga["relationships"]
-        }),
-        "mangaId": uid
-    });
-
-    return buildGallery({
-        "uid": uid,
-        "title": title,
-        "cover": cover,
-        "data": manga
-    });
+function getMangaTitle(titleMap) {
+    en = titleMap["en"];
+    if (en != null) {
+        return en;
+    }
+    return titleMap.values.first;
 }
 
 function getGallery(page, query, filters) {
-
     limit = 20;
 
     params = {
         "limit": limit,
-        "offset": limit * page
+        "offset": limit * page,
+        "includes": ["cover_art"]
     };
 
-    for(i = 0; i < filters.length; i = i + 1) {
-        filterData = filters[i];
-        filter = filterData["filter"];
-        if(filter["type"] == "ONE_OF_MULTIPLE") {
-            params[filter.param] = filterData["selected"];
-        } else if(filter["type"] == "ONE_OF_ANY") {
-            params[filter.param] = filterData["selected"];
-        } else if(filter["type"] == "MULTIPLE_OF_ANY") {
-            params[filter.param] = filterData["selected"];
-        } else if(filter["type"] == "MULTIPLE_OF_MULTIPLE") {
-            selected = [];
-
-            for(j = 0; j < filterData["selected"].length; j = j + 1) {
-                selected.push(filterData["selected"][j][0]);
-            }
-
-            params[filter.param] = selected;
-        } else if(filter["type"] == "SWITCHER") {
-            on = filterData["on"];
-            if(on) {
-                params[filter.param] = "AND";
-            } else {
-                params[filter.param] = "OR";
-            }
-            
-        }
-    }
-
-    if(query != "") {
+    if (query != "") {
         params["title"] = query;
     }
 
-    result = (httpGet({
+    for (i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filter = filterData["filter"];
+        type = filter["type"];
+
+        if (type == "ONE_OF_MULTIPLE" || type == "ONE_OF_ANY" || type == "MULTIPLE_OF_ANY") {
+            params[filter["param"]] = filterData["selected"];
+        } else if (type == "MULTIPLE_OF_MULTIPLE") {
+            selected = [];
+            selectedItems = filterData["selected"];
+            for (j = 0; j < selectedItems.length; j = j + 1) {
+                selected.push(selectedItems[j][0]);
+            }
+            params[filter["param"]] = selected;
+        } else if (type == "SWITCHER") {
+            if (filterData["on"]) {
+                params[filter["param"]] = "AND";
+            } else {
+                params[filter["param"]] = "OR";
+            }
+        }
+    }
+
+    result = httpGet({
         "url": "https://api.mangadex.org/manga",
         "params": params,
         "paths": {},
         "throughWeb": false,
-        "headers": {
-            "Content-Type": "application/json"
-        }
-    }));
+        "headers": {}
+    });
 
-    print(result);
     decoded = jsonDecode(result["body"]);
     data = decoded["data"];
 
     mangas = [];
 
-    for(i = 0; i < data.length; i = i + 1) {
-        mangas.push(handleMangaItem({
-                                "manga": data[i]
-                            }));
+    for (i = 0; i < data.length; i = i + 1) {
+        manga = data[i];
+        uid = manga["id"];
+        title = getMangaTitle(manga["attributes"]["title"]);
+        cover = getCoverUrl(uid, manga["relationships"]);
+
+        mangas.push(buildGallery({
+            "uid": uid,
+            "title": title,
+            "cover": cover,
+            "data": {}
+        }));
     }
 
     return mangas;
 }
 
-function getChaptersData(uid, offset) {
+function handleChapterItem(chapter) {
+    uid = chapter["id"];
+    attr = chapter["attributes"];
+
+    prefix = "";
+    if (attr["volume"] != null) {
+        prefix = "Volume " + attr["volume"];
+    }
+    if (attr["chapter"] != null) {
+        if (prefix.isNotEmpty) {
+            prefix = prefix + " ";
+        }
+        prefix = prefix + "Chapter " + attr["chapter"];
+    }
+
+    title = attr["title"];
+    if (title == null || title == "") {
+        title = prefix;
+    } else {
+        if (prefix.isNotEmpty) {
+            title = prefix + " | " + title;
+        }
+    }
+
+    rawDate = attr["publishAt"];
+    timestamp = rawDate;
+    if (rawDate != null) {
+        date = parseDate(rawDate);
+        if (date != null) {
+            formatter = createDateFormatter("yyyy-MM-dd HH:mm");
+            timestamp = formatter.format(date);
+        }
+    }
+
+    return buildChapter({
+        "uid": uid,
+        "title": title,
+        "timestamp": timestamp,
+        "data": {}
+    });
+}
+
+function fetchChaptersPage(mangaId, offset) {
     return httpGet({
         "url": "https://api.mangadex.org/manga/:mangaId/feed",
         "params": {
@@ -142,162 +143,120 @@ function getChaptersData(uid, offset) {
             }
         },
         "paths": {
-            ":mangaId": uid
+            ":mangaId": mangaId
         },
         "headers": {},
         "throughWeb": false
     });
 }
 
-function handleChapterItem(chapter) {
-    uid = chapter["id"];
+function getChapters(uid) {
+    chapters = [];
+    limit = 100;
+    total = 1;
 
-    attr = chapter["attributes"];
+    for (offset = 0; offset < total; offset = offset + limit) {
+        response = fetchChaptersPage(uid, offset);
+        decoded = jsonDecode(response["body"]);
+        total = decoded["total"];
+        data = decoded["data"];
 
-    prefix = "";
-
-    if(attr["volume"] != null) {
-        prefix = prefix + "Volume " + attr["volume"];
-    }
-    if(attr["chapter"] != null) {
-       prefix = prefix + " Chapter " + attr["chapter"];
-    }
-
-    title = chapter["attributes"]["title"];
-    if(title == null) {
-        title = prefix;
-    } else {
-        title = prefix + " | " + title;
+        for (i = 0; i < data.length; i = i + 1) {
+            chapter = data[i];
+            if (chapter["attributes"]["externalUrl"] == null) {
+                chapters.push(handleChapterItem(chapter));
+            }
+        }
     }
 
-    rawDate = chapter["attributes"]["publishAt"];
+    return chapters;
+}
 
-    parser = createDateFormatter("yyyy-MM-dd hh:mm");
-    date = parseDate(rawDate);
+function getConcrete(uid) {
+    result = httpGet({
+        "url": "https://api.mangadex.org/manga/:uid",
+        "params": {
+            "includes": ["cover_art"]
+        },
+        "paths": {
+            ":uid": uid
+        },
+        "throughWeb": false,
+        "headers": {}
+    });
 
-    timestamp = null;
+    body = jsonDecode(result["body"]);
+    data = body["data"];
+    attr = data["attributes"];
 
-    if(date != null) {
-        timestamp = parser.format(date);
-    } else {
-        timestamp = rawDate;
+    title = getMangaTitle(attr["title"]);
+
+    description = "";
+    descMap = attr["description"];
+    if (descMap != null) {
+        enDesc = descMap["en"];
+        if (enDesc != null) {
+            description = enDesc;
+        } else if (descMap.values.isNotEmpty) {
+            description = descMap.values.first;
+        }
     }
-    
-    print("chapter uid " + uid + " title " + title + " date " + timestamp);
 
+    cover = getCoverUrl(uid, data["relationships"]);
 
-    return buildChapter({
+    rawTags = attr["tags"];
+    tags = [];
+    for (i = 0; i < rawTags.length; i = i + 1) {
+        tagName = rawTags[i]["attributes"]["name"]["en"];
+        if (tagName != null) {
+            tags.push(tagName);
+        }
+    }
+
+    return buildConcrete({
         "uid": uid,
         "title": title,
-        "timestamp": timestamp,
-        "data": {}
+        "description": description,
+        "cover": cover,
+        "tags": tags,
+        "status": null,
+        "alternativeTitles": [],
+        "groups": [
+            buildChapterGroups({
+                "title": "Default",
+                "elements": getChapters(uid)
+            })
+        ]
     });
-}
-
-function handleChaptersBatch(uid, page, chapters, unique_scanlation_groups) {
-
-    chaptersData = getChaptersData({
-        "offset": page * 100,
-        "uid": uid
-    });
-    result = jsonDecode(chaptersData["body"]);
-    data = result["data"];
-    
-    for(i = 0; i < data.length; i = i + 1) {
-        if(data[i]["attributes"]["externalUrl"] == null) {
-                scanlation_group = data[i]["relationships"][0]["id"];
-                if (chapters[scanlation_group] == null) {
-                    chapters[scanlation_group] = [];
-                    unique_scanlation_groups.push(scanlation_group);
-                }
-                chapters[scanlation_group].push(handleChapterItem({
-                   "chapter": data[i]
-                }));
-         }
-    }
-    
-    return result;
-}
-
-function getChapters(uid)  {
-
-    chapter_groups = [];
-    total = 100;
-
-    chapters_loaded = 0
-    chapters = {};
-    unique_scanlation_groups = [];
-    page = 0
-    
-    for(i = 0; chapters_loaded < total; i = i + 1) {
-        res = handleChaptersBatch({
-            "uid": uid,
-            "page": page,
-            "chapters": chapters,
-            "unique_scanlation_groups": unique_scanlation_groups
-        });
-        chapters_loaded = chapters_loaded + res["data"].length;
-        page = page + 1;
-        total = res["total"];
-    }
-    
-    print("unique scanlation groups");
-    print(unique_scanlation_groups);
-    
-    for (i = 0; i < unique_scanlation_groups.length; i++) {
-        key = unique_scanlation_groups[i];
-        
-        scanlationGroup = httpGet({
-            "url": "https://api.mangadex.org/group/:groupId",
-            "params": {},
-            "paths": {
-                ":groupId": key
-            },
-            "headers": {},
-            "throughWeb": false
-        });
-        print(scanlationGroup);
-        jsonScanlation = jsonDecode(scanlationGroup["body"]);
-        
-        chapter_groups.push(buildChapterGroups({
-                                        "title": jsonScanlation["data"]["attributes"]["name"],
-                                        "elements": chapters[key],
-                                        "data": {}
-                                }));
-    }
-
-    return chapter_groups;
 }
 
 function getPages(uid) {
-
     result = httpGet({
-        "url": "https://api.mangadex.org/at-home/server/chapterUid",
+        "url": "https://api.mangadex.org/at-home/server/:chapterId",
         "params": {},
         "paths": {
-            chapterUid: uid
+            ":chapterId": uid
         },
         "throughWeb": false,
-        "headers": {
-            "Content-Type": "application/json"
-        }
+        "headers": {}
     });
 
     body = jsonDecode(result["body"]);
 
-    if(body["result"] != "ok") {
-       return buildPages({
-           "uid": uid,
-           "value": []
-       });
+    if (body["result"] != "ok") {
+        return buildPages({
+            "uid": uid,
+            "value": []
+        });
     }
 
+    baseUrl = body["baseUrl"];
+    hash = body["chapter"]["hash"];
     data = body["chapter"]["data"];
 
     value = [];
-
-    for(i = 0; i < data.length; i = i + 1) {
-        value.push("https://uploads.mangadex.org/data/" + body["chapter"]["hash"] + "/" + data[i]);
+    for (i = 0; i < data.length; i = i + 1) {
+        value.push(baseUrl + "/data/" + hash + "/" + data[i]);
     }
 
     return buildPages({
@@ -306,69 +265,6 @@ function getPages(uid) {
     });
 }
 
-function handleConcreteView(data) {
-
-    title = data["attributes"]["title"].values.first;
-
-    description = data["attributes"]["description"].values.first;
-
-    if(description == null) {
-        description = "";
-    }
-
-    cover = getCover({
-        "coverArtUid": getCoverId({
-            "data": data["relationships"]
-        }),
-        "mangaId": data["id"]
-    });
-
-    rawTags = data["attributes"]["tags"];
-
-    tags = [];
-
-    for(i = 0; i < rawTags.length; i = i + 1) {
-        tags.push(rawTags[i]["attributes"]["name"].values.first);
-    }
-
-    chapters = [];
-
-    return buildConcrete({
-        "uid": data["id"],
-        "title": title,
-        "description": description,
-        "cover": cover,
-        "tags": tags,
-        "status": null,
-        "alternativeTitles": [],
-        "groups": getChapters({ "uid": data["id"] })
-    });
-}
-
 function getImageHeaders(uid) {
     return {};
 }
-
-function getConcrete(uid) {
-
-    result = httpGet({
-        "url": "https://api.mangadex.org/manga/:uid",
-        "params": {},
-        "paths": {
-            ":uid": uid
-        },
-        "throughWeb": false,
-        "headers": {
-            "Content-Type": "application/json"
-        }
-    });
-
-    body = jsonDecode(result["body"]);
-
-    concrete = handleConcreteView({
-        "data": body["data"]
-    });
-
-    return concrete;
-}
-
