@@ -105,20 +105,29 @@ function getConcrete(uid) {
 
     jsScript = `
         let fun = () => {
-
-            const news_id = $("#linkstocomics").data("news_id");
-            const news_category = $("#linkstocomics").data("news_category");
-            const this_link = news_category === 54 ? $("#linkstocomics").data("this_link") : "";
-
-            const body = {
-                action: 'show',
-                news_id: news_id.toString(),
-                news_category: news_category.toString(),
-                this_link: this_link,
-                user_hash: site_login_hash
-            };
-
-            return body;
+            return new Promise((resolve) => {
+                let attempts = 0;
+                const check = () => {
+                    attempts++;
+                    const el = document.getElementById('linkstocomics');
+                    if (el && typeof site_login_hash !== 'undefined') {
+                        const news_id = el.getAttribute('data-news_id');
+                        const news_category = el.getAttribute('data-news_category');
+                        resolve({
+                            action: 'show',
+                            news_id: news_id ? news_id.toString() : '',
+                            news_category: news_category ? news_category.toString() : '',
+                            this_link: news_category === '54' ? (el.getAttribute('data-this_link') || '') : '',
+                            user_hash: site_login_hash
+                        });
+                    } else if (attempts < 20) {
+                        setTimeout(check, 500);
+                    } else {
+                        resolve(null);
+                    }
+                };
+                check();
+            });
         }
 
         return fun();
@@ -231,14 +240,26 @@ function getPages(uid) {
 
     jsScript = `
         let fun = () => {
-
-            return {
-                action: 'show',
-                news_id: $("#comics").data("news_id").toString(),
-                user_hash: site_login_hash,
-                mod: "load_chapters_image"
-            };
-
+            return new Promise((resolve) => {
+                let attempts = 0;
+                const check = () => {
+                    attempts++;
+                    const el = document.getElementById('comics');
+                    if (el && typeof site_login_hash !== 'undefined') {
+                        resolve({
+                            action: 'show',
+                            news_id: el.getAttribute('data-news_id').toString(),
+                            user_hash: site_login_hash,
+                            mod: 'load_chapters_image'
+                        });
+                    } else if (attempts < 20) {
+                        setTimeout(check, 500);
+                    } else {
+                        resolve(null);
+                    }
+                };
+                check();
+            });
         }
 
         return fun();
