@@ -12,7 +12,7 @@ function getConcrete(uid) {
     return libSocialGetConcrete(uid);
 }
 
-function getPages(uid, data = null) {
+function getPages(uid, data) {
     return libSocialGetPages(uid, data, "https://img2h.hentaicdn.org");
 }
 
