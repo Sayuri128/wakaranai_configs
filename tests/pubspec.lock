@@ -52,10 +52,10 @@ packages:
   capyscript:
     dependency: "direct main"
     description:
-      path: "../../../StudioProjects/capyscript"
-      relative: true
+      path: "D:/StudioProjects/capyscript"
+      relative: false
     source: path
-    version: "0.1.4"
+    version: "0.2.0"
   cli_config:
     dependency: transitive
     description:

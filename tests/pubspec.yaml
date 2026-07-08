@@ -7,7 +7,7 @@ environment:
 
 dependencies:
   capyscript:
-    path: "../../../StudioProjects/capyscript"
+    path: "D:/StudioProjects/capyscript"
   http: ^1.6.0
   path: ^1.9.1
   puppeteer: ^3.23.0

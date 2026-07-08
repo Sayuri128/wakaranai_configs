@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "configs": [
+    {
+      "category": "manga",
+      "path": "manga/hentai_lib",
+      "config": {
+        "name": "HentaiLib",
+        "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/hentai_lib/logo.png?raw=true",
+        "type": 0,
+        "nsfw": true,
+        "language": "Русский",
+        "version": 1,
+        "filters": [],
+        "protectorConfig": {
+          "pingUrl": "https://hentailib.me/manga-list",
+          "needToLogin": true,
+          "inAppBrowserInterceptor": true
+        },
+        "searchAvailable": true
+      }
+    },
+    {
+      "category": "manga",
+      "path": "manga/manga_dex",
+      "config": {
+        "name": "MangaDex",
+        "uid": "23cf3ac5-3c7b-4914-9031-0d2c0e5a84b9",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_dex/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "filters": [],
+        "protectorConfig": null,
+        "searchAvailable": true
+      }
+    },
+    {
+      "category": "manga",
+      "path": "manga/manga_in_ua",
+      "config": {
+        "name": "Manga/in/UA",
+        "uid": "fd4a9341-5cb4-4d24-ac1a-f9183f3e9b0a",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_in_ua/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "filters": [],
+        "protectorConfig": {
+          "pingUrl": "https://manga.in.ua/mangas/page/1",
+          "needToLogin": false,
+          "inAppBrowserInterceptor": true
+        },
+        "searchAvailable": true
+      }
+    },
+    {
+      "category": "manga",
+      "path": "manga/manga_lib",
+      "config": {
+        "name": "MangaLib",
+        "uid": "212933bd-7862-4071-82e7-e15aa09d034f",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_lib/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "Русский",
+        "version": 1,
+        "filters": [],
+        "protectorConfig": {
+          "pingUrl": "https://mangalib.me/manga-list",
+          "needToLogin": true,
+          "inAppBrowserInterceptor": true
+        },
+        "searchAvailable": true
+      }
+    },
+    {
+      "category": "manga",
+      "path": "manga/nhentai",
+      "config": {
+        "name": "NHentai",
+        "uid": "26bf8976-5952-461c-b9c1-fdc505be275c",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/nhentai/logo.png?raw=true",
+        "type": 0,
+        "nsfw": true,
+        "language": "Multi",
+        "version": 1,
+        "filters": [],
+        "protectorConfig": {
+          "pingUrl": "https://nhentai.net",
+          "needToLogin": false,
+          "inAppBrowserInterceptor": false
+        },
+        "searchAvailable": false
+      }
+    },
+    {
+      "category": "anime",
+      "path": "anime/anitube_in_ua",
+      "config": {
+        "name": "Anitube.in.ua",
+        "uid": "6ca5a587-28ad-4bc2-8d67-bc038e60e4d2",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/anitube_in_ua/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "filters": [],
+        "protectorConfig": {
+          "pingUrl": "https://anitube.in.ua/anime/",
+          "needToLogin": false,
+          "inAppBrowserInterceptor": true
+        },
+        "searchAvailable": true
+      }
+    }
+  ]
+}
