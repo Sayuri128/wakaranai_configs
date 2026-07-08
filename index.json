@@ -14,7 +14,7 @@
         "version": 1,
         "filters": [],
         "protectorConfig": {
-          "pingUrl": "https://hentailib.me/manga-list",
+          "pingUrl": "https://mangalib.me/manga-list",
           "needToLogin": true,
           "inAppBrowserInterceptor": true,
           "sessionGroup": "lib_social"
