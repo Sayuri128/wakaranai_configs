@@ -10,7 +10,8 @@
   "protectorConfig": {
     "pingUrl": "https://mangalib.me/manga-list",
     "needToLogin": true,
-    "inAppBrowserInterceptor": true
+    "inAppBrowserInterceptor": true,
+    "sessionGroup": "lib_social"
   },
   "searchAvailable": true
 }
