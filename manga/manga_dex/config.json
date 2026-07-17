@@ -11,19 +11,22 @@
       "type": "ONE_OF_MULTIPLE",
       "paramName": "Status",
       "param": "status[]",
-      "values": ["ongoing", "completed", "hiatus", "cancelled"]
+      "values": ["ongoing", "completed", "hiatus", "cancelled"],
+      "labels": ["Ongoing", "Completed", "Hiatus", "Cancelled"]
     },
     {
       "type": "ONE_OF_MULTIPLE",
       "paramName": "Demographic",
       "param": "publicationDemographic[]",
-      "values": ["shounen", "shoujo", "josei", "seinen"]
+      "values": ["shounen", "shoujo", "josei", "seinen"],
+      "labels": ["Shounen", "Shoujo", "Josei", "Seinen"]
     },
     {
       "type": "ONE_OF_MULTIPLE",
       "paramName": "Content rating",
       "param": "contentRating[]",
-      "values": ["safe", "suggestive", "erotica", "pornographic"]
+      "values": ["safe", "suggestive", "erotica", "pornographic"],
+      "labels": ["Safe", "Suggestive", "Erotica", "Pornographic"]
     }
   ],
   "protectorConfig": null,

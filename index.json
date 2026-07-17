@@ -43,6 +43,12 @@
               "completed",
               "hiatus",
               "cancelled"
+            ],
+            "labels": [
+              "Ongoing",
+              "Completed",
+              "Hiatus",
+              "Cancelled"
             ]
           },
           {
@@ -54,6 +60,12 @@
               "shoujo",
               "josei",
               "seinen"
+            ],
+            "labels": [
+              "Shounen",
+              "Shoujo",
+              "Josei",
+              "Seinen"
             ]
           },
           {
@@ -65,6 +77,12 @@
               "suggestive",
               "erotica",
               "pornographic"
+            ],
+            "labels": [
+              "Safe",
+              "Suggestive",
+              "Erotica",
+              "Pornographic"
             ]
           }
         ],
