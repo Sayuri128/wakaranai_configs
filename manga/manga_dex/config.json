@@ -6,7 +6,26 @@
   "nsfw": false,
   "language": "English",
   "version": 1,
-  "filters": [],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Status",
+      "param": "status[]",
+      "values": ["ongoing", "completed", "hiatus", "cancelled"]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Demographic",
+      "param": "publicationDemographic[]",
+      "values": ["shounen", "shoujo", "josei", "seinen"]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Content rating",
+      "param": "contentRating[]",
+      "values": ["safe", "suggestive", "erotica", "pornographic"]
+    }
+  ],
   "protectorConfig": null,
   "searchAvailable": true
 }
