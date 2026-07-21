@@ -79,6 +79,19 @@ function libSocialApplyFilters(params, filters) {
             } else {
                 params[param] = filter["offValue"];
             }
+        } else if(type == "RANGE") {
+            from = filterData["from"];
+            to = filterData["to"];
+            if(from != null) {
+                if(from.isNotEmpty) {
+                    params[filter["paramMin"]] = from;
+                }
+            }
+            if(to != null) {
+                if(to.isNotEmpty) {
+                    params[filter["paramMax"]] = to;
+                }
+            }
         }
     }
 
