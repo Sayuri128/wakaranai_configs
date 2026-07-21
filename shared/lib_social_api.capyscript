@@ -33,13 +33,67 @@ function extractRichText(node) {
     return result;
 }
 
-function libSocialGetGallery(page, query, siteId) {
+// Maps the app's FilterData list onto api.cdnlibs.org query params. The API
+// requires repeated `key[]=` entries for multi-value filters and rejects a
+// comma-joined list with HTTP 422.
+function libSocialApplyFilters(params, filters) {
+    if(filters == null) {
+        return params;
+    }
+
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filter = filterData["filter"];
+        type = filter["type"];
+        param = filter["param"];
+
+        if(type == "MULTIPLE_OF_MULTIPLE") {
+            groups = filterData["selected"];
+            selected = [];
+            for(j = 0; j < groups.length; j = j + 1) {
+                group = groups[j];
+                for(k = 0; k < group.length; k = k + 1) {
+                    selected.push(group[k]);
+                }
+            }
+            if(selected.isNotEmpty) {
+                params[param] = selected;
+            }
+        } else if(type == "MULTIPLE_OF_ANY") {
+            selected = filterData["selected"];
+            if(selected != null) {
+                if(selected.isNotEmpty) {
+                    params[param] = selected;
+                }
+            }
+        } else if(type == "ONE_OF_MULTIPLE" || type == "ONE_OF_ANY") {
+            selected = filterData["selected"];
+            if(selected != null) {
+                if(selected.isNotEmpty) {
+                    params[param] = selected;
+                }
+            }
+        } else if(type == "SWITCHER") {
+            if(filterData["on"]) {
+                params[param] = filter["onValue"];
+            } else {
+                params[param] = filter["offValue"];
+            }
+        }
+    }
+
+    return params;
+}
+
+function libSocialGetGallery(page, query, siteId, filters) {
     params = {
         "site_id": [siteId],
         "sort": "rate",
         "dir": "desc",
         "caution_list": ["Отсутствует", "16+", "18+"]
     };
+
+    params = libSocialApplyFilters(params, filters);
 
     if(query.isNotEmpty) {
         params["q"] = query;

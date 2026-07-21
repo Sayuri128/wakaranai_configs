@@ -5,7 +5,7 @@ import "manga_models";
 import "../../shared/lib_social_api";
 
 function getGallery(page, query, filters) {
-    return libSocialGetGallery(page, query, 4);
+    return libSocialGetGallery(page, query, 4, filters);
 }
 
 function getConcrete(uid) {
