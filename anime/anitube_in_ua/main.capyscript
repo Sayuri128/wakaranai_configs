@@ -264,7 +264,8 @@ return getVideoSrc();
         "status": statusReleased(),
         "groups": videoGroups,
         "tags": tags,
-        "description": description
+        "description": description,
+        "url": "https://anitube.in.ua/" + uid
     });
 }
 

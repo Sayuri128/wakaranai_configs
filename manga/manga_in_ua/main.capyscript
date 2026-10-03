@@ -220,6 +220,7 @@ function getConcrete(uid) {
         "tags": tags,
         "alternativeTitles": [],
         "status": null,
+        "url": uid,
         "groups": [
             buildChapterGroups({
                 "title": "Default",
