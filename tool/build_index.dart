@@ -32,6 +32,7 @@ void main(List<String> args) {
       configs.add(<String, dynamic>{
         'category': category,
         'path': '$category/$name',
+        'revision': _revision(extensionDir),
         'config': config,
       });
     }
@@ -46,4 +47,36 @@ void main(List<String> args) {
       '${const JsonEncoder.withIndent('  ').convert(index)}\n';
   File('${root.path}/$_outputPath').writeAsStringSync(output);
   stdout.writeln('wrote $_outputPath (${configs.length} configs)');
+}
+
+final RegExp _relativeImport =
+    RegExp(r'''^import\s+["'](\.{1,2}/[^"']+)["']\s*;''', multiLine: true);
+
+String _revision(Directory extensionDir) {
+  final List<File> files = <File>[File('${extensionDir.path}/config.json')];
+  final Set<String> seen = <String>{};
+  void collect(File script) {
+    final String path = script.absolute.uri.normalizePath().toFilePath();
+    if (!seen.add(path) || !script.existsSync()) {
+      return;
+    }
+    files.add(script);
+    for (final RegExpMatch match
+        in _relativeImport.allMatches(script.readAsStringSync())) {
+      collect(File('${script.parent.path}/${match.group(1)}.capyscript'));
+    }
+  }
+
+  collect(File('${extensionDir.path}/main.capyscript'));
+
+  int hash = 0xcbf29ce484222325;
+  for (final File file in files) {
+    final List<int> bytes =
+        utf8.encode(file.readAsStringSync().replaceAll('\r\n', '\n'));
+    for (final int byte in <int>[...bytes, 0]) {
+      hash ^= byte;
+      hash *= 0x100000001b3;
+    }
+  }
+  return BigInt.from(hash).toUnsigned(64).toRadixString(16).padLeft(16, '0');
 }

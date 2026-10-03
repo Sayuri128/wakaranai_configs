@@ -6,6 +6,7 @@ on:
     paths:
       - 'manga/**'
       - 'anime/**'
+      - 'shared/**'
       - 'tool/build_index.dart'
       - '.github/workflows/build-index.yml'
   workflow_dispatch:
