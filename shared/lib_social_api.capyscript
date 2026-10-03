@@ -264,17 +264,14 @@ function libSocialGetConcrete(uid) {
     if(chapData != null) {
         for(i = 0; i < chapData.length; i = i + 1) {
             if(chapData[i]["branches"] == null) {
-                i = i + 1;
                 continue;
             }
             branch = chapData[i]["branches"][0];
             if(branch == null) {
-                i = i + 1;
                 continue;
             }
             teams = branch.teams;
             if(teams == null) {
-                i = i + 1;
                 continue;
             }
             for(j = 0; j < teams.length; j = j + 1) {
@@ -296,16 +293,13 @@ function libSocialGetConcrete(uid) {
 
         for(i = 0; i < chapData.length; i = i + 1) {
             if(chapData[i]["branches"] == null) {
-                i = i + 1;
                 continue;
             }
             branch = chapData[i]["branches"][0];
             if(branch == null) {
-                i = i + 1;
                 continue;
             }
             if(branch.teams == null) {
-                i = i + 1;
                 continue;
             }
             chapter = chapData[i];

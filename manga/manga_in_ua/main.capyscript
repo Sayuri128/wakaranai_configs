@@ -157,7 +157,6 @@ function getConcrete(uid) {
     for(i = 0; i < chaptersTags.length; i = i + 1) {
         fastNav = chaptersTags[i].getElementsByClassName("forfastnavigation");
         if(fastNav.isEmpty) {
-            i = i + 1;
             continue;
         }
         chapterUid = fastNav[0].attributes["href"];
