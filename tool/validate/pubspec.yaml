@@ -1,0 +1,12 @@
+name: validate
+description: Validates extension configs and scripts against the interpreter shipped in current app releases
+publish_to: none
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+dependencies:
+  capyscript:
+    git:
+      url: https://github.com/Sayuri128/capyscript
+      ref: 3c00eaaa0d4506d9585c056fd8dc54e8e4514496
