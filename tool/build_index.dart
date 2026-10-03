@@ -45,7 +45,22 @@ void main(List<String> args) {
 
   final String output =
       '${const JsonEncoder.withIndent('  ').convert(index)}\n';
-  File('${root.path}/$_outputPath').writeAsStringSync(output);
+  final File outputFile = File('${root.path}/$_outputPath');
+
+  if (args.contains('--check')) {
+    final String current = outputFile.existsSync()
+        ? outputFile.readAsStringSync().replaceAll('\r\n', '\n')
+        : '';
+    if (current != output) {
+      stderr.writeln('$_outputPath is out of date; run dart tool/build_index.dart');
+      exitCode = 1;
+      return;
+    }
+    stdout.writeln('$_outputPath is up to date');
+    return;
+  }
+
+  outputFile.writeAsStringSync(output);
   stdout.writeln('wrote $_outputPath (${configs.length} configs)');
 }
 

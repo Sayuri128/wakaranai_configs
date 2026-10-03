@@ -33,13 +33,14 @@ The full extension authoring guide lives in the app repo: [docs/guides/extension
 
 ```bash
 dart tool/build_index.dart                          # regenerate index.json after changing a config
+dart tool/build_index.dart --check                  # fail if index.json is out of date
 (cd tool/validate && dart pub get)                  # once
 dart run tool/validate/bin/validate.dart .          # validate every config and script
 dart tool/serve.dart                                # serve extensions locally on :8080 for the app's LOCAL_REPOSITORY_URL
 cd tests && dart test                               # run integration tests (hits the real sites)
 ```
 
-The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. CI runs it on every push to `dev` and `main`, checks that `index.json` is up to date on `dev`, and regenerates `index.json` on `main`.
+The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
 
 ## Custom repositories
 
