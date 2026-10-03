@@ -657,8 +657,7 @@
             "param": "year",
             "paramMin": "year_min",
             "paramMax": "year_max",
-            "min": 1930,
-            "max": 2026
+            "min": 1930
           },
           {
             "type": "RANGE",
@@ -1263,8 +1262,7 @@
             "param": "year",
             "paramMin": "year_min",
             "paramMax": "year_max",
-            "min": 1930,
-            "max": 2026
+            "min": 1930
           },
           {
             "type": "RANGE",
