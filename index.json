@@ -4,7 +4,7 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
-      "revision": "e18be2bac6fd1ddb",
+      "revision": "9b1c73290209b632",
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -780,7 +780,7 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
-      "revision": "d2eb4e6886374087",
+      "revision": "76f426cfdd9c0e86",
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",

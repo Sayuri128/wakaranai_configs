@@ -144,7 +144,7 @@ function libSocialGetGallery(page, query, siteId, filters) {
 
         items.push(buildGallery({
             "uid": element["slug_url"],
-            "title": element["rus_name"],
+            "title": libSocialTitle(element),
             "cover": cover,
             "data": element
         }));
@@ -189,6 +189,19 @@ function libSocialProcessChapter(chapter, mangaSlug) {
     });
 }
 
+function libSocialTitle(item) {
+    keys = ["rus_name", "eng_name", "name"];
+    for(i = 0; i < keys.length; i = i + 1) {
+        value = item[keys[i]];
+        if(value != null) {
+            if(value != "") {
+                return value;
+            }
+        }
+    }
+    return "";
+}
+
 function libSocialNames(people) {
     names = [];
     if(people == null) {
@@ -200,6 +213,56 @@ function libSocialNames(people) {
         }
     }
     return names;
+}
+
+function libSocialStatus(status) {
+    if(status == null) {
+        return statusUndefined();
+    }
+    statusId = status["id"];
+    if(statusId == 1) {
+        return statusOngoing();
+    }
+    if(statusId == 2) {
+        return statusReleased();
+    }
+    if(statusId == 3) {
+        return statusAnnounce();
+    }
+    if(statusId == 4) {
+        return statusPaused();
+    }
+    if(statusId == 5) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function libSocialRating(uid) {
+    try {
+        result = httpGet({
+            "url": "https://api.cdnlibs.org/api/manga/" + uid + "/stats",
+            "params": {"rating": "true"},
+            "paths": {},
+            "headers": {
+                "Accept": "application/json"
+            },
+            "throughWeb": false
+        });
+        votes = jsonDecode(result["body"])["data"]["rating"]["stats"];
+        total = 0;
+        weighted = 0;
+        for(i = 0; i < votes.length; i = i + 1) {
+            total = total + votes[i]["value"];
+            weighted = weighted + votes[i]["label"] * votes[i]["value"];
+        }
+        if(total == 0) {
+            return null;
+        }
+        return weighted / total;
+    } catch(e) {
+        return null;
+    }
 }
 
 function libSocialMetadata(data, uid, siteUrl) {
@@ -217,10 +280,7 @@ function libSocialMetadata(data, uid, siteUrl) {
                 metadata["year"] = releaseText.substring(0, 4);
             }
         }
-        rating = data["rating"];
-        if(rating != null) {
-            metadata["rating"] = rating["average"];
-        }
+        metadata["rating"] = libSocialRating(uid);
     } catch(e) {
         print("lib social metadata unavailable: " + e);
     }
@@ -250,10 +310,7 @@ function libSocialGetConcrete(uid, siteUrl) {
         }
     }
 
-    title = "";
-    if(data["rus_name"] != null) {
-        title = data["rus_name"];
-    }
+    title = libSocialTitle(data);
 
     description = "";
     if(data["summary"] != null) {
@@ -363,7 +420,7 @@ function libSocialGetConcrete(uid, siteUrl) {
         "title": title,
         "description": description,
         "tags": tags,
-        "status": null,
+        "status": libSocialStatus(data["status"]),
         "alternativeTitles": alternativeTitles,
         "authors": metadata["authors"],
         "artists": metadata["artists"],
