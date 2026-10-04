@@ -44,17 +44,14 @@ function getGallery(page, query, filters) {
 
         storyC = story.getElementsByClassName("story_c");
         if(storyC.length == 0) {
-            i = i + 1;
             continue;
         }
         h2Els = storyC[0].getElementsByTagName("h2");
         if(h2Els.length == 0) {
-            i = i + 1;
             continue;
         }
         aEls = h2Els[0].getElementsByTagName("a");
         if(aEls.length == 0) {
-            i = i + 1;
             continue;
         }
         aTitle = aEls[0];
@@ -267,7 +264,8 @@ return getVideoSrc();
         "status": statusReleased(),
         "groups": videoGroups,
         "tags": tags,
-        "description": description
+        "description": description,
+        "url": "https://anitube.in.ua/" + uid
     });
 }
 

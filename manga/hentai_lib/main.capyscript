@@ -9,7 +9,7 @@ function getGallery(page, query, filters) {
 }
 
 function getConcrete(uid) {
-    return libSocialGetConcrete(uid);
+    return libSocialGetConcrete(uid, "https://hentailib.me");
 }
 
 function getPages(uid, data) {

@@ -71,9 +71,13 @@ function getConcrete(uid) {
     cover = "https://t1.nhentai.net/" + decoded["cover"]["path"];
 
     tags = [];
+    artists = [];
     rawTags = decoded["tags"];
     for(i = 0; i < rawTags.length; i = i + 1) {
         tags.push(rawTags[i]["name"]);
+        if (rawTags[i]["type"] == "artist") {
+            artists.push(rawTags[i]["name"]);
+        }
     }
 
     description = "Pages: " + parseString(decoded["num_pages"]) + "\n";
@@ -90,6 +94,8 @@ function getConcrete(uid) {
         "tags": tags,
         "status": null,
         "alternativeTitles": [],
+        "artists": artists,
+        "url": "https://nhentai.net/g/" + uid + "/",
         "groups": [
             buildChapterGroups({
                 "title": "Default",

@@ -1,4 +1,5 @@
 import "http";
+import "io";
 import "json";
 import "manga_models";
 import "converter";
@@ -188,7 +189,45 @@ function libSocialProcessChapter(chapter, mangaSlug) {
     });
 }
 
-function libSocialGetConcrete(uid) {
+function libSocialNames(people) {
+    names = [];
+    if(people == null) {
+        return names;
+    }
+    for(i = 0; i < people.length; i = i + 1) {
+        if(people[i]["name"] != null) {
+            names.push(people[i]["name"]);
+        }
+    }
+    return names;
+}
+
+function libSocialMetadata(data, uid, siteUrl) {
+    metadata = {"authors": [], "artists": [], "year": null, "rating": null, "url": null};
+    if(siteUrl != "") {
+        metadata["url"] = siteUrl + "/ru/manga/" + uid;
+    }
+    try {
+        metadata["authors"] = libSocialNames(data["authors"]);
+        metadata["artists"] = libSocialNames(data["artists"]);
+        releaseDate = data["releaseDate"];
+        if(releaseDate != null) {
+            releaseText = parseString(releaseDate);
+            if(releaseText.length >= 4) {
+                metadata["year"] = releaseText.substring(0, 4);
+            }
+        }
+        rating = data["rating"];
+        if(rating != null) {
+            metadata["rating"] = rating["average"];
+        }
+    } catch(e) {
+        print("lib social metadata unavailable: " + e);
+    }
+    return metadata;
+}
+
+function libSocialGetConcrete(uid, siteUrl) {
     // buildUri always appends "?" to the url, so we embed the query string
     // directly and use a paths entry to consume that trailing "?".
     result = httpGet({
@@ -264,17 +303,14 @@ function libSocialGetConcrete(uid) {
     if(chapData != null) {
         for(i = 0; i < chapData.length; i = i + 1) {
             if(chapData[i]["branches"] == null) {
-                i = i + 1;
                 continue;
             }
             branch = chapData[i]["branches"][0];
             if(branch == null) {
-                i = i + 1;
                 continue;
             }
             teams = branch.teams;
             if(teams == null) {
-                i = i + 1;
                 continue;
             }
             for(j = 0; j < teams.length; j = j + 1) {
@@ -296,16 +332,13 @@ function libSocialGetConcrete(uid) {
 
         for(i = 0; i < chapData.length; i = i + 1) {
             if(chapData[i]["branches"] == null) {
-                i = i + 1;
                 continue;
             }
             branch = chapData[i]["branches"][0];
             if(branch == null) {
-                i = i + 1;
                 continue;
             }
             if(branch.teams == null) {
-                i = i + 1;
                 continue;
             }
             chapter = chapData[i];
@@ -322,6 +355,8 @@ function libSocialGetConcrete(uid) {
         }
     }
 
+    metadata = libSocialMetadata(data, uid, siteUrl);
+
     return buildConcrete({
         "uid": uid,
         "cover": cover,
@@ -330,6 +365,11 @@ function libSocialGetConcrete(uid) {
         "tags": tags,
         "status": null,
         "alternativeTitles": alternativeTitles,
+        "authors": metadata["authors"],
+        "artists": metadata["artists"],
+        "year": metadata["year"],
+        "rating": metadata["rating"],
+        "url": metadata["url"],
         "groups": chapterGroups
     });
 }

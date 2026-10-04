@@ -172,11 +172,68 @@ function getChapters(uid) {
     return chapters;
 }
 
+function getPeople(relationships, kind) {
+    names = [];
+    for (i = 0; i < relationships.length; i = i + 1) {
+        relation = relationships[i];
+        if (relation["type"] == kind) {
+            relationAttributes = relation["attributes"];
+            if (relationAttributes != null) {
+                if (relationAttributes["name"] != null) {
+                    names.push(relationAttributes["name"]);
+                }
+            }
+        }
+    }
+    return names;
+}
+
+function getStatus(value) {
+    if (value == "ongoing") {
+        return statusOngoing();
+    }
+    if (value == "completed") {
+        return statusReleased();
+    }
+    if (value == "hiatus") {
+        return statusPaused();
+    }
+    if (value == "cancelled") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function getRating(mangaId) {
+    try {
+        result = httpGet({
+            "url": "https://api.mangadex.org/statistics/manga/:uid",
+            "params": {},
+            "paths": {
+                ":uid": mangaId
+            },
+            "throughWeb": false,
+            "headers": {}
+        });
+        statistics = jsonDecode(result["body"])["statistics"][mangaId];
+        if (statistics == null) {
+            return null;
+        }
+        rating = statistics["rating"];
+        if (rating == null) {
+            return null;
+        }
+        return rating["bayesian"];
+    } catch (e) {
+        return null;
+    }
+}
+
 function getConcrete(uid) {
     result = httpGet({
         "url": "https://api.mangadex.org/manga/:uid",
         "params": {
-            "includes": ["cover_art"]
+            "includes": ["cover_art", "author", "artist"]
         },
         "paths": {
             ":uid": uid
@@ -219,8 +276,13 @@ function getConcrete(uid) {
         "description": description,
         "cover": cover,
         "tags": tags,
-        "status": null,
+        "status": getStatus(attr["status"]),
         "alternativeTitles": [],
+        "authors": getPeople(data["relationships"], "author"),
+        "artists": getPeople(data["relationships"], "artist"),
+        "year": attr["year"],
+        "rating": getRating(uid),
+        "url": "https://mangadex.org/title/" + uid,
         "groups": [
             buildChapterGroups({
                 "title": "Default",

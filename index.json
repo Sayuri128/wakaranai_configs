@@ -4,6 +4,7 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
+      "revision": "e18be2bac6fd1ddb",
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -657,8 +658,7 @@
             "param": "year",
             "paramMin": "year_min",
             "paramMax": "year_max",
-            "min": 1930,
-            "max": 2026
+            "min": 1930
           },
           {
             "type": "RANGE",
@@ -690,6 +690,7 @@
     {
       "category": "manga",
       "path": "manga/manga_dex",
+      "revision": "3c49672cbc633b1f",
       "config": {
         "name": "MangaDex",
         "uid": "23cf3ac5-3c7b-4914-9031-0d2c0e5a84b9",
@@ -758,6 +759,7 @@
     {
       "category": "manga",
       "path": "manga/manga_in_ua",
+      "revision": "4f55ddf2a7c9af03",
       "config": {
         "name": "Manga/in/UA",
         "uid": "fd4a9341-5cb4-4d24-ac1a-f9183f3e9b0a",
@@ -778,6 +780,7 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
+      "revision": "d2eb4e6886374087",
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",
@@ -1263,8 +1266,7 @@
             "param": "year",
             "paramMin": "year_min",
             "paramMax": "year_max",
-            "min": 1930,
-            "max": 2026
+            "min": 1930
           },
           {
             "type": "RANGE",
@@ -1296,6 +1298,7 @@
     {
       "category": "manga",
       "path": "manga/nhentai",
+      "revision": "972f1683230fa420",
       "config": {
         "name": "NHentai",
         "uid": "26bf8976-5952-461c-b9c1-fdc505be275c",
@@ -1316,6 +1319,7 @@
     {
       "category": "anime",
       "path": "anime/anitube_in_ua",
+      "revision": "656ce79eb7a51f9d",
       "config": {
         "name": "Anitube.in.ua",
         "uid": "6ca5a587-28ad-4bc2-8d67-bc038e60e4d2",
