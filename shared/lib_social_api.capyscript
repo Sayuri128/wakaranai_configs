@@ -1,6 +1,7 @@
 import "http";
 import "io";
 import "json";
+import "html";
 import "manga_models";
 import "converter";
 
@@ -462,4 +463,63 @@ function libSocialGetPages(uid, data, imageBaseUrl) {
     }
 
     return buildPages({"uid": uid, "value": value});
+}
+
+function libSocialPassProtector(body, headers, cookies, siteId, siteUrl) {
+    pageBody = body;
+    pageCookies = cookies;
+    try {
+        page = httpGet({
+            "url": "https://mangalib.me/manga-list",
+            "params": {},
+            "paths": {},
+            "headers": {},
+            "throughWeb": true
+        });
+        if(page["body"] != null) {
+            pageBody = page["body"];
+        }
+        if(page["cookies"] != null) {
+            pageCookies = page["cookies"];
+        }
+    } catch(e) {
+        print("lib social: using the cached protector page: " + e);
+    }
+
+    newHeaders = {};
+    if(headers["cookie"] != null) {
+        newHeaders["Cookie"] = headers["cookie"];
+    }
+    if(headers["user-agent"] != null) {
+        newHeaders["user-agent"] = headers["user-agent"];
+    }
+    if(pageCookies != null) {
+        if(pageCookies["XSRF-TOKEN"] != null) {
+            newHeaders["x-xsrf-token"] = pageCookies["XSRF-TOKEN"].replaceAll("%3D", "=");
+        }
+    }
+    newHeaders["x-requested-with"] = "XMLHttpRequest";
+    newHeaders["Content-Type"] = "application/json;charset=UTF-8";
+    newHeaders["site-id"] = parseString(siteId);
+    newHeaders["Referer"] = siteUrl + "/";
+
+    if(pageBody != null) {
+        document = createHTMLParser(pageBody);
+        metas = document.getElementsByTagName("meta");
+        for(i = 0; i < metas.length; i = i + 1) {
+            if(metas[i].attributes["name"] == "_token") {
+                newHeaders["x-csrf-token"] = metas[i].attributes["content"];
+            }
+        }
+    }
+
+    auth = executeJsScript({"code": "return window.localStorage.auth"});
+    if(auth != null) {
+        decoded = jsonDecode(auth);
+        if(decoded["token"] != null) {
+            newHeaders["Authorization"] = "Bearer " + decoded["token"]["access_token"];
+        }
+    }
+
+    useHeaders({"headers": newHeaders});
 }

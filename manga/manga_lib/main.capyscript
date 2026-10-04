@@ -26,45 +26,7 @@ function getImageHeaders(uid) {
 }
 
 function passProtector(body, headers, cookies) {
-    result = httpGet({
-        "url": "https://mangalib.me/manga-list",
-        "params": {},
-        "paths": {},
-        "headers": {},
-        "throughWeb": true
-    });
-
-    newHeaders = {};
-    if(headers["cookie"] != null) {
-        newHeaders["Cookie"] = headers["cookie"];
-    }
-    if(headers["user-agent"] != null) {
-        newHeaders["user-agent"] = headers["user-agent"];
-    }
-    newHeaders["x-xsrf-token"] = result["cookies"]["XSRF-TOKEN"].replaceAll("%3D", "=");
-    newHeaders["x-requested-with"] = "XMLHttpRequest";
-    newHeaders["Content-Type"] = "application/json;charset=UTF-8";
-    newHeaders["site-id"] = "1";
-    newHeaders["Referer"] = "https://mangalib.me/";
-
-    document = createHTMLParser(result["body"]);
-    metas = document.getElementsByTagName("meta");
-    for(i = 0; i < metas.length; i = i + 1) {
-        e = metas[i];
-        if(e.attributes["name"] == "_token") {
-            newHeaders["x-csrf-token"] = e.attributes["content"];
-        }
-    }
-
-    auth = executeJsScript({"code": "return window.localStorage.auth"});
-    if(auth != null) {
-        decoded = jsonDecode(auth);
-        if(decoded["token"] != null) {
-            newHeaders["Authorization"] = "Bearer " + decoded["token"]["access_token"];
-        }
-    }
-
-    useHeaders({"headers": newHeaders});
+    libSocialPassProtector(body, headers, cookies, 1, "https://mangalib.me");
 }
 
 function passWebBrowserInterceptorController(controller) {
