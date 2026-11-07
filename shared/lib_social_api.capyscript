@@ -4,6 +4,7 @@ import "json";
 import "html";
 import "manga_models";
 import "converter";
+import "errors";
 
 // Shared implementation for the lib.social API family (now hosted at cdnlibs.org).
 // Used by manga_lib (site_id=1) and hentai_lib (site_id=4).
@@ -43,15 +44,55 @@ function libSocialDecodeResponse(apiResponse, requestLabel) {
         }
     }
     if(apiStatusCode == 401) {
-        throw "HTTP 401 Unauthorized (" + requestLabel + ")";
+        throwSourceError("loginRequired", "sign in to continue (" + requestLabel + ")");
     }
     if(apiStatusCode == 403) {
-        throw "HTTP 403 Forbidden (" + requestLabel + ")";
+        if(libSocialIsJson(apiResponse["body"])) {
+            throw "HTTP 403 Forbidden (" + requestLabel + ")";
+        }
+        throw "HTTP 403 from the API host's DDoS guard, try another mirror (" + requestLabel + ")";
+    }
+    if(apiStatusCode == 404) {
+        libSocialMissingOrSignedOut(requestLabel);
     }
     if(apiStatusCode == 429) {
-        throw "HTTP 429 Too Many Requests (" + requestLabel + ")";
+        throwSourceError("rateLimited", "too many requests (" + requestLabel + ")");
+    }
+    if(apiStatusCode >= 500) {
+        throwSourceError("sourceDown", "HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")");
     }
     throw "HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")";
+}
+
+function libSocialMissingOrSignedOut(missingLabel) {
+    signedIn = true;
+    try {
+        sessionCheck = httpGet({
+            "url": "https://api.cdnlibs.org/api/auth/me",
+            "params": {},
+            "paths": {},
+            "headers": {
+                "Accept": "application/json"
+            },
+            "throughWeb": false
+        });
+        if(sessionCheck["statusCode"] == 401) {
+            signedIn = false;
+        }
+    } catch(e) {
+        signedIn = true;
+    }
+    if(signedIn == false) {
+        throwSourceError("loginRequired", "the source hides this while signed out, sign in again (" + missingLabel + ")");
+    }
+    throwSourceError("notFound", "not found on the source (" + missingLabel + ")");
+}
+
+function libSocialIsJson(responseBody) {
+    if(responseBody == null) {
+        return false;
+    }
+    return responseBody.trim().startsWith("{");
 }
 
 // Maps the app's FilterData list onto api.cdnlibs.org query params. The API

@@ -4,8 +4,8 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
-      "revision": "db6b1ac5b4e72bd6",
-      "apiVersion": 1,
+      "revision": "34f53ec3cb0417f9",
+      "apiVersion": 2,
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -14,6 +14,7 @@
         "nsfw": true,
         "language": "Русский",
         "version": 1,
+        "apiVersion": 2,
         "filters": [
           {
             "type": "MULTIPLE_OF_MULTIPLE",
@@ -689,14 +690,21 @@
           "pageDelayMs": 300,
           "chapterDelayMs": 2000
         },
+        "requestPolicy": {
+          "mirrors": [
+            "https://api.cdnlibs.org",
+            "https://api.lib.social",
+            "https://api2.mangalib.me"
+          ]
+        },
         "searchAvailable": true
       }
     },
     {
       "category": "manga",
       "path": "manga/manga_dex",
-      "revision": "2572a9ac900e5884",
-      "apiVersion": 1,
+      "revision": "a381e5a14bb6d4dc",
+      "apiVersion": 2,
       "config": {
         "name": "MangaDex",
         "uid": "23cf3ac5-3c7b-4914-9031-0d2c0e5a84b9",
@@ -705,6 +713,7 @@
         "nsfw": false,
         "language": "English",
         "version": 1,
+        "apiVersion": 2,
         "filters": [
           {
             "type": "ONE_OF_MULTIPLE",
@@ -759,6 +768,116 @@
           }
         ],
         "protectorConfig": null,
+        "feeds": [
+          {
+            "id": "popular",
+            "title": "Popular"
+          },
+          {
+            "id": "latest",
+            "title": "Latest updates"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "chapterLanguages",
+            "type": "multiselect",
+            "title": "Chapter languages",
+            "summary": "Chapters in these languages are listed, one group per language. Leave empty for every language",
+            "default": [
+              "en"
+            ],
+            "options": [
+              {
+                "value": "en",
+                "label": "English"
+              },
+              {
+                "value": "uk",
+                "label": "Ukrainian"
+              },
+              {
+                "value": "ru",
+                "label": "Russian"
+              },
+              {
+                "value": "ja",
+                "label": "Japanese"
+              },
+              {
+                "value": "ko",
+                "label": "Korean"
+              },
+              {
+                "value": "zh",
+                "label": "Chinese (Simplified)"
+              },
+              {
+                "value": "zh-hk",
+                "label": "Chinese (Traditional)"
+              },
+              {
+                "value": "es",
+                "label": "Spanish"
+              },
+              {
+                "value": "es-la",
+                "label": "Spanish (Latin America)"
+              },
+              {
+                "value": "pt-br",
+                "label": "Portuguese (Brazil)"
+              },
+              {
+                "value": "pt",
+                "label": "Portuguese"
+              },
+              {
+                "value": "fr",
+                "label": "French"
+              },
+              {
+                "value": "de",
+                "label": "German"
+              },
+              {
+                "value": "it",
+                "label": "Italian"
+              },
+              {
+                "value": "pl",
+                "label": "Polish"
+              },
+              {
+                "value": "tr",
+                "label": "Turkish"
+              },
+              {
+                "value": "id",
+                "label": "Indonesian"
+              },
+              {
+                "value": "vi",
+                "label": "Vietnamese"
+              },
+              {
+                "value": "th",
+                "label": "Thai"
+              },
+              {
+                "value": "ar",
+                "label": "Arabic"
+              }
+            ]
+          },
+          {
+            "key": "onlyTranslatedTitles",
+            "type": "toggle",
+            "title": "Only titles in my languages",
+            "summary": "Hide catalogue and search results that have no chapters in the chosen languages",
+            "default": false
+          }
+        ],
         "searchAvailable": true
       }
     },
@@ -787,8 +906,8 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
-      "revision": "f5292fce252ba5f5",
-      "apiVersion": 1,
+      "revision": "52012ca7cda9e46e",
+      "apiVersion": 2,
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",
@@ -797,6 +916,7 @@
         "nsfw": false,
         "language": "Русский",
         "version": 1,
+        "apiVersion": 2,
         "filters": [
           {
             "type": "MULTIPLE_OF_MULTIPLE",
@@ -1304,6 +1424,13 @@
           "pageDelayMs": 300,
           "chapterDelayMs": 2000
         },
+        "requestPolicy": {
+          "mirrors": [
+            "https://api.cdnlibs.org",
+            "https://api.lib.social",
+            "https://api2.mangalib.me"
+          ]
+        },
         "searchAvailable": true
       }
     },
@@ -1332,8 +1459,8 @@
     {
       "category": "anime",
       "path": "anime/anitube_in_ua",
-      "revision": "00a3c0c8b7151096",
-      "apiVersion": 1,
+      "revision": "02fcc1993b3d06ab",
+      "apiVersion": 2,
       "config": {
         "name": "Anitube.in.ua",
         "uid": "6ca5a587-28ad-4bc2-8d67-bc038e60e4d2",
@@ -1342,11 +1469,63 @@
         "nsfw": false,
         "language": "Українська",
         "version": 1,
+        "apiVersion": 2,
         "filters": [],
         "protectorConfig": {
           "pingUrl": "https://anitube.in.ua/anime/",
           "needToLogin": false,
           "inAppBrowserInterceptor": true
+        },
+        "preferences": [
+          {
+            "key": "preferredPlayer",
+            "type": "select",
+            "title": "Preferred player",
+            "summary": "Episode lists from this player come first within each dub",
+            "default": "auto",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Site order"
+              },
+              {
+                "value": "fenixplay",
+                "label": "FenixPlay"
+              },
+              {
+                "value": "ashdi",
+                "label": "Ashdi"
+              },
+              {
+                "value": "moonanime",
+                "label": "MoonAnime"
+              },
+              {
+                "value": "mp4upload",
+                "label": "Mp4Upload"
+              }
+            ]
+          },
+          {
+            "key": "preferredDubs",
+            "type": "text",
+            "title": "Preferred dubs",
+            "summary": "Dub studio names to list first, comma-separated in order of preference, e.g. FanVoxUA, Amanogawa",
+            "default": ""
+          },
+          {
+            "key": "hideUnsupportedPlayers",
+            "type": "toggle",
+            "title": "Hide unsupported players",
+            "summary": "Only list Ashdi, FenixPlay, MoonAnime and Mp4Upload episodes when a title has any of them",
+            "default": false
+          }
+        ],
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 3,
+            "perSeconds": 2
+          }
         },
         "searchAvailable": true
       }

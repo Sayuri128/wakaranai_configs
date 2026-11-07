@@ -6,6 +6,7 @@
   "nsfw": true,
   "language": "Русский",
   "version": 1,
+  "apiVersion": 2,
   "filters": [
     {
       "type": "MULTIPLE_OF_MULTIPLE",
@@ -680,6 +681,9 @@
   "downloadConfig": {
     "pageDelayMs": 300,
     "chapterDelayMs": 2000
+  },
+  "requestPolicy": {
+    "mirrors": ["https://api.cdnlibs.org", "https://api.lib.social", "https://api2.mangalib.me"]
   },
   "searchAvailable": true
 }
