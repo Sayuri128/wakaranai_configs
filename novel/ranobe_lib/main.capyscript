@@ -1,0 +1,491 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "novel_models";
+import "../../shared/lib_social_api";
+
+function getGallery(page, query, filters, feed, pageSize) {
+    return libSocialGetSortedGallery(page, query, 3, filters, ranobeLibFeedSort(feed), pageSize);
+}
+
+function ranobeLibFeedSort(feedId) {
+    if(feedId == "popular") {
+        return "rating_score";
+    }
+    if(feedId == "updates") {
+        return "last_chapter_at";
+    }
+    if(feedId == "new") {
+        return "created_at";
+    }
+    return "";
+}
+
+function getConcrete(uid, data) {
+    titleData = libSocialGetTitleData(uid);
+    chapterList = libSocialGetChapterList(uid);
+    branchGroups = ranobeLibBranchGroups(chapterList, uid);
+    return libSocialBuildConcrete(uid, titleData, branchGroups, "https://ranobelib.me/ru/book/" + uid);
+}
+
+function ranobeLibBranchGroups(chapterList, titleUid) {
+    branchKeys = [];
+    branchChapters = {};
+    teamTitles = {};
+    userTitles = {};
+    if(chapterList == null) {
+        return [];
+    }
+    for(c = 0; c < chapterList.length; c = c + 1) {
+        chapter = chapterList[c];
+        chapterBranches = chapter["branches"];
+        if(chapterBranches == null) {
+            continue;
+        }
+        for(b = 0; b < chapterBranches.length; b = b + 1) {
+            branch = chapterBranches[b];
+            branchKey = ranobeLibBranchKey(branch);
+            if(branchChapters[branchKey] == null) {
+                branchKeys.push(branchKey);
+                branchChapters[branchKey] = [];
+                teamTitles[branchKey] = "";
+                userTitles[branchKey] = "";
+            }
+            teamNames = ranobeLibTeamNames(branch);
+            if(teamNames != "") {
+                teamTitles[branchKey] = teamNames;
+            }
+            if(userTitles[branchKey] == "") {
+                userTitles[branchKey] = ranobeLibUploaderName(branch);
+            }
+            branchList = branchChapters[branchKey];
+            branchList.push(ranobeLibChapter(chapter, branch, titleUid));
+        }
+    }
+
+    groups = [];
+    usedTitles = [];
+    remaining = branchKeys;
+    for(g = 0; g < branchKeys.length; g = g + 1) {
+        largest = ranobeLibLargestBranch(remaining, branchChapters);
+        remaining = ranobeLibWithout(remaining, largest);
+        groupTitle = ranobeLibGroupTitle(teamTitles[largest], userTitles[largest], usedTitles);
+        usedTitles.push(groupTitle);
+        groups.push(buildChapterGroups({
+            "title": groupTitle,
+            "elements": branchChapters[largest]
+        }));
+    }
+    return groups;
+}
+
+function ranobeLibBranchKey(branch) {
+    if(branch["branch_id"] == null) {
+        return "main";
+    }
+    return parseString(branch["branch_id"]);
+}
+
+function ranobeLibTeamNames(branch) {
+    teams = branch["teams"];
+    if(teams == null) {
+        return "";
+    }
+    names = [];
+    for(t = 0; t < teams.length; t = t + 1) {
+        if(teams[t]["name"] != null) {
+            names.push(parseString(teams[t]["name"]).trim());
+        }
+    }
+    return names.join(", ");
+}
+
+function ranobeLibUploaderName(branch) {
+    uploader = branch["user"];
+    if(uploader == null) {
+        return "";
+    }
+    if(uploader["username"] == null) {
+        return "";
+    }
+    return parseString(uploader["username"]).trim();
+}
+
+function ranobeLibLargestBranch(keys, chaptersByBranch) {
+    largestKey = keys[0];
+    for(k = 1; k < keys.length; k = k + 1) {
+        if(chaptersByBranch[keys[k]].length > chaptersByBranch[largestKey].length) {
+            largestKey = keys[k];
+        }
+    }
+    return largestKey;
+}
+
+function ranobeLibWithout(keys, removedKey) {
+    kept = [];
+    for(w = 0; w < keys.length; w = w + 1) {
+        if(keys[w] != removedKey) {
+            kept.push(keys[w]);
+        }
+    }
+    return kept;
+}
+
+function ranobeLibGroupTitle(teamTitle, userTitle, takenTitles) {
+    baseTitle = teamTitle;
+    if(baseTitle == "") {
+        baseTitle = userTitle;
+    }
+    if(baseTitle == "") {
+        baseTitle = "Перевод";
+    }
+    if(takenTitles.contains(baseTitle) == false) {
+        return baseTitle;
+    }
+    candidate = baseTitle;
+    for(n = 2; n < 100; n = n + 1) {
+        candidate = baseTitle + " (" + parseString(n) + ")";
+        if(takenTitles.contains(candidate) == false) {
+            return candidate;
+        }
+    }
+    return candidate;
+}
+
+function ranobeLibChapter(chapter, branch, titleUid) {
+    chapterVolume = "1";
+    if(chapter["volume"] != null) {
+        chapterVolume = parseString(chapter["volume"]);
+    }
+    chapterNumber = "";
+    if(chapter["number"] != null) {
+        chapterNumber = parseString(chapter["number"]);
+    }
+    chapterName = "";
+    if(chapter["name"] != null) {
+        chapterName = parseString(chapter["name"]).trim();
+    }
+    chapterLabel = "Том " + chapterVolume + " Глава " + chapterNumber;
+    if(chapterName != "") {
+        chapterLabel = chapterLabel + " " + chapterName;
+    }
+    chapterUid = titleUid + "/" + chapterNumber + "/" + chapterVolume;
+    branchId = "";
+    if(branch["branch_id"] != null) {
+        branchId = parseString(branch["branch_id"]);
+        chapterUid = chapterUid + "/" + branchId;
+    }
+    return buildChapter({
+        "uid": chapterUid,
+        "title": chapterLabel,
+        "timestamp": branch["created_at"],
+        "data": {
+            "slug": titleUid,
+            "number": chapterNumber,
+            "volume": chapterVolume,
+            "branchId": branchId
+        }
+    });
+}
+
+function getChapterText(uid, data) {
+    parts = uid.split("/");
+    chapterSlug = parts[0];
+    chapterParams = {
+        "number": parts[1],
+        "volume": parts[2]
+    };
+    if(parts.length > 3) {
+        chapterParams["branch_id"] = parts[3];
+    }
+
+    result = httpGet({
+        "url": "https://api.cdnlibs.org/api/manga/" + chapterSlug + "/chapter",
+        "params": chapterParams,
+        "paths": {},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
+
+    chapterData = libSocialDecodeTitleResponse(result, "ranobelib chapter text", chapterSlug)["data"];
+    chapterHtml = ranobeLibChapterHtml(chapterData);
+    if(ranobeLibIsBlank(chapterHtml)) {
+        if(libSocialHasSessionToken(getHeaders()) == false) {
+            throwSourceError("loginRequired", "the source hides this chapter while signed out, sign in (ranobelib chapter text)");
+        }
+        throw "the chapter has no text (ranobelib chapter text)";
+    }
+    return buildNovelChapter({"html": chapterHtml});
+}
+
+function ranobeLibIsBlank(markup) {
+    if(markup.trim() == "") {
+        return true;
+    }
+    if(markup.contains("<img")) {
+        return false;
+    }
+    stripped = markup.replaceAll("<p>", "").replaceAll("</p>", "").replaceAll("<br>", "").replaceAll("<hr>", "");
+    return stripped.trim() == "";
+}
+
+function ranobeLibChapterHtml(chapterData) {
+    content = chapterData["content"];
+    if(content == null) {
+        return "";
+    }
+    imageUrls = ranobeLibAttachmentUrls(chapterData["attachments"]);
+    encoded = jsonEncode(content);
+    if(encoded.startsWith("{")) {
+        return ranobeLibNodeHtml(content, imageUrls);
+    }
+    markup = parseString(content).trim();
+    if(markup.startsWith("{")) {
+        return ranobeLibNodeHtml(jsonDecode(markup), imageUrls);
+    }
+    return ranobeLibResolveHtmlImages(markup);
+}
+
+function ranobeLibResolveHtmlImages(markup) {
+    resolved = markup.replaceAll('src="//', 'src="https://').replaceAll('src="/', 'src="https://ranobelib.me/');
+    return resolved.replaceAll("src='//", "src='https://").replaceAll("src='/", "src='https://ranobelib.me/");
+}
+
+function ranobeLibAttachmentUrls(attachments) {
+    urls = {};
+    if(attachments == null) {
+        return urls;
+    }
+    for(a = 0; a < attachments.length; a = a + 1) {
+        attachment = attachments[a];
+        attachmentUrl = ranobeLibAbsoluteUrl(attachment["url"]);
+        if(attachmentUrl != "") {
+            if(attachment["name"] != null) {
+                urls[parseString(attachment["name"])] = attachmentUrl;
+            }
+            if(attachment["filename"] != null) {
+                urls[parseString(attachment["filename"])] = attachmentUrl;
+            }
+        }
+    }
+    return urls;
+}
+
+function ranobeLibAbsoluteUrl(path) {
+    if(path == null) {
+        return "";
+    }
+    link = parseString(path).trim();
+    if(link == "") {
+        return "";
+    }
+    if(link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    if(link.startsWith("/")) {
+        return "https://ranobelib.me" + link;
+    }
+    return "https://ranobelib.me/" + link;
+}
+
+function ranobeLibNodeHtml(node, imageUrls) {
+    nodeType = node["type"];
+    if(nodeType == "text") {
+        return ranobeLibMarkedText(node);
+    }
+    if(nodeType == "hardBreak") {
+        return "<br>";
+    }
+    if(nodeType == "horizontalRule") {
+        return "<hr>";
+    }
+    if(nodeType == "image") {
+        return ranobeLibImageHtml(node, imageUrls);
+    }
+    inner = ranobeLibChildrenHtml(node, imageUrls);
+    if(nodeType == "paragraph") {
+        return "<p>" + inner + "</p>";
+    }
+    if(nodeType == "heading") {
+        headingTag = "h" + ranobeLibHeadingLevel(node);
+        return "<" + headingTag + ">" + inner + "</" + headingTag + ">";
+    }
+    if(nodeType == "blockquote") {
+        return "<blockquote>" + inner + "</blockquote>";
+    }
+    if(nodeType == "bulletList") {
+        return "<ul>" + inner + "</ul>";
+    }
+    if(nodeType == "orderedList") {
+        return "<ol>" + inner + "</ol>";
+    }
+    if(nodeType == "listItem") {
+        return "<li>" + inner + "</li>";
+    }
+    if(nodeType == "codeBlock") {
+        return "<pre>" + inner + "</pre>";
+    }
+    return inner;
+}
+
+function ranobeLibChildrenHtml(parentNode, imageUrls) {
+    children = parentNode["content"];
+    if(children == null) {
+        return "";
+    }
+    pieces = [];
+    for(n = 0; n < children.length; n = n + 1) {
+        pieces.push(ranobeLibNodeHtml(children[n], imageUrls));
+    }
+    return pieces.join("");
+}
+
+function ranobeLibHeadingLevel(headingNode) {
+    attrs = headingNode["attrs"];
+    if(attrs == null) {
+        return "3";
+    }
+    level = attrs["level"];
+    if(level == null) {
+        return "3";
+    }
+    levelText = parseString(level);
+    allowedLevels = ["1", "2", "3", "4", "5", "6"];
+    if(allowedLevels.contains(levelText)) {
+        return levelText;
+    }
+    return "3";
+}
+
+function ranobeLibMarkedText(textNode) {
+    markup = "";
+    if(textNode["text"] != null) {
+        markup = ranobeLibEscapeText(parseString(textNode["text"]));
+    }
+    marks = textNode["marks"];
+    if(marks == null) {
+        return markup;
+    }
+    for(m = 0; m < marks.length; m = m + 1) {
+        markup = ranobeLibApplyMark(marks[m], markup);
+    }
+    return markup;
+}
+
+function ranobeLibApplyMark(mark, markedText) {
+    markType = mark["type"];
+    if(markType == "bold") {
+        return "<strong>" + markedText + "</strong>";
+    }
+    if(markType == "italic") {
+        return "<em>" + markedText + "</em>";
+    }
+    if(markType == "underline") {
+        return "<u>" + markedText + "</u>";
+    }
+    if(markType == "strike") {
+        return "<s>" + markedText + "</s>";
+    }
+    if(markType == "code") {
+        return "<code>" + markedText + "</code>";
+    }
+    if(markType == "superscript") {
+        return "<sup>" + markedText + "</sup>";
+    }
+    if(markType == "subscript") {
+        return "<sub>" + markedText + "</sub>";
+    }
+    if(markType == "link") {
+        return ranobeLibLinkHtml(mark, markedText);
+    }
+    return markedText;
+}
+
+function ranobeLibLinkHtml(linkMark, linkText) {
+    linkAttrs = linkMark["attrs"];
+    if(linkAttrs == null) {
+        return linkText;
+    }
+    if(linkAttrs["href"] == null) {
+        return linkText;
+    }
+    href = ranobeLibEscapeAttribute(parseString(linkAttrs["href"]));
+    return "<a href='" + href + "'>" + linkText + "</a>";
+}
+
+function ranobeLibImageHtml(imageNode, imageUrls) {
+    imageAttrs = imageNode["attrs"];
+    if(imageAttrs == null) {
+        return "";
+    }
+    sources = [];
+    if(imageAttrs["images"] != null) {
+        imageRefs = imageAttrs["images"];
+        for(r = 0; r < imageRefs.length; r = r + 1) {
+            sources.push(ranobeLibImageSource(imageRefs[r], imageUrls));
+        }
+    }
+    if(imageAttrs["src"] != null) {
+        sources.push(ranobeLibAbsoluteUrl(imageAttrs["src"]));
+    }
+    tags = [];
+    for(s = 0; s < sources.length; s = s + 1) {
+        if(sources[s] != "") {
+            tags.push("<p><img src='" + ranobeLibEscapeAttribute(sources[s]) + "'></p>");
+        }
+    }
+    return tags.join("");
+}
+
+function ranobeLibImageSource(imageRef, imageUrls) {
+    if(imageRef == null) {
+        return "";
+    }
+    imageName = imageRef["image"];
+    if(imageName == null) {
+        return "";
+    }
+    imageKey = parseString(imageName);
+    if(imageUrls[imageKey] != null) {
+        return imageUrls[imageKey];
+    }
+    if(imageKey.contains("/")) {
+        return ranobeLibAbsoluteUrl(imageKey);
+    }
+    return "";
+}
+
+function ranobeLibEscapeText(rawText) {
+    return rawText.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function ranobeLibEscapeAttribute(rawValue) {
+    return ranobeLibEscapeText(rawValue).replaceAll("'", "&#39;");
+}
+
+function getImageHeaders(uid, data) {
+    sessionHeaders = getHeaders();
+    imageHeaders = {
+        "Accept": "image/avif,image/webp,*/*",
+        "Referer": "https://ranobelib.me/"
+    };
+    if(sessionHeaders["user-agent"] != null) {
+        imageHeaders["user-agent"] = sessionHeaders["user-agent"];
+    }
+    return imageHeaders;
+}
+
+function passProtector(body, headers, cookies) {
+    libSocialPassProtector(body, headers, cookies, 3, "https://ranobelib.me");
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}

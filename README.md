@@ -8,6 +8,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 |---|---|---|---|
 | MangaLib | Manga | Russian | Requires login; shares the session with HentaiLib |
 | HentaiLib | Manga (NSFW) | Russian | Requires login |
+| RanobeLib | Novel | Russian | Light and web novels; chapters grouped by translation branch; shares the MangaLib login |
 | MangaDex | Manga | English | Status, demographic and content-rating filters |
 | NHentai | Manga (NSFW) | Multi | |
 | Manga/in/UA | Manga | Ukrainian | |

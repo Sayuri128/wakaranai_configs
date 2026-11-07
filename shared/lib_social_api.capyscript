@@ -253,8 +253,46 @@ function libSocialGetGallery(page, query, siteId, filters) {
     });
 
     serialized = libSocialDecodeResponse(result, "lib social gallery");
-    data = serialized["data"];
+    return libSocialGalleryItems(serialized["data"]);
+}
 
+function libSocialGetSortedGallery(page, query, siteId, filters, sortBy, pageSize) {
+    params = {
+        "site_id": [siteId],
+        "caution_list": ["Отсутствует", "16+", "18+"]
+    };
+    if(sortBy != "") {
+        params["sort_by"] = sortBy;
+        params["sort_type"] = "desc";
+    }
+
+    params = libSocialApplyFilters(params, filters);
+
+    if(query.isNotEmpty) {
+        params["q"] = query;
+    }
+    if(page > 1) {
+        params["page"] = page;
+    }
+    if(pageSize > 0) {
+        params["limit"] = pageSize;
+    }
+
+    result = httpGet({
+        "url": "https://api.cdnlibs.org/api/manga",
+        "params": params,
+        "paths": {},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
+
+    serialized = libSocialDecodeResponse(result, "lib social gallery");
+    return libSocialGalleryItems(serialized["data"]);
+}
+
+function libSocialGalleryItems(data) {
     items = [];
 
     for(i = 0; i < data.length; i = i + 1) {
@@ -456,11 +494,8 @@ function libSocialRating(uid) {
     }
 }
 
-function libSocialMetadata(data, uid, siteUrl) {
-    metadata = {"authors": [], "artists": [], "year": null, "rating": null, "url": null};
-    if(siteUrl != "") {
-        metadata["url"] = siteUrl + "/ru/manga/" + uid;
-    }
+function libSocialMetadata(data, uid, titleUrl) {
+    metadata = {"authors": [], "artists": [], "year": null, "rating": null, "url": titleUrl};
     try {
         metadata["authors"] = libSocialNames(data["authors"]);
         metadata["artists"] = libSocialNames(data["artists"]);
@@ -479,6 +514,17 @@ function libSocialMetadata(data, uid, siteUrl) {
 }
 
 function libSocialGetConcrete(uid, siteUrl) {
+    data = libSocialGetTitleData(uid);
+    chapData = libSocialGetChapterList(uid);
+    chapterGroups = libSocialTeamChapterGroups(chapData, uid);
+    titleUrl = null;
+    if(siteUrl != "") {
+        titleUrl = siteUrl + "/ru/manga/" + uid;
+    }
+    return libSocialBuildConcrete(uid, data, chapterGroups, titleUrl);
+}
+
+function libSocialGetTitleData(uid) {
     // buildUri always appends "?" to the url, so we embed the query string
     // directly and use a paths entry to consume that trailing "?".
     result = httpGet({
@@ -493,46 +539,10 @@ function libSocialGetConcrete(uid, siteUrl) {
 
     serialized = libSocialDecodeTitleResponse(result, "lib social title details", uid);
     data = serialized["data"];
+    return data;
+}
 
-    cover = "";
-    if(data["cover"] != null) {
-        if(data["cover"]["default"] != null) {
-            cover = data["cover"]["default"];
-        }
-    }
-
-    title = libSocialTitle(data);
-
-    description = "";
-    if(data["summary"] != null) {
-        description = extractRichText(data["summary"]).trim();
-    }
-
-    tags = [];
-    if(data["genres"] != null) {
-        genres = data["genres"];
-        for(i = 0; i < genres.length; i = i + 1) {
-            tags.push(genres[i]["name"]);
-        }
-    }
-    if(data["tags"] != null) {
-        tagsList = data["tags"];
-        for(i = 0; i < tagsList.length; i = i + 1) {
-            tags.push(tagsList[i]["name"]);
-        }
-    }
-
-    alternativeTitles = [];
-    if(data["eng_name"] != null) {
-        alternativeTitles.push(data["eng_name"]);
-    }
-    if(data["otherNames"] != null) {
-        otherNames = data["otherNames"];
-        for(i = 0; i < otherNames.length; i = i + 1) {
-            alternativeTitles.push(otherNames[i]);
-        }
-    }
-
+function libSocialGetChapterList(uid) {
     chapResult = httpGet({
         "url": "https://api.cdnlibs.org/api/manga/" + uid + "/chapters",
         "params": {},
@@ -545,7 +555,10 @@ function libSocialGetConcrete(uid, siteUrl) {
 
     chapSerialized = libSocialDecodeTitleResponse(chapResult, "lib social chapter list", uid);
     chapData = chapSerialized["data"];
+    return chapData;
+}
 
+function libSocialTeamChapterGroups(chapData, uid) {
     chapterGroups = [];
 
     if(chapData != null) {
@@ -603,7 +616,50 @@ function libSocialGetConcrete(uid, siteUrl) {
         }
     }
 
-    metadata = libSocialMetadata(data, uid, siteUrl);
+    return chapterGroups;
+}
+
+function libSocialBuildConcrete(uid, data, chapterGroups, titleUrl) {
+    cover = "";
+    if(data["cover"] != null) {
+        if(data["cover"]["default"] != null) {
+            cover = data["cover"]["default"];
+        }
+    }
+
+    title = libSocialTitle(data);
+
+    description = "";
+    if(data["summary"] != null) {
+        description = extractRichText(data["summary"]).trim();
+    }
+
+    tags = [];
+    if(data["genres"] != null) {
+        genres = data["genres"];
+        for(i = 0; i < genres.length; i = i + 1) {
+            tags.push(genres[i]["name"]);
+        }
+    }
+    if(data["tags"] != null) {
+        tagsList = data["tags"];
+        for(i = 0; i < tagsList.length; i = i + 1) {
+            tags.push(tagsList[i]["name"]);
+        }
+    }
+
+    alternativeTitles = [];
+    if(data["eng_name"] != null) {
+        alternativeTitles.push(data["eng_name"]);
+    }
+    if(data["otherNames"] != null) {
+        otherNames = data["otherNames"];
+        for(i = 0; i < otherNames.length; i = i + 1) {
+            alternativeTitles.push(otherNames[i]);
+        }
+    }
+
+    metadata = libSocialMetadata(data, uid, titleUrl);
 
     return buildConcrete({
         "uid": uid,
