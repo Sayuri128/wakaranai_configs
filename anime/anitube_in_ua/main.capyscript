@@ -280,6 +280,8 @@ function getVideoSources(uid, src, data) {
             sources = resolveFenixSources(embedUrl);
         } else if (host.contains("mp4upload.")) {
             sources = resolveMp4UploadSources(embedUrl);
+        } else if (host.contains("moonanime.")) {
+            sources = resolveMoonanimeSources(embedUrl);
         } else if (isUnsupportedEmbedHost(host)) {
             sources = [];
         } else {
@@ -320,9 +322,6 @@ function embedHost(pageUrl) {
 }
 
 function isUnsupportedEmbedHost(hostName) {
-    if (hostName.contains("moonanime.")) {
-        return true;
-    }
     if (hostName.contains("monstro.")) {
         return true;
     }
@@ -685,6 +684,150 @@ function resolveFenixSources(fenixPageUrl) {
         }
     }
     return fenixSources;
+}
+
+function moonanimeSlug(moonEmbedUrl) {
+    if (moonEmbedUrl.contains("/iframe/") == false) {
+        return "";
+    }
+    return moonEmbedUrl.split("/iframe/")[1].split("/")[0].split("?")[0];
+}
+
+function readMoonanimePlayerState(moonExpectedSlug) {
+    moonStateScript = `
+        const onEmbedPage = () => location.hostname.indexOf("moonanime.") >= 0 && location.pathname.indexOf(expectedSlug) >= 0;
+        const deadline = Date.now() + 1500;
+        const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const isLink = (value) => typeof value === "string" && value.indexOf("http") === 0;
+        const readStreams = () => {
+            const streams = [];
+            const listed = Array.isArray(window.videoSources) ? window.videoSources : [];
+            for (const entry of listed) {
+                if (entry && isLink(entry.u)) {
+                    streams.push({url: entry.u, quality: typeof entry.q === "string" ? entry.q : ""});
+                }
+            }
+            if (streams.length === 0 && isLink(window.rawVideo)) {
+                streams.push({url: window.rawVideo, quality: ""});
+            }
+            return streams;
+        };
+        const readSubtitles = () => {
+            const tracks = Array.isArray(window.subtitleTracks) ? window.subtitleTracks : [];
+            const subtitles = [];
+            for (const track of tracks) {
+                if (track && isLink(track.u)) {
+                    subtitles.push({url: track.u, label: typeof track.l === "string" ? track.l : ""});
+                }
+            }
+            return subtitles;
+        };
+        const stopPlayer = () => {
+            try {
+                if (window.player && typeof window.player.dispose === "function") {
+                    window.player.dispose();
+                }
+            } catch (e) {}
+        };
+        if (onEmbedPage() == false) {
+            return {ready: false, streams: [], subtitles: []};
+        }
+        while (Date.now() < deadline) {
+            const streams = readStreams();
+            if (streams.length > 0) {
+                const subtitles = readSubtitles();
+                stopPlayer();
+                return {ready: true, streams: streams, subtitles: subtitles};
+            }
+            await pause(150);
+        }
+        return {ready: false, streams: [], subtitles: []};
+    `;
+    moonState = executeJsScript({"code": "const expectedSlug = " + jsonEncode(moonExpectedSlug) + ";" + moonStateScript});
+    if (moonState == null) {
+        return null;
+    }
+    if (moonState["ready"] != true) {
+        return null;
+    }
+    return moonState;
+}
+
+function readMoonanimeSubtitles(moonTracks, moonSubtitleHeaders) {
+    moonSubtitles = [];
+    if (moonTracks == null) {
+        return moonSubtitles;
+    }
+    for (m = 0; m < moonTracks.length; m = m + 1) {
+        moonTrack = moonTracks[m];
+        moonTrackUrl = moonTrack["url"];
+        moonTrackPath = moonTrackUrl.toLowerCase().split("?")[0];
+        if (moonTrackPath.endsWith(".ass") || moonTrackPath.endsWith(".ssa")) {
+            continue;
+        }
+        moonTrackLabel = moonTrack["label"];
+        if (moonTrackLabel == null || moonTrackLabel == "") {
+            moonTrackLabel = "Subtitles";
+        }
+        moonTrackLanguage = guessSubtitleLanguage(moonTrackLabel);
+        if (moonTrackLanguage == null && m == 0) {
+            moonTrackLanguage = "uk";
+        }
+        moonSubtitles.push({
+            "url": moonTrackUrl,
+            "label": moonTrackLabel,
+            "language": moonTrackLanguage,
+            "format": guessSubtitleFormat(moonTrackUrl),
+            "headers": moonSubtitleHeaders
+        });
+    }
+    return moonSubtitles;
+}
+
+function resolveMoonanimeSources(moonPageUrl) {
+    moonPageResponse = httpGet({
+        "url": moonPageUrl,
+        "params": {},
+        "paths": {},
+        "headers": {"Referer": "https://anitube.in.ua/"},
+        "throughWeb": true
+    });
+    if (moonPageResponse["statusCode"] != 200) {
+        return [];
+    }
+    moonExpectedSlug = moonanimeSlug(moonPageUrl);
+    moonPlayerState = null;
+    for (moonPoll = 0; moonPoll < 3; moonPoll = moonPoll + 1) {
+        if (moonPlayerState == null) {
+            moonPlayerState = readMoonanimePlayerState(moonExpectedSlug);
+        }
+    }
+    if (moonPlayerState == null) {
+        return [];
+    }
+    moonStreamHeaders = {
+        "Referer": "https://" + embedHost(moonPageUrl) + "/",
+        "Accept": "*/*",
+        "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8"
+    };
+    moonStreamSubtitles = readMoonanimeSubtitles(moonPlayerState["subtitles"], moonStreamHeaders);
+    moonStreams = moonPlayerState["streams"];
+    moonSources = [];
+    for (n = 0; n < moonStreams.length; n = n + 1) {
+        moonStream = moonStreams[n];
+        moonQuality = moonStream["quality"];
+        if (moonQuality == null || moonQuality == "") {
+            moonQuality = "Auto";
+        }
+        moonSources.push({
+            "url": moonStream["url"],
+            "quality": moonQuality,
+            "format": guessStreamFormat(moonStream["url"]),
+            "headers": moonStreamHeaders,
+            "subtitles": moonStreamSubtitles
+        });
+    }
+    return moonSources;
 }
 
 function getImageHeaders(uid) {
