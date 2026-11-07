@@ -1503,6 +1503,65 @@
     },
     {
       "category": "manga",
+      "path": "manga/manga_sushi",
+      "revision": "ac19db273743ad43",
+      "apiVersion": 1,
+      "config": {
+        "name": "Mangasushi",
+        "uid": "e4ff307c-e817-4983-9e2f-9ea8d0b9b3e8",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_sushi/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Order",
+            "param": "m_orderby",
+            "values": [
+              "latest",
+              "alphabet",
+              "rating",
+              "trending",
+              "views",
+              "new-manga"
+            ],
+            "labels": [
+              "Latest updates",
+              "A-Z",
+              "Rating",
+              "Trending",
+              "Most views",
+              "New"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status[]",
+            "values": [
+              "on-going",
+              "end",
+              "on-hold",
+              "canceled",
+              "upcoming"
+            ],
+            "labels": [
+              "Ongoing",
+              "Completed",
+              "On hold",
+              "Canceled",
+              "Upcoming"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/nhentai",
       "revision": "7d6fb194a9fa6d24",
       "apiVersion": 1,
