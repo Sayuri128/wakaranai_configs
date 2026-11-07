@@ -21,19 +21,19 @@ void main() {
 
     galleryPage1 = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 0, 'query': '', 'filters': []},
+      arguments: {'page': 0, 'query': '', 'filters': [], 'feed': ''},
     )) as List)
         .cast<MangaGalleryView>();
 
     galleryPage2 = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 1, 'query': '', 'filters': []},
+      arguments: {'page': 1, 'query': '', 'filters': [], 'feed': ''},
     )) as List)
         .cast<MangaGalleryView>();
 
     galleryWithQuery = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 0, 'query': 'one piece', 'filters': []},
+      arguments: {'page': 0, 'query': 'one piece', 'filters': [], 'feed': ''},
     )) as List)
         .cast<MangaGalleryView>();
 
