@@ -8,22 +8,51 @@ import "errors";
 
 function checkPageStatus(pageResponse, pageLabel, missingIsError) {
     pageStatus = pageResponse["statusCode"];
-    if (pageStatus == null) {
-        return null;
+    pageBody = pageResponse["body"];
+    if (pageStatus == 403) {
+        throw "HTTP 403 Forbidden (anitube.in.ua " + pageLabel + ")";
     }
-    if (pageStatus == 404) {
-        if (missingIsError) {
-            throwSourceError("notFound", pageLabel + " is no longer on anitube.in.ua");
-        }
-        return null;
+    if (pageStatus == 0 || pageStatus == 408) {
+        throwSourceError("sourceDown", "anitube.in.ua did not load (" + pageLabel + ")");
     }
     if (pageStatus == 429) {
         throwSourceError("rateLimited", "anitube.in.ua is rate limiting requests (" + pageLabel + ")");
     }
-    if (pageStatus >= 500) {
-        throwSourceError("sourceDown", "anitube.in.ua answered HTTP " + parseString(pageStatus) + " (" + pageLabel + ")");
+    if (pageStatus != null) {
+        if (pageStatus >= 500) {
+            throwSourceError("sourceDown", "anitube.in.ua answered HTTP " + parseString(pageStatus) + " (" + pageLabel + ")");
+        }
     }
-    return null;
+    if (pageStatus == 404 || isNotFoundPage(pageBody)) {
+        if (missingIsError) {
+            throwSourceError("notFound", pageLabel + " is no longer on anitube.in.ua");
+        }
+        return false;
+    }
+    if (pageBody == null || pageBody.trim() == "") {
+        throwSourceError("sourceDown", "anitube.in.ua returned an empty page (" + pageLabel + ")");
+    }
+    return true;
+}
+
+function isNotFoundPage(notFoundBody) {
+    if (notFoundBody == null) {
+        return false;
+    }
+    notFoundDocument = createHTMLParser(notFoundBody);
+    notFoundTitle = notFoundDocument.querySelector("title");
+    if (notFoundTitle != null) {
+        if (notFoundTitle.text.trim() == "404 Not Found") {
+            return true;
+        }
+    }
+    notFoundCode = notFoundDocument.querySelector(".container > .title");
+    if (notFoundCode != null) {
+        if (notFoundCode.text.trim() == "404") {
+            return true;
+        }
+    }
+    return false;
 }
 
 function getGallery(page, query, filters, feed) {
@@ -55,7 +84,9 @@ function getGallery(page, query, filters, feed) {
         });
     }
 
-    checkPageStatus(result, "gallery page " + parseString(page), false);
+    if (checkPageStatus(result, "gallery page " + parseString(page), false) == false) {
+        return [];
+    }
 
     document = createHTMLParser(result["body"]);
 
@@ -120,6 +151,9 @@ function getConcrete(uid, data) {
     checkPageStatus(result, uid, true);
     pageBody = result["body"];
     document = createHTMLParser(pageBody);
+    if (document.querySelector(".story_c") == null) {
+        throwSourceError("sourceDown", "anitube.in.ua returned a page without title details (" + uid + ")");
+    }
 
     infoElement = document.querySelector(".story_c > .rcol > .story_c_r");
     infoHtml = "";
