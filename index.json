@@ -2794,6 +2794,252 @@
     },
     {
       "category": "anime",
+      "path": "anime/anihub",
+      "revision": "949b600bb8ff104e",
+      "apiVersion": 2,
+      "config": {
+        "name": "AniHub",
+        "uid": "2b3cf19f-1c68-4924-b020-bd6251cb4e75",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/anihub/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "apiVersion": 2,
+        "contentKinds": [
+          "anime"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": {
+          "pingUrl": "https://anihub.in.ua/",
+          "needToLogin": false,
+          "inAppBrowserInterceptor": true,
+          "pageLoadTimeoutSeconds": 45
+        },
+        "feeds": [
+          {
+            "id": "updated",
+            "title": "Recently updated"
+          },
+          {
+            "id": "episodes",
+            "title": "New episodes"
+          },
+          {
+            "id": "popular",
+            "title": "Popular"
+          },
+          {
+            "id": "rating",
+            "title": "Top rated"
+          },
+          {
+            "id": "added",
+            "title": "Newly added"
+          }
+        ],
+        "filters": [
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Type",
+            "param": "type",
+            "values": [
+              [
+                "tv",
+                "movie",
+                "ova",
+                "ona",
+                "special"
+              ]
+            ],
+            "labels": [
+              [
+                "TV series",
+                "Movie",
+                "OVA",
+                "ONA",
+                "Special"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status",
+            "values": [
+              [
+                "ongoing",
+                "completed",
+                "announced",
+                "dropped"
+              ]
+            ],
+            "labels": [
+              [
+                "Ongoing",
+                "Completed",
+                "Announced",
+                "Dropped"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Genres",
+            "param": "genres",
+            "values": [
+              [
+                "Drama",
+                "Action",
+                "Ecchi",
+                "Horror",
+                "Isekai",
+                "Comedy",
+                "Mecha",
+                "Music",
+                "Supernatural",
+                "Sci-Fi",
+                "Slice of Life",
+                "Adventure",
+                "Psychological",
+                "Romance",
+                "Sports",
+                "Mystery",
+                "Thriller",
+                "Fantasy",
+                "Mahou Shoujo"
+              ]
+            ],
+            "labels": [
+              [
+                "Drama",
+                "Action",
+                "Ecchi",
+                "Horror",
+                "Isekai",
+                "Comedy",
+                "Mecha",
+                "Music",
+                "Supernatural",
+                "Sci-Fi",
+                "Slice of Life",
+                "Adventure",
+                "Psychological",
+                "Romance",
+                "Sports",
+                "Mystery",
+                "Thriller",
+                "Fantasy",
+                "Magical girls"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Season",
+            "param": "season_name",
+            "values": [
+              [
+                "winter",
+                "spring",
+                "summer",
+                "fall"
+              ]
+            ],
+            "labels": [
+              [
+                "Winter",
+                "Spring",
+                "Summer",
+                "Fall"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Player",
+            "param": "players",
+            "values": [
+              [
+                "fenix",
+                "ashdi",
+                "moonanime"
+              ]
+            ],
+            "labels": [
+              [
+                "Fenix",
+                "Ashdi",
+                "MoonAnime"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Country",
+            "param": "country",
+            "values": [
+              [
+                "JP",
+                "CN",
+                "KR",
+                "TW",
+                "US",
+                "FR",
+                "OTHER"
+              ]
+            ],
+            "labels": [
+              [
+                "Japan",
+                "China (donghua)",
+                "South Korea",
+                "Taiwan",
+                "USA",
+                "France",
+                "Other countries"
+              ]
+            ]
+          }
+        ],
+        "preferences": [
+          {
+            "key": "preferredPlayer",
+            "type": "select",
+            "title": "Preferred player",
+            "summary": "Episode lists from this player come first within each dub",
+            "default": "auto",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Site order"
+              },
+              {
+                "value": "fenix",
+                "label": "Fenix"
+              },
+              {
+                "value": "ashdi",
+                "label": "Ashdi"
+              },
+              {
+                "value": "moonanime",
+                "label": "MoonAnime"
+              }
+            ]
+          },
+          {
+            "key": "preferredDubs",
+            "type": "text",
+            "title": "Preferred dubs",
+            "summary": "Dub studio names to list first, comma-separated in order of preference, e.g. Кіото, FanVoxUA",
+            "default": ""
+          }
+        ]
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/anitube_in_ua",
       "revision": "c298f016c07c05e0",
       "apiVersion": 2,
