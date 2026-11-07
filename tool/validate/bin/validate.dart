@@ -211,6 +211,10 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     fail('"minAppVersion" must look like 1.2.3');
   }
   _collectConfigApiFeatures(config, features);
+  _validatePreferences(config['preferences'], fail);
+  _validateRequestPolicy(config['requestPolicy'], fail);
+  _validateFeeds(config['feeds'], fail);
+  _validateDownloadConfig(config['downloadConfig'], fail);
   final logoUrl = config['logoUrl'];
   if (logoUrl is String && !logoUrl.endsWith('/$name/logo.png?raw=true')) {
     fail('"logoUrl" should point at $name/logo.png');
@@ -265,6 +269,340 @@ void _collectConfigApiFeatures(
       features.add(_ApiFeature(
           'config field "downloadConfig.${entry.key}"', entry.value));
     }
+  }
+}
+
+const Set<String> _preferenceTypes = {
+  'toggle',
+  'select',
+  'multiselect',
+  'text',
+  'number',
+};
+const Set<String> _optionPreferenceTypes = {'select', 'multiselect'};
+const Set<String> _preferenceFields = {
+  'key',
+  'type',
+  'title',
+  'summary',
+  'default',
+  'options',
+};
+const Set<String> _requestPolicyFields = {
+  'rateLimit',
+  'defaultHeaders',
+  'userAgent',
+  'mirrors',
+};
+const Set<String> _rateLimitFields = {'requests', 'perSeconds'};
+const Set<String> _feedFields = {'id', 'title'};
+const String _reservedPreferencePrefix = '__';
+const int _maxSegmentConcurrency = 8;
+
+bool _isNonEmptyString(Object? value) =>
+    value is String && value.trim().isNotEmpty;
+
+void _rejectUnknownFields(Map<dynamic, dynamic> object, Set<String> known,
+    String path, void Function(String) fail) {
+  for (final field in object.keys) {
+    if (!known.contains(field)) {
+      fail('"$path.$field" is not a known field (${known.join(', ')})');
+    }
+  }
+}
+
+void _validatePreferences(Object? preferences, void Function(String) fail) {
+  if (preferences == null) {
+    return;
+  }
+  if (preferences is! List) {
+    fail('"preferences" must be a list');
+    return;
+  }
+  final keys = <String>{};
+  for (var index = 0; index < preferences.length; index++) {
+    final preference = preferences[index];
+    final path = 'preferences[$index]';
+    if (preference is! Map) {
+      fail('"$path" must be an object');
+      continue;
+    }
+    _rejectUnknownFields(preference, _preferenceFields, path, fail);
+    final key = preference['key'];
+    if (!_isNonEmptyString(key)) {
+      fail('"$path.key" must be a non-empty string');
+    } else if ((key as String).startsWith(_reservedPreferencePrefix)) {
+      fail('"$path.key" "$key" uses the reserved "$_reservedPreferencePrefix" '
+          'prefix');
+    } else if (!keys.add(key)) {
+      fail('"$path.key" "$key" is declared more than once');
+    }
+    final type = preference['type'];
+    if (!_preferenceTypes.contains(type)) {
+      fail('"$path.type" must be one of ${_preferenceTypes.join(', ')}');
+    }
+    if (!_isNonEmptyString(preference['title'])) {
+      fail('"$path.title" must be a non-empty string');
+    }
+    final summary = preference['summary'];
+    if (summary != null && summary is! String) {
+      fail('"$path.summary" must be a string or null');
+    }
+    final optionValues = _validatePreferenceOptions(
+        preference['options'], type, path, fail);
+    final defaultValue = preference['default'];
+    if (defaultValue != null) {
+      _validatePreferenceDefault(defaultValue, type, optionValues, path, fail);
+    }
+  }
+}
+
+Set<String> _validatePreferenceOptions(
+    Object? options, Object? type, String path, void Function(String) fail) {
+  final values = <String>{};
+  final needsOptions = _optionPreferenceTypes.contains(type);
+  if (options == null) {
+    if (needsOptions) {
+      fail('"$path.options" is required for a $type preference');
+    }
+    return values;
+  }
+  if (options is! List) {
+    fail('"$path.options" must be a list');
+    return values;
+  }
+  if (!needsOptions) {
+    if (options.isNotEmpty) {
+      fail('"$path.options" only applies to select and multiselect '
+          'preferences');
+    }
+    return values;
+  }
+  if (options.isEmpty) {
+    fail('"$path.options" must not be empty for a $type preference');
+  }
+  for (var index = 0; index < options.length; index++) {
+    final option = options[index];
+    final optionPath = '$path.options[$index]';
+    if (option is! Map) {
+      fail('"$optionPath" must be an object with value and label');
+      continue;
+    }
+    _rejectUnknownFields(option, const {'value', 'label'}, optionPath, fail);
+    final value = option['value'];
+    if (value is! String) {
+      fail('"$optionPath.value" must be a string');
+    } else if (!values.add(value)) {
+      fail('"$optionPath.value" "$value" is listed more than once');
+    }
+    if (!_isNonEmptyString(option['label'])) {
+      fail('"$optionPath.label" must be a non-empty string');
+    }
+  }
+  return values;
+}
+
+void _validatePreferenceDefault(Object defaultValue, Object? type,
+    Set<String> optionValues, String path, void Function(String) fail) {
+  final defaultPath = '$path.default';
+  switch (type) {
+    case 'toggle':
+      if (defaultValue is! bool) {
+        fail('"$defaultPath" must be a bool for a toggle preference');
+      }
+    case 'text':
+      if (defaultValue is! String) {
+        fail('"$defaultPath" must be a string for a text preference');
+      }
+    case 'number':
+      if (defaultValue is! num) {
+        fail('"$defaultPath" must be a number for a number preference');
+      }
+    case 'select':
+      if (defaultValue is! String) {
+        fail('"$defaultPath" must be a string for a select preference');
+      } else if (!optionValues.contains(defaultValue)) {
+        fail('"$defaultPath" "$defaultValue" is not one of the option values');
+      }
+    case 'multiselect':
+      if (defaultValue is! List) {
+        fail('"$defaultPath" must be a list of option values for a '
+            'multiselect preference');
+        return;
+      }
+      final seen = <String>{};
+      for (final value in defaultValue) {
+        if (value is! String || !optionValues.contains(value)) {
+          fail('"$defaultPath" entry $value is not one of the option values');
+        } else if (!seen.add(value)) {
+          fail('"$defaultPath" lists $value more than once');
+        }
+      }
+  }
+}
+
+void _validateRequestPolicy(Object? policy, void Function(String) fail) {
+  if (policy == null) {
+    return;
+  }
+  if (policy is! Map) {
+    fail('"requestPolicy" must be an object or null');
+    return;
+  }
+  _rejectUnknownFields(policy, _requestPolicyFields, 'requestPolicy', fail);
+  _validateRateLimit(policy['rateLimit'], fail);
+  final defaultHeaders = policy['defaultHeaders'];
+  if (defaultHeaders != null) {
+    if (defaultHeaders is! Map) {
+      fail('"requestPolicy.defaultHeaders" must map header names to strings');
+    } else {
+      for (final entry in defaultHeaders.entries) {
+        if (!_isNonEmptyString(entry.key) || entry.value is! String) {
+          fail('"requestPolicy.defaultHeaders.${entry.key}" must map a header '
+              'name to a string');
+        }
+      }
+    }
+  }
+  final userAgent = policy['userAgent'];
+  if (userAgent != null && !_isNonEmptyString(userAgent)) {
+    fail('"requestPolicy.userAgent" must be a non-empty string or null');
+  }
+  _validateMirrors(policy['mirrors'], fail);
+}
+
+void _validateRateLimit(Object? rateLimit, void Function(String) fail) {
+  if (rateLimit == null) {
+    return;
+  }
+  if (rateLimit is! Map) {
+    fail('"requestPolicy.rateLimit" must be an object or null');
+    return;
+  }
+  _rejectUnknownFields(
+      rateLimit, _rateLimitFields, 'requestPolicy.rateLimit', fail);
+  final requests = rateLimit['requests'];
+  if (requests is! int || requests <= 0) {
+    fail('"requestPolicy.rateLimit.requests" must be a positive integer');
+  }
+  final perSeconds = rateLimit['perSeconds'];
+  if (perSeconds is! num || perSeconds <= 0) {
+    fail('"requestPolicy.rateLimit.perSeconds" must be a positive number');
+  }
+}
+
+void _validateMirrors(Object? mirrors, void Function(String) fail) {
+  if (mirrors == null) {
+    return;
+  }
+  if (mirrors is! List) {
+    fail('"requestPolicy.mirrors" must be a list of base URLs');
+    return;
+  }
+  final seen = <String>{};
+  String? sharedPath;
+  for (var index = 0; index < mirrors.length; index++) {
+    final mirror = mirrors[index];
+    final path = 'requestPolicy.mirrors[$index]';
+    final problem = _mirrorProblem(mirror);
+    if (problem != null) {
+      fail('"$path" $problem');
+      continue;
+    }
+    final mirrorUrl = mirror as String;
+    final uri = Uri.parse(mirrorUrl);
+    if (!seen.add(mirrorUrl.toLowerCase())) {
+      fail('"$path" $mirrorUrl is listed more than once');
+    }
+    if (sharedPath == null) {
+      sharedPath = uri.path;
+    } else if (uri.path != sharedPath) {
+      fail('"$path" $mirrorUrl has path "${uri.path}" but the first mirror has '
+          '"$sharedPath"; mirrors are swapped as prefixes, so their paths must '
+          'match');
+    }
+  }
+}
+
+String? _mirrorProblem(Object? mirror) {
+  if (mirror is! String || mirror.isEmpty || mirror.trim() != mirror) {
+    return 'must be a URL string without surrounding spaces';
+  }
+  final Uri uri;
+  try {
+    uri = Uri.parse(mirror);
+  } on FormatException {
+    return '$mirror is not a valid URL';
+  }
+  if (uri.scheme != 'http' && uri.scheme != 'https') {
+    return '$mirror must be an absolute http(s) URL';
+  }
+  if (uri.host.isEmpty) {
+    return '$mirror has no host';
+  }
+  if (uri.userInfo.isNotEmpty) {
+    return '$mirror must not carry credentials';
+  }
+  if (uri.hasQuery || uri.hasFragment) {
+    return '$mirror must not have a query or fragment';
+  }
+  if (mirror.endsWith('/')) {
+    return '$mirror must not end with "/"; mirrors are prefixes of request URLs';
+  }
+  return null;
+}
+
+void _validateFeeds(Object? feeds, void Function(String) fail) {
+  if (feeds == null) {
+    return;
+  }
+  if (feeds is! List) {
+    fail('"feeds" must be a list');
+    return;
+  }
+  final ids = <String>{};
+  for (var index = 0; index < feeds.length; index++) {
+    final feed = feeds[index];
+    final path = 'feeds[$index]';
+    if (feed is! Map) {
+      fail('"$path" must be an object with id and title');
+      continue;
+    }
+    _rejectUnknownFields(feed, _feedFields, path, fail);
+    final id = feed['id'];
+    if (!_isNonEmptyString(id)) {
+      fail('"$path.id" must be a non-empty string');
+    } else if (!ids.add(id as String)) {
+      fail('"$path.id" "$id" is declared more than once');
+    }
+    if (!_isNonEmptyString(feed['title'])) {
+      fail('"$path.title" must be a non-empty string');
+    }
+  }
+}
+
+void _validateDownloadConfig(
+    Object? downloadConfig, void Function(String) fail) {
+  if (downloadConfig == null) {
+    return;
+  }
+  if (downloadConfig is! Map) {
+    fail('"downloadConfig" must be an object or null');
+    return;
+  }
+  for (final field in ['pageDelayMs', 'chapterDelayMs', 'episodeDelayMs']) {
+    final delay = downloadConfig[field];
+    if (delay != null && (delay is! int || delay < 0)) {
+      fail('"downloadConfig.$field" must be an integer of at least 0');
+    }
+  }
+  final concurrency = downloadConfig['segmentConcurrency'];
+  if (concurrency != null &&
+      (concurrency is! int ||
+          concurrency < 1 ||
+          concurrency > _maxSegmentConcurrency)) {
+    fail('"downloadConfig.segmentConcurrency" must be an integer from 1 to '
+        '$_maxSegmentConcurrency');
   }
 }
 
