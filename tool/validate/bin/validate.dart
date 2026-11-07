@@ -19,6 +19,46 @@ final RegExp _import = RegExp(r'''^import\s+["']([^"']+)["']\s*;''', multiLine: 
 final RegExp _incrementBeforeContinue = RegExp(
     r'\b(\w+)\s*(?:=\s*\1\s*\+\s*1|\+\+|\+=\s*1)\s*;\s*continue\s*;');
 
+const int _legacyApiVersion = 1;
+const int _latestApiVersion = 2;
+
+const Map<String, int> _moduleApiVersions = {
+  'preferences': 2,
+  'storage': 2,
+  'errors': 2,
+};
+
+const Map<String, int> _functionApiVersions = {
+  'getPreference': 2,
+  'storageGet': 2,
+  'storageSet': 2,
+  'storageRemove': 2,
+  'throwSourceError': 2,
+  'currentMirror': 2,
+};
+
+const Map<String, int> _configFieldApiVersions = {
+  'preferences': 2,
+  'requestPolicy': 2,
+  'feeds': 2,
+};
+
+const Map<String, int> _downloadConfigFieldApiVersions = {
+  'segmentConcurrency': 2,
+  'episodeDelayMs': 2,
+};
+
+final RegExp _semanticVersion = RegExp(r'^\d+\.\d+\.\d+$');
+final RegExp _apiFunctionCall =
+    RegExp('\\b(${_functionApiVersions.keys.join('|')})\\s*\\(');
+
+class _ApiFeature {
+  const _ApiFeature(this.description, this.apiVersion);
+
+  final String description;
+  final int apiVersion;
+}
+
 void main(List<String> args) {
   final root = Directory(args.isEmpty ? '.' : args.first).absolute;
   final errors = <String>[];
@@ -69,7 +109,8 @@ void _validateExtension(Directory dir, String name, String category,
     return;
   }
 
-  _validateConfig(decoded, name, category, fail);
+  final features = <_ApiFeature>[];
+  _validateConfig(decoded, name, category, features, fail);
 
   final uid = decoded['uid'];
   if (uid is String) {
@@ -91,16 +132,40 @@ void _validateExtension(Directory dir, String name, String category,
     return;
   }
   final functions = <String>{};
-  _validateScript(script, functions, <String>{}, fail);
+  _validateScript(script, functions, <String>{}, features, fail);
   for (final required in _requiredFunctions[category]!) {
     if (!functions.contains(required)) {
       fail('main.capyscript does not define $required');
     }
   }
+  _validateApiFeatures(_declaredApiVersion(decoded), features, fail);
+}
+
+int _declaredApiVersion(Map<String, dynamic> config) {
+  final apiVersion = config['apiVersion'];
+  if (apiVersion is int) {
+    return apiVersion;
+  }
+  return _legacyApiVersion;
+}
+
+void _validateApiFeatures(
+    int apiVersion, List<_ApiFeature> features, void Function(String) fail) {
+  final reported = <String>{};
+  for (final feature in features) {
+    if (feature.apiVersion <= apiVersion) {
+      continue;
+    }
+    if (!reported.add(feature.description)) {
+      continue;
+    }
+    fail('${feature.description} needs "apiVersion": ${feature.apiVersion} '
+        'or higher (declared $apiVersion)');
+  }
 }
 
 void _validateConfig(Map<String, dynamic> config, String name, String category,
-    void Function(String) fail) {
+    List<_ApiFeature> features, void Function(String) fail) {
   void expectType<T>(String key, {bool nullable = false}) {
     final value = config[key];
     if (value == null && nullable) {
@@ -121,6 +186,8 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   expectType<bool>('searchAvailable');
   expectType<List>('filters');
   expectType<Map>('protectorConfig', nullable: true);
+  expectType<int>('apiVersion', nullable: true);
+  expectType<String>('minAppVersion', nullable: true);
 
   final uid = config['uid'];
   if (uid is String && !_uuid.hasMatch(uid)) {
@@ -133,6 +200,17 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   if (version is int && version < 1) {
     fail('"version" must be at least 1');
   }
+  final apiVersion = config['apiVersion'];
+  if (apiVersion is int &&
+      (apiVersion < _legacyApiVersion || apiVersion > _latestApiVersion)) {
+    fail('"apiVersion" must be between $_legacyApiVersion and '
+        '$_latestApiVersion, the highest api version this tooling knows');
+  }
+  final minAppVersion = config['minAppVersion'];
+  if (minAppVersion is String && !_semanticVersion.hasMatch(minAppVersion)) {
+    fail('"minAppVersion" must look like 1.2.3');
+  }
+  _collectConfigApiFeatures(config, features);
   final logoUrl = config['logoUrl'];
   if (logoUrl is String && !logoUrl.endsWith('/$name/logo.png?raw=true')) {
     fail('"logoUrl" should point at $name/logo.png');
@@ -171,8 +249,27 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   }
 }
 
+void _collectConfigApiFeatures(
+    Map<String, dynamic> config, List<_ApiFeature> features) {
+  for (final entry in _configFieldApiVersions.entries) {
+    if (config[entry.key] != null) {
+      features.add(_ApiFeature('config field "${entry.key}"', entry.value));
+    }
+  }
+  final downloadConfig = config['downloadConfig'];
+  if (downloadConfig is! Map) {
+    return;
+  }
+  for (final entry in _downloadConfigFieldApiVersions.entries) {
+    if (downloadConfig[entry.key] != null) {
+      features.add(_ApiFeature(
+          'config field "downloadConfig.${entry.key}"', entry.value));
+    }
+  }
+}
+
 void _validateScript(File file, Set<String> functions, Set<String> visited,
-    void Function(String) fail) {
+    List<_ApiFeature> features, void Function(String) fail) {
   final path = file.absolute.path;
   if (!visited.add(path)) {
     return;
@@ -208,10 +305,21 @@ void _validateScript(File file, Set<String> functions, Set<String> visited,
         'incremented before continue, which skips the next iteration');
   }
 
+  for (final match in _apiFunctionCall.allMatches(code)) {
+    final function = match.group(1)!;
+    features.add(
+        _ApiFeature('$label calls $function', _functionApiVersions[function]!));
+  }
+
   for (final match in _import.allMatches(code)) {
     final module = source.substring(match.start, match.end);
     final name = _import.firstMatch(module)!.group(1)!;
     if (moduleFactories.containsKey(name)) {
+      continue;
+    }
+    final moduleApiVersion = _moduleApiVersions[name];
+    if (moduleApiVersion != null) {
+      features.add(_ApiFeature('$label imports "$name"', moduleApiVersion));
       continue;
     }
     if (!name.startsWith('./') && !name.startsWith('../')) {
@@ -224,7 +332,7 @@ void _validateScript(File file, Set<String> functions, Set<String> visited,
       fail('$label imports "$name", but ${imported.path} does not exist');
       continue;
     }
-    _validateScript(imported, functions, visited, fail);
+    _validateScript(imported, functions, visited, features, fail);
   }
 }
 
