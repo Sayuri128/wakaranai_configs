@@ -37,6 +37,10 @@ function extractRichText(node) {
 }
 
 function libSocialDecodeResponse(apiResponse, requestLabel) {
+    return libSocialDecodeTitleResponse(apiResponse, requestLabel, "");
+}
+
+function libSocialDecodeTitleResponse(apiResponse, requestLabel, titleUid) {
     apiStatusCode = apiResponse["statusCode"];
     if(apiStatusCode >= 200) {
         if(apiStatusCode < 300) {
@@ -53,7 +57,7 @@ function libSocialDecodeResponse(apiResponse, requestLabel) {
         throw "HTTP 403 from the API host's DDoS guard, try another mirror (" + requestLabel + ")";
     }
     if(apiStatusCode == 404) {
-        libSocialMissingOrSignedOut(requestLabel);
+        libSocialMissingOrSignedOut(requestLabel, titleUid);
     }
     if(apiStatusCode == 429) {
         throwSourceError("rateLimited", "too many requests (" + requestLabel + ")");
@@ -64,8 +68,36 @@ function libSocialDecodeResponse(apiResponse, requestLabel) {
     throw "HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")";
 }
 
-function libSocialMissingOrSignedOut(missingLabel) {
-    signedIn = true;
+function libSocialMissingOrSignedOut(missingLabel, missingTitleUid) {
+    sessionHeaders = getHeaders();
+    if(libSocialHasSessionToken(sessionHeaders)) {
+        if(libSocialSessionRejected()) {
+            throwSourceError("loginRequired", "the saved session has expired, sign in again (" + missingLabel + ")");
+        }
+        throwSourceError("notFound", "not found on the source (" + missingLabel + ")");
+    }
+    if(sessionHeaders["site-id"] == "4") {
+        throwSourceError("loginRequired", "the source hides this while signed out, sign in (" + missingLabel + ")");
+    }
+    if(libSocialTitleHiddenFromGuests(missingTitleUid)) {
+        throwSourceError("loginRequired", "the source hides this title while signed out, sign in (" + missingLabel + ")");
+    }
+    throwSourceError("notFound", "not found on the source (" + missingLabel + ")");
+}
+
+function libSocialHasSessionToken(tokenHeaders) {
+    sessionToken = tokenHeaders["Authorization"];
+    if(sessionToken == null) {
+        sessionToken = tokenHeaders["authorization"];
+    }
+    if(sessionToken == null) {
+        return false;
+    }
+    return parseString(sessionToken).trim() != "";
+}
+
+function libSocialSessionRejected() {
+    rejected = false;
     try {
         sessionCheck = httpGet({
             "url": "https://api.cdnlibs.org/api/auth/me",
@@ -77,15 +109,47 @@ function libSocialMissingOrSignedOut(missingLabel) {
             "throughWeb": false
         });
         if(sessionCheck["statusCode"] == 401) {
-            signedIn = false;
+            rejected = true;
         }
     } catch(e) {
-        signedIn = true;
+        rejected = false;
     }
-    if(signedIn == false) {
-        throwSourceError("loginRequired", "the source hides this while signed out, sign in again (" + missingLabel + ")");
+    return rejected;
+}
+
+function libSocialTitleHiddenFromGuests(hiddenTitleUid) {
+    if(hiddenTitleUid == null || hiddenTitleUid == "") {
+        return false;
     }
-    throwSourceError("notFound", "not found on the source (" + missingLabel + ")");
+    hidden = false;
+    try {
+        titleCheck = httpGet({
+            "url": "https://api.cdnlibs.org/api/manga/" + hiddenTitleUid,
+            "params": {},
+            "paths": {},
+            "headers": {
+                "Accept": "application/json"
+            },
+            "throughWeb": false
+        });
+        if(titleCheck["statusCode"] == 404) {
+            chapterCheck = httpGet({
+                "url": "https://api.cdnlibs.org/api/manga/" + hiddenTitleUid + "/chapters",
+                "params": {},
+                "paths": {},
+                "headers": {
+                    "Accept": "application/json"
+                },
+                "throughWeb": false
+            });
+            if(chapterCheck["statusCode"] == 200) {
+                hidden = true;
+            }
+        }
+    } catch(e) {
+        hidden = false;
+    }
+    return hidden;
 }
 
 function libSocialIsJson(responseBody) {
@@ -427,7 +491,7 @@ function libSocialGetConcrete(uid, siteUrl) {
         "throughWeb": false
     });
 
-    serialized = libSocialDecodeResponse(result, "lib social title details");
+    serialized = libSocialDecodeTitleResponse(result, "lib social title details", uid);
     data = serialized["data"];
 
     cover = "";
@@ -479,7 +543,7 @@ function libSocialGetConcrete(uid, siteUrl) {
         "throughWeb": false
     });
 
-    chapSerialized = libSocialDecodeResponse(chapResult, "lib social chapter list");
+    chapSerialized = libSocialDecodeTitleResponse(chapResult, "lib social chapter list", uid);
     chapData = chapSerialized["data"];
 
     chapterGroups = [];
@@ -579,7 +643,7 @@ function libSocialGetPages(uid, data, imageBaseUrl) {
         "throughWeb": false
     });
 
-    deserialized = libSocialDecodeResponse(result, "lib social chapter pages");
+    deserialized = libSocialDecodeTitleResponse(result, "lib social chapter pages", mangaSlug);
     pages = deserialized["data"]["pages"];
 
     value = [];

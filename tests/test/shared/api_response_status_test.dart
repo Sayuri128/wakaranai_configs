@@ -3,6 +3,7 @@ import 'package:capyscript/Interpreter/capyscript_runtime_error.dart';
 import 'package:capyscript/Interpreter/interpreter.dart';
 import 'package:capyscript/api_clients/host/extension_host.dart';
 import 'package:capyscript/api_clients/source_error.dart';
+import 'package:capyscript/modules/http/http_module.dart';
 import 'package:capyscript/modules/http/http_response.dart';
 import 'package:capyscript/modules/waka_models/models/config_info/preferences/extension_preference.dart';
 import 'package:test/test.dart';
@@ -186,7 +187,7 @@ void main() {
     'shared/lib_social_api.capyscript',
     'libSocialDecodeResponse',
     signalsLoginOn401: true,
-    anonymous404Kind: SourceErrorKind.loginRequired,
+    anonymous404Kind: SourceErrorKind.notFound,
     host: hostFor(
       loadConfig('manga/manga_lib'),
       preferences: {ExtensionPreference.mirrorKey: 'https://api.lib.social'},
@@ -212,5 +213,119 @@ void main() {
     );
     expect(value, contains('mirror'));
     expect(value, contains('gallery'));
+  });
+
+  describeLibSocialMissing();
+}
+
+const String mangaLibHiddenFromGuests = '3754--sweet-home-kim-carnby-';
+const String libSocialMissingTitle = '999999999--wakaranai-missing-title';
+const String browserUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+
+Map<String, String> libSocialSessionHeaders(int siteId, String siteUrl) {
+  return {
+    'site-id': '$siteId',
+    'Referer': '$siteUrl/',
+    'user-agent': browserUserAgent,
+    'x-requested-with': 'XMLHttpRequest',
+  };
+}
+
+void describeLibSocialMissing() {
+  group('lib social 404 classification', () {
+    Interpreter interpreterWithHeaders(
+      String extensionDirectory,
+      Map<String, String> sessionHeaders,
+    ) {
+      final interpreter = Interpreter.fromFile(
+        path: scriptPath('shared/lib_social_api.capyscript'),
+        host: hostFor(
+          loadConfig(extensionDirectory),
+          preferences: {
+            ExtensionPreference.mirrorKey: 'https://api.cdnlibs.org',
+          },
+          uidSuffix: '-missing',
+        ),
+      );
+      (interpreter.builtinModule(HttpModule.module_name) as HttpModule)
+          .setHeaders(sessionHeaders);
+      return interpreter;
+    }
+
+    Future<SourceError> missingTitleError(
+      Interpreter interpreter,
+      String titleUid,
+      SourceErrorKind kind,
+    ) {
+      return expectSourceError(
+        () => interpreter.runFunction(
+          'libSocialDecodeTitleResponse',
+          arguments: {
+            'apiResponse': fakeResponse(
+              404,
+              '{"data":{"toast":{"type":"silent","message":"Not Found"}}}',
+            ),
+            'requestLabel': 'title details',
+            'titleUid': titleUid,
+          },
+        ),
+        kind,
+      );
+    }
+
+    test('a MangaLib guest gets notFound for a removed title', () async {
+      final interpreter = interpreterWithHeaders(
+        'manga/manga_lib',
+        libSocialSessionHeaders(1, 'https://mangalib.me'),
+      );
+      await missingTitleError(
+        interpreter,
+        libSocialMissingTitle,
+        SourceErrorKind.notFound,
+      );
+    });
+
+    test('a MangaLib guest is asked to sign in for a title hidden from guests',
+        () async {
+      final interpreter = interpreterWithHeaders(
+        'manga/manga_lib',
+        libSocialSessionHeaders(1, 'https://mangalib.me'),
+      );
+      await missingTitleError(
+        interpreter,
+        mangaLibHiddenFromGuests,
+        SourceErrorKind.loginRequired,
+      );
+    });
+
+    test('a HentaiLib guest is asked to sign in on any 404', () async {
+      final interpreter = interpreterWithHeaders(
+        'manga/hentai_lib',
+        libSocialSessionHeaders(4, 'https://hentailib.me'),
+      );
+      await missingTitleError(
+        interpreter,
+        libSocialMissingTitle,
+        SourceErrorKind.loginRequired,
+      );
+    });
+
+    test('an expired session token is asked to sign in again', () async {
+      final interpreter = interpreterWithHeaders(
+        'manga/manga_lib',
+        {
+          ...libSocialSessionHeaders(1, 'https://mangalib.me'),
+          'Authorization': 'Bearer wakaranai-expired-token',
+        },
+      );
+      final error = await missingTitleError(
+        interpreter,
+        libSocialMissingTitle,
+        SourceErrorKind.loginRequired,
+      );
+      expect(error.message, contains('expired'));
+    });
   });
 }
