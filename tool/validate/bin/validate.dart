@@ -238,7 +238,13 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     if (group != null && group is! String) {
       fail('"protectorConfig.sessionGroup" must be String or null');
     }
+    final timeout = protector['pageLoadTimeoutSeconds'];
+    if (timeout != null && (timeout is! int || timeout < 5 || timeout > 120)) {
+      fail('"protectorConfig.pageLoadTimeoutSeconds" must be an integer from '
+          '5 to 120');
+    }
   }
+  _validateContentKinds(config['contentKinds'], fail);
 
   final filters = config['filters'];
   if (filters is List) {
@@ -586,6 +592,27 @@ void _validateFeeds(Object? feeds, void Function(String) fail) {
     }
     if (!_isNonEmptyString(feed['title'])) {
       fail('"$path.title" must be a non-empty string');
+    }
+  }
+}
+
+final RegExp _contentKind = RegExp(r'^[a-z][a-z0-9-]*$');
+
+void _validateContentKinds(Object? kinds, void Function(String) fail) {
+  if (kinds == null) {
+    return;
+  }
+  if (kinds is! List || kinds.isEmpty) {
+    fail('"contentKinds" must be a non-empty list of lowercase strings');
+    return;
+  }
+  final seen = <String>{};
+  for (final kind in kinds) {
+    if (kind is! String || !_contentKind.hasMatch(kind)) {
+      fail('"contentKinds" entry $kind must be a lowercase word such as '
+          '"anime" or "movie"');
+    } else if (!seen.add(kind)) {
+      fail('"contentKinds" lists "$kind" twice');
     }
   }
 }
