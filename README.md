@@ -21,6 +21,9 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | ReManga | Manga | Russian | Translation branches; type, status, genre and age filters |
 | Honey Manga | Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
 | Zenko | Manga | Ukrainian | Type, status and genre filters; chapters grouped by team |
+| Komga | Manga | Multi | Your own Komga server; set the address and an API key or email and password in the extension settings |
+| Kavita | Manga | Multi | Your own Kavita server; set the address and API key in the extension settings |
+| OPDS | Manga | Multi | Any OPDS 1.x catalog with page streaming (OPDS-PSE); set the catalog address in the extension settings |
 
 ## Structure
 
