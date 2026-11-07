@@ -38,6 +38,7 @@ dart tool/build_index.dart --check                  # fail if index.json is out 
 dart run tool/validate/bin/validate.dart .          # validate every config and script
 dart tool/serve.dart                                # serve extensions locally on :8080 for the app's LOCAL_REPOSITORY_URL
 cd tests && dart test                               # run integration tests (hits the real sites)
+cd tests && dart run bin/health.dart                # smoke-test every extension end to end (--only <dir>, --browser)
 ```
 
 The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
