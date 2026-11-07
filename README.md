@@ -16,6 +16,11 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | LHTranslation | Manga | English | Madara engine |
 | LilyManga | Manga (NSFW) | English | Madara engine |
 | Anitube.in.ua | Anime | Ukrainian | |
+| UAFlix | Video | Ukrainian | Movies, series, cartoons and anime; section filter |
+| Цікава Ідея | Video | Ukrainian | Dub team catalogue: movies, series, animation |
+| ReManga | Manga | Russian | Translation branches; type, status, genre and age filters |
+| Honey Manga | Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
+| Zenko | Manga | Ukrainian | Type, status and genre filters; chapters grouped by team |
 
 ## Structure
 
