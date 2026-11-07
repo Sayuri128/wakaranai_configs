@@ -3,8 +3,30 @@ import "json";
 import "html";
 import "anime_models";
 import "converter";
+import "preferences";
+import "errors";
 
-function getGallery(page, query, filters) {
+function checkPageStatus(pageResponse, pageLabel, missingIsError) {
+    pageStatus = pageResponse["statusCode"];
+    if (pageStatus == null) {
+        return null;
+    }
+    if (pageStatus == 404) {
+        if (missingIsError) {
+            throwSourceError("notFound", pageLabel + " is no longer on anitube.in.ua");
+        }
+        return null;
+    }
+    if (pageStatus == 429) {
+        throwSourceError("rateLimited", "anitube.in.ua is rate limiting requests (" + pageLabel + ")");
+    }
+    if (pageStatus >= 500) {
+        throwSourceError("sourceDown", "anitube.in.ua answered HTTP " + parseString(pageStatus) + " (" + pageLabel + ")");
+    }
+    return null;
+}
+
+function getGallery(page, query, filters, feed) {
 
     result = null;
 
@@ -32,6 +54,8 @@ function getGallery(page, query, filters) {
             "throughWeb": true
         });
     }
+
+    checkPageStatus(result, "gallery page " + parseString(page), false);
 
     document = createHTMLParser(result["body"]);
 
@@ -93,6 +117,7 @@ function getConcrete(uid, data) {
                 "throughWeb": true,
                 "headers": {}
             });
+    checkPageStatus(result, uid, true);
     pageBody = result["body"];
     document = createHTMLParser(pageBody);
 
@@ -119,9 +144,11 @@ function getConcrete(uid, data) {
         videosData = [];
     }
 
+    orderedGroups = orderEpisodeGroups(videosData, readGroupPreferences());
+
     videoGroups = [];
-    for (i = 0; i < videosData.length; i = i + 1) {
-        episodeGroup = videosData[i];
+    for (i = 0; i < orderedGroups.length; i = i + 1) {
+        episodeGroup = orderedGroups[i];
         groupVideos = [];
         groupEpisodes = episodeGroup["videos"];
         if (groupEpisodes == null) {
@@ -163,6 +190,136 @@ function getConcrete(uid, data) {
         "rating": readSiteRating(pageBody),
         "url": pageUrl
     });
+}
+
+function readGroupPreferences() {
+    preferredPlayer = getPreference("preferredPlayer");
+    if (preferredPlayer == null || preferredPlayer == "") {
+        preferredPlayer = "auto";
+    }
+    hideUnsupported = getPreference("hideUnsupportedPlayers");
+    if (hideUnsupported == null) {
+        hideUnsupported = false;
+    }
+    preferredDubsText = getPreference("preferredDubs");
+    if (preferredDubsText == null) {
+        preferredDubsText = "";
+    }
+    return {
+        "player": preferredPlayer,
+        "hideUnsupported": hideUnsupported,
+        "dubs": splitPreferredDubs(preferredDubsText)
+    };
+}
+
+function splitPreferredDubs(dubListText) {
+    dubNames = [];
+    dubParts = parseString(dubListText).split(",");
+    for (d = 0; d < dubParts.length; d = d + 1) {
+        dubName = dubParts[d].trim().toLowerCase();
+        if (dubName != "") {
+            dubNames.push(dubName);
+        }
+    }
+    return dubNames;
+}
+
+function nativePlayerOf(playerHost) {
+    nativePlayers = ["ashdi", "fenixplay", "moonanime", "mp4upload"];
+    if (playerHost == null) {
+        return "";
+    }
+    for (np = 0; np < nativePlayers.length; np = np + 1) {
+        if (playerHost.contains(nativePlayers[np] + ".")) {
+            return nativePlayers[np];
+        }
+    }
+    return "";
+}
+
+function groupHostOf(hostedGroup) {
+    declaredHost = hostedGroup["host"];
+    if (declaredHost != null && declaredHost != "") {
+        return declaredHost;
+    }
+    hostedVideos = hostedGroup["videos"];
+    if (hostedVideos == null || hostedVideos.isEmpty) {
+        return "";
+    }
+    return embedHost(normalizeEmbedUrl(hostedVideos[0]["src"]));
+}
+
+function dubRankOf(rankedGroup, preferredDubNames) {
+    dubLabel = rankedGroup["dub"];
+    if (dubLabel == null || dubLabel == "") {
+        dubLabel = rankedGroup["title"];
+    }
+    if (dubLabel == null) {
+        return preferredDubNames.length;
+    }
+    lowerDubLabel = dubLabel.toLowerCase();
+    for (dr = 0; dr < preferredDubNames.length; dr = dr + 1) {
+        if (lowerDubLabel.contains(preferredDubNames[dr])) {
+            return dr;
+        }
+    }
+    return preferredDubNames.length;
+}
+
+function playerRankOf(groupPlayer, preferredPlayerName) {
+    if (groupPlayer == "") {
+        return 2;
+    }
+    if (preferredPlayerName != "auto" && groupPlayer == preferredPlayerName) {
+        return 0;
+    }
+    return 1;
+}
+
+function orderEpisodeGroups(rawGroups, groupPreferences) {
+    candidateGroups = [];
+    nativeGroupCount = 0;
+    for (cg = 0; cg < rawGroups.length; cg = cg + 1) {
+        candidate = rawGroups[cg];
+        candidateVideos = candidate["videos"];
+        if (candidateVideos == null || candidateVideos.isEmpty) {
+            continue;
+        }
+        candidatePlayer = nativePlayerOf(groupHostOf(candidate));
+        if (candidatePlayer != "") {
+            nativeGroupCount = nativeGroupCount + 1;
+        }
+        candidateGroups.push({"group": candidate, "player": candidatePlayer});
+    }
+    hideOthers = false;
+    if (groupPreferences["hideUnsupported"] == true && nativeGroupCount > 0) {
+        hideOthers = true;
+    }
+    rankedGroups = [];
+    highestRank = 0;
+    for (rg = 0; rg < candidateGroups.length; rg = rg + 1) {
+        rankedCandidate = candidateGroups[rg];
+        if (hideOthers && rankedCandidate["player"] == "") {
+            continue;
+        }
+        dubRank = dubRankOf(rankedCandidate["group"], groupPreferences["dubs"]);
+        playerRank = playerRankOf(rankedCandidate["player"], groupPreferences["player"]);
+        groupRank = dubRank * 3;
+        groupRank = groupRank + playerRank;
+        if (groupRank > highestRank) {
+            highestRank = groupRank;
+        }
+        rankedGroups.push({"group": rankedCandidate["group"], "rank": groupRank});
+    }
+    orderedResult = [];
+    for (rank = 0; rank <= highestRank; rank = rank + 1) {
+        for (og = 0; og < rankedGroups.length; og = og + 1) {
+            if (rankedGroups[og]["rank"] == rank) {
+                orderedResult.push(rankedGroups[og]["group"]);
+            }
+        }
+    }
+    return orderedResult;
 }
 
 function stripTags(htmlText) {
@@ -424,7 +581,11 @@ function episodeGroupsScript() {
                 }
                 return left.index - right.index;
             });
-            return indexed.map((entry) => ({title: entry.group.title, videos: sortEpisodes(entry.group.videos)}));
+            return indexed.map((entry) => {
+                const dub = entry.group.dub || "";
+                const videos = sortEpisodes(entry.group.videos).map((video) => Object.assign({}, video, {dub}));
+                return {title: entry.group.title, host: entry.group.host, dub, videos};
+            });
         };
         const playlistEpisodeItems = () => Array.from(document.querySelectorAll(".playlists-videos > .playlists-items > ul > li"));
         const labelChain = (leafId, labels) => {
@@ -489,6 +650,7 @@ function episodeGroupsScript() {
                 if (typeLabels.size > 1 && group.chain.typeLabel) {
                     parts.push(group.chain.typeLabel);
                 }
+                group.dub = parts.filter((part) => part).join(" · ");
                 parts.push(group.chain.playerLabel);
                 group.title = parts.filter((part) => part).join(" · ");
             }
@@ -547,6 +709,7 @@ function episodeGroupsScript() {
                     } else {
                         group.title = tabTitle || label;
                     }
+                    group.dub = tabTitle;
                     groups.push(group);
                 }
             }
@@ -618,7 +781,21 @@ function getVideoSources(uid, src, data) {
     if (sources == null) {
         sources = [];
     }
-    return sources;
+    return labelSourcesWithDub(sources, data);
+}
+
+function labelSourcesWithDub(unlabeledSources, episodeData) {
+    episodeDub = null;
+    if (episodeData != null) {
+        episodeDub = episodeData["dub"];
+    }
+    if (episodeDub == null || episodeDub == "") {
+        return unlabeledSources;
+    }
+    for (ls = 0; ls < unlabeledSources.length; ls = ls + 1) {
+        unlabeledSources[ls]["audioLabel"] = episodeDub;
+    }
+    return unlabeledSources;
 }
 
 function normalizeEmbedUrl(rawSrc) {
@@ -978,6 +1155,12 @@ function resolveFenixSources(fenixPageUrl) {
     }
     fenixStreamHeaders = {"Referer": fenixOrigin + "/"};
     episodeSubtitles = readFenixSubtitles(detailEpisode, mediaAccessInfo, fenixStreamHeaders);
+    fenixTrack = findFenixTrack(detailEpisode, fenixPageUrl);
+    episodeSkip = readFenixSkipMarkers(detailEpisode, fenixTrack);
+    fenixAudioLabel = null;
+    if (fenixTrack != null) {
+        fenixAudioLabel = fenixTrack["label"];
+    }
     fenixSources = [];
     masterUrl = authorizeFenixUrl(detailEpisode["hls_master_url"], mediaAccessInfo);
     if (masterUrl != null) {
@@ -986,7 +1169,9 @@ function resolveFenixSources(fenixPageUrl) {
             "quality": "Auto",
             "format": "hls",
             "headers": fenixStreamHeaders,
-            "subtitles": episodeSubtitles
+            "subtitles": episodeSubtitles,
+            "skip": episodeSkip,
+            "audioLabel": fenixAudioLabel
         });
     }
     rawAvcUrl = detailEpisode["cast_avc_url"];
@@ -1004,11 +1189,87 @@ function resolveFenixSources(fenixPageUrl) {
                 "quality": "Auto (H.264)",
                 "format": "hls",
                 "headers": fenixStreamHeaders,
-                "subtitles": episodeSubtitles
+                "subtitles": episodeSubtitles,
+                "skip": episodeSkip,
+                "audioLabel": fenixAudioLabel
             });
         }
     }
     return fenixSources;
+}
+
+function findFenixTrack(trackedEpisode, trackPageUrl) {
+    episodeTracks = trackedEpisode["tracks"];
+    if (episodeTracks == null) {
+        return null;
+    }
+    for (ft = 0; ft < episodeTracks.length; ft = ft + 1) {
+        trackVodUrl = episodeTracks[ft]["vod_url"];
+        if (trackVodUrl != null && trackVodUrl != "") {
+            if (trackPageUrl.contains(trackVodUrl)) {
+                return episodeTracks[ft];
+            }
+        }
+    }
+    return null;
+}
+
+function validSkipInterval(intervalStart, intervalEnd) {
+    if (intervalStart == null || intervalEnd == null) {
+        return false;
+    }
+    if (intervalStart < 0) {
+        return false;
+    }
+    return intervalEnd > intervalStart;
+}
+
+function readFenixSkipSegment(markedEpisode, markedTrack, fenixKind) {
+    segmentStart = markedEpisode[fenixKind + "_start"];
+    segmentEnd = markedEpisode[fenixKind + "_end"];
+    segmentTrusted = true;
+    if (markedEpisode[fenixKind + "_disputed"] == true || markedEpisode[fenixKind + "_unverified"] == true) {
+        segmentTrusted = false;
+    }
+    if (markedEpisode[fenixKind + "_source"] == "conflict") {
+        segmentTrusted = false;
+    }
+    if (markedTrack != null) {
+        trackSkipMarkers = markedTrack["skip_markers"];
+        if (trackSkipMarkers != null) {
+            trackInterval = trackSkipMarkers[fenixKind];
+            if (trackInterval != null) {
+                if (trackInterval["start"] == null && trackInterval["end"] == null) {
+                    segmentStart = null;
+                    segmentEnd = null;
+                } else if (validSkipInterval(trackInterval["start"], trackInterval["end"])) {
+                    segmentStart = trackInterval["start"];
+                    segmentEnd = trackInterval["end"];
+                    segmentTrusted = trackInterval["source"] != "track_review_pending";
+                }
+            }
+        }
+    }
+    if (segmentTrusted == false) {
+        return null;
+    }
+    if (validSkipInterval(segmentStart, segmentEnd) == false) {
+        return null;
+    }
+    return {"start": segmentStart, "end": segmentEnd};
+}
+
+function readFenixSkipMarkers(skipEpisode, skipTrack) {
+    fenixSkip = [];
+    fenixIntro = readFenixSkipSegment(skipEpisode, skipTrack, "intro");
+    if (fenixIntro != null) {
+        fenixSkip.push({"type": "intro", "start": fenixIntro["start"], "end": fenixIntro["end"]});
+    }
+    fenixOutro = readFenixSkipSegment(skipEpisode, skipTrack, "ending");
+    if (fenixOutro != null) {
+        fenixSkip.push({"type": "outro", "start": fenixOutro["start"], "end": fenixOutro["end"]});
+    }
+    return fenixSkip;
 }
 
 function moonanimeSlug(moonEmbedUrl) {
@@ -1047,6 +1308,18 @@ function readMoonanimePlayerState(moonExpectedSlug) {
             }
             return subtitles;
         };
+        const skipKinds = {opening: "intro", mixed_opening: "intro", ending: "outro", mixed_ending: "outro", recap: "recap"};
+        const readSkip = () => {
+            const segments = Array.isArray(window.__skipSegments) ? window.__skipSegments : [];
+            const skip = [];
+            for (const segment of segments) {
+                const kind = segment ? skipKinds[segment.t] : null;
+                if (kind && isFinite(segment.s) && isFinite(segment.e) && segment.s >= 0 && segment.e > segment.s) {
+                    skip.push({type: kind, start: Number(segment.s), end: Number(segment.e)});
+                }
+            }
+            return skip;
+        };
         const stopPlayer = () => {
             try {
                 if (window.player && typeof window.player.dispose === "function") {
@@ -1055,18 +1328,19 @@ function readMoonanimePlayerState(moonExpectedSlug) {
             } catch (e) {}
         };
         if (onEmbedPage() == false) {
-            return {ready: false, streams: [], subtitles: []};
+            return {ready: false, streams: [], subtitles: [], skip: []};
         }
         while (Date.now() < deadline) {
             const streams = readStreams();
             if (streams.length > 0) {
                 const subtitles = readSubtitles();
+                const skip = readSkip();
                 stopPlayer();
-                return {ready: true, streams: streams, subtitles: subtitles};
+                return {ready: true, streams: streams, subtitles: subtitles, skip: skip};
             }
             await pause(150);
         }
-        return {ready: false, streams: [], subtitles: []};
+        return {ready: false, streams: [], subtitles: [], skip: []};
     `;
     moonState = executeJsScript({"code": "const expectedSlug = " + jsonEncode(moonExpectedSlug) + ";" + moonStateScript});
     if (moonState == null) {
@@ -1136,6 +1410,10 @@ function resolveMoonanimeSources(moonPageUrl) {
         "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8"
     };
     moonStreamSubtitles = readMoonanimeSubtitles(moonPlayerState["subtitles"], moonStreamHeaders);
+    moonSkip = moonPlayerState["skip"];
+    if (moonSkip == null) {
+        moonSkip = [];
+    }
     moonStreams = moonPlayerState["streams"];
     moonSources = [];
     for (n = 0; n < moonStreams.length; n = n + 1) {
@@ -1149,7 +1427,8 @@ function resolveMoonanimeSources(moonPageUrl) {
             "quality": moonQuality,
             "format": guessStreamFormat(moonStream["url"]),
             "headers": moonStreamHeaders,
-            "subtitles": moonStreamSubtitles
+            "subtitles": moonStreamSubtitles,
+            "skip": moonSkip
         });
     }
     return moonSources;
