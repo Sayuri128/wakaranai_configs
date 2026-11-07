@@ -1467,7 +1467,7 @@
     {
       "category": "anime",
       "path": "anime/anitube_in_ua",
-      "revision": "6bab0220715f9839",
+      "revision": "c298f016c07c05e0",
       "apiVersion": 2,
       "config": {
         "name": "Anitube.in.ua",

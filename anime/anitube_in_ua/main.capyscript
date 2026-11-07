@@ -55,6 +55,41 @@ function isNotFoundPage(notFoundBody) {
     return false;
 }
 
+function isMobileLayout(layoutResponse) {
+    layoutBody = layoutResponse["body"];
+    if (layoutBody == null) {
+        return false;
+    }
+    return layoutBody.contains("action=mobiledisable");
+}
+
+function fetchDesktopPage(desktopUrl, desktopParams) {
+    desktopResponse = httpGet({
+        "url": desktopUrl,
+        "params": desktopParams,
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+    if (isMobileLayout(desktopResponse) == false) {
+        return desktopResponse;
+    }
+    httpGet({
+        "url": "https://anitube.in.ua/index.php",
+        "params": {"action": "mobiledisable"},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+    return httpGet({
+        "url": desktopUrl,
+        "params": desktopParams,
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+}
+
 function getGallery(page, query, filters, feed) {
 
     result = null;
@@ -68,20 +103,14 @@ function getGallery(page, query, filters, feed) {
             "headers": {}
         });
     } else {
-        result = httpGet({
-            "url": "https://anitube.in.ua/index.php",
-            "params": {
-                "do": "search",
-                "subaction": "search",
-                "search_start": parseString(page),
-                "full_search": "0",
-                "story": query
-            },
-            "paths": {},
-            "body": {},
-            "headers": {},
-            "throughWeb": true
-        });
+        searchParams = {
+            "do": "search",
+            "subaction": "search",
+            "search_start": parseString(page),
+            "full_search": "0",
+            "story": query
+        };
+        result = fetchDesktopPage("https://anitube.in.ua/index.php", searchParams);
     }
 
     if (checkPageStatus(result, "gallery page " + parseString(page), false) == false) {
@@ -141,13 +170,7 @@ function getGallery(page, query, filters, feed) {
 
 function getConcrete(uid, data) {
     pageUrl = "https://anitube.in.ua/" + uid;
-    result = httpGet({
-                "url": pageUrl,
-                "params": {},
-                "paths": {},
-                "throughWeb": true,
-                "headers": {}
-            });
+    result = fetchDesktopPage(pageUrl, {});
     checkPageStatus(result, uid, true);
     pageBody = result["body"];
     document = createHTMLParser(pageBody);
