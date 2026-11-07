@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:capyscript/AST/function_declaration/ast_funcation_declaration_node.dart';
 import 'package:capyscript/modules/abstract/base_module.dart';
 import 'package:capyscript/modules/waka_models/models/config_info/config_info.dart';
 import 'package:capyscript/parser/parser.dart';
@@ -41,6 +42,11 @@ const Map<String, int> _configFieldApiVersions = {
   'preferences': 2,
   'requestPolicy': 2,
   'feeds': 2,
+  'pagination': 2,
+};
+
+const Map<String, int> _galleryParameterApiVersions = {
+  'pageSize': 2,
 };
 
 const Map<String, int> _downloadConfigFieldApiVersions = {
@@ -214,6 +220,7 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   _validatePreferences(config['preferences'], fail);
   _validateRequestPolicy(config['requestPolicy'], fail);
   _validateFeeds(config['feeds'], fail);
+  _validatePagination(config['pagination'], fail);
   _validateDownloadConfig(config['downloadConfig'], fail);
   final logoUrl = config['logoUrl'];
   if (logoUrl is String && !logoUrl.endsWith('/$name/logo.png?raw=true')) {
@@ -296,6 +303,8 @@ const Set<String> _requestPolicyFields = {
 };
 const Set<String> _rateLimitFields = {'requests', 'perSeconds'};
 const Set<String> _feedFields = {'id', 'title'};
+const Set<String> _paginationFields = {'pageSizes', 'defaultPageSize'};
+const int _maxPageSize = 500;
 const String _reservedPreferencePrefix = '__';
 const int _maxSegmentConcurrency = 8;
 
@@ -581,6 +590,40 @@ void _validateFeeds(Object? feeds, void Function(String) fail) {
   }
 }
 
+void _validatePagination(Object? pagination, void Function(String) fail) {
+  if (pagination == null) {
+    return;
+  }
+  if (pagination is! Map) {
+    fail('"pagination" must be an object with pageSizes and defaultPageSize');
+    return;
+  }
+  _rejectUnknownFields(pagination, _paginationFields, 'pagination', fail);
+  final pageSizes = pagination['pageSizes'];
+  final sizes = <int>{};
+  if (pageSizes is! List || pageSizes.isEmpty) {
+    fail('"pagination.pageSizes" must be a non-empty list of integers from 1 '
+        'to $_maxPageSize');
+  } else {
+    for (var index = 0; index < pageSizes.length; index++) {
+      final size = pageSizes[index];
+      final path = 'pagination.pageSizes[$index]';
+      if (size is! int || size < 1 || size > _maxPageSize) {
+        fail('"$path" must be an integer from 1 to $_maxPageSize');
+      } else if (!sizes.add(size)) {
+        fail('"$path" $size is listed more than once');
+      }
+    }
+  }
+  final defaultPageSize = pagination['defaultPageSize'];
+  if (defaultPageSize is! int) {
+    fail('"pagination.defaultPageSize" must be an integer');
+  } else if (sizes.isNotEmpty && !sizes.contains(defaultPageSize)) {
+    fail('"pagination.defaultPageSize" $defaultPageSize is not one of '
+        '"pagination.pageSizes"');
+  }
+}
+
 void _validateDownloadConfig(
     Object? downloadConfig, void Function(String) fail) {
   if (downloadConfig == null) {
@@ -616,18 +659,16 @@ void _validateScript(File file, Set<String> functions, Set<String> visited,
   final source = file.readAsStringSync();
   final code = _blankStringsAndComments(source);
 
-  final List<String> parsed;
+  final List<ASTFunctionDeclarationNode> declarations;
   try {
-    parsed = Parser(source: source)
-        .parse()
-        .functions
-        .map((f) => f.functionName)
-        .toList();
+    declarations = Parser(source: source).parse().functions;
   } catch (e) {
     fail('$label does not parse: ${_firstLine(e.toString())}');
     return;
   }
+  final parsed = declarations.map((f) => f.functionName).toList();
   functions.addAll(parsed);
+  _collectGalleryParameterApiFeatures(declarations, label, features);
 
   for (final match in _topLevelFunction.allMatches(code)) {
     final declared = match.group(1)!;
@@ -671,6 +712,25 @@ void _validateScript(File file, Set<String> functions, Set<String> visited,
       continue;
     }
     _validateScript(imported, functions, visited, features, fail);
+  }
+}
+
+void _collectGalleryParameterApiFeatures(
+    List<ASTFunctionDeclarationNode> declarations,
+    String label,
+    List<_ApiFeature> features) {
+  for (final declaration in declarations) {
+    if (declaration.functionName != 'getGallery') {
+      continue;
+    }
+    for (final parameter in declaration.parameters) {
+      final apiVersion = _galleryParameterApiVersions[parameter.paramName];
+      if (apiVersion != null) {
+        features.add(_ApiFeature(
+            '$label getGallery parameter "${parameter.paramName}"',
+            apiVersion));
+      }
+    }
   }
 }
 
