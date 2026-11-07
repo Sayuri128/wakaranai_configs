@@ -111,6 +111,17 @@ void main() {
       expect(concrete.groups, isA<List>());
     });
 
+    test('groups are one dub and player each, keyed by src', () {
+      for (final group in concrete.groups) {
+        expect(group.title, contains(' · '));
+        expect(group.elements, isNotEmpty);
+        for (final video in group.elements) {
+          expect(video.uid, video.src);
+          expect(video.title.toUpperCase(), isNot(contains('ПЛЕЄР')));
+        }
+      }
+    });
+
     test('episodes stay iframe embeds for older app builds', () {
       for (final group in concrete.groups) {
         for (final video in group.elements) {
