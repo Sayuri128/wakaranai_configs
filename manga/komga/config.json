@@ -1,0 +1,69 @@
+{
+  "name": "Komga",
+  "uid": "c5d2c5b7-bd3e-4a96-933a-24b2b645fa68",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/komga/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "language": "Multi",
+  "version": 1,
+  "apiVersion": 2,
+  "contentKinds": ["manga", "comic"],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "filters": [
+    {
+      "type": "ONE_OF_ANY",
+      "paramName": "Status",
+      "param": "seriesStatus",
+      "values": ["ONGOING", "ENDED", "HIATUS", "ABANDONED"],
+      "labels": ["Ongoing", "Ended", "Hiatus", "Abandoned"]
+    },
+    {
+      "type": "ONE_OF_ANY",
+      "paramName": "Read progress",
+      "param": "readStatus",
+      "values": ["UNREAD", "IN_PROGRESS", "READ"],
+      "labels": ["Unread", "In progress", "Read"]
+    }
+  ],
+  "feeds": [
+    {"id": "all", "title": "All series"},
+    {"id": "new", "title": "Recently added"},
+    {"id": "updated", "title": "Recently updated"}
+  ],
+  "pagination": {
+    "pageSizes": [20, 50, 100],
+    "defaultPageSize": 20
+  },
+  "preferences": [
+    {
+      "key": "serverUrl",
+      "type": "text",
+      "title": "Server address",
+      "summary": "Address of your Komga server, for example http://192.168.1.10:25600"
+    },
+    {
+      "key": "apiKey",
+      "type": "text",
+      "title": "API key",
+      "summary": "Created in Komga under Account settings, API keys (Komga 1.13 or newer). Used instead of the username and password when set"
+    },
+    {
+      "key": "username",
+      "type": "text",
+      "title": "Email",
+      "summary": "The email you sign in to Komga with"
+    },
+    {
+      "key": "password",
+      "type": "text",
+      "title": "Password"
+    },
+    {
+      "key": "libraries",
+      "type": "text",
+      "title": "Libraries",
+      "summary": "Comma-separated library names to browse. Leave empty for every library"
+    }
+  ]
+}

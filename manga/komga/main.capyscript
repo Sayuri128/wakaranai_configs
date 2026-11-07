@@ -1,0 +1,547 @@
+import "http";
+import "json";
+import "date";
+import "converter";
+import "manga_models";
+import "preferences";
+import "errors";
+
+function preferenceText(preferenceKey) {
+    preferenceValue = getPreference(preferenceKey);
+    if (preferenceValue == null) {
+        return "";
+    }
+    return parseString(preferenceValue).trim();
+}
+
+function komgaServerUrl() {
+    serverUrl = preferenceText("serverUrl");
+    if (serverUrl == "") {
+        throwSourceError("loginRequired", "Enter your Komga server address in the extension settings");
+    }
+    if (serverUrl.startsWith("http://") == false && serverUrl.startsWith("https://") == false) {
+        serverUrl = "http://" + serverUrl;
+    }
+    for (slashIndex = 0; slashIndex < 8; slashIndex = slashIndex + 1) {
+        if (serverUrl.endsWith("/")) {
+            serverUrl = serverUrl.substring(0, serverUrl.length - 1);
+        }
+    }
+    return serverUrl;
+}
+
+function komgaAuthHeaders() {
+    apiKey = preferenceText("apiKey");
+    if (apiKey != "") {
+        return {"X-API-Key": apiKey};
+    }
+    username = preferenceText("username");
+    password = preferenceText("password");
+    if (username == "" || password == "") {
+        throwSourceError("loginRequired", "Enter a Komga API key, or your Komga email and password, in the extension settings");
+    }
+    return {"Authorization": "Basic " + base64Encode(username + ":" + password)};
+}
+
+function sendKomgaRequest(requestMethod, requestPath, requestParams, requestBody) {
+    serverUrl = komgaServerUrl();
+    requestHeaders = komgaAuthHeaders();
+    requestHeaders["Accept"] = "application/json";
+    requestResponse = null;
+    try {
+        if (requestMethod == "POST") {
+            requestHeaders["Content-Type"] = "application/json";
+            requestResponse = httpPost({
+                "url": serverUrl + requestPath,
+                "params": requestParams,
+                "paths": {},
+                "body": jsonEncode(requestBody),
+                "headers": requestHeaders,
+                "throughWeb": false
+            });
+        } else {
+            requestResponse = httpGet({
+                "url": serverUrl + requestPath,
+                "params": requestParams,
+                "paths": {},
+                "headers": requestHeaders,
+                "throughWeb": false
+            });
+        }
+    } catch (requestError) {
+        throwSourceError("sourceDown", "Can't reach Komga at " + serverUrl + ": " + requestError);
+    }
+    return requestResponse;
+}
+
+function decodeKomgaResponse(komgaResponse, requestLabel) {
+    komgaStatus = komgaResponse["statusCode"];
+    if (komgaStatus >= 200 && komgaStatus < 300) {
+        return jsonDecode(komgaResponse["body"]);
+    }
+    if (komgaStatus == 401) {
+        throwSourceError("loginRequired", "Komga rejected the API key or email and password; check them in the extension settings");
+    }
+    if (komgaStatus == 404) {
+        throwSourceError("notFound", "Komga has no such entry (" + requestLabel + ")");
+    }
+    if (komgaStatus == 429) {
+        throwSourceError("rateLimited", "Komga is rate limiting requests (" + requestLabel + ")");
+    }
+    if (komgaStatus >= 500) {
+        throwSourceError("sourceDown", "Komga answered HTTP " + parseString(komgaStatus) + " (" + requestLabel + ")");
+    }
+    throw "Komga answered HTTP " + parseString(komgaStatus) + " (" + requestLabel + ")";
+}
+
+function komgaGet(getPath, getParams, getLabel) {
+    return decodeKomgaResponse(sendKomgaRequest("GET", getPath, getParams, null), getLabel);
+}
+
+function isMissingEndpoint(endpointResponse) {
+    endpointStatus = endpointResponse["statusCode"];
+    return endpointStatus == 404 || endpointStatus == 405;
+}
+
+function galleryPageSize(requestedPageSize) {
+    if (requestedPageSize == null) {
+        return 20;
+    }
+    if (requestedPageSize < 1) {
+        return 20;
+    }
+    if (requestedPageSize > 500) {
+        return 500;
+    }
+    return requestedPageSize;
+}
+
+function seriesSort(sortQuery, sortFeed) {
+    if (sortQuery != "") {
+        return null;
+    }
+    if (sortFeed == "new") {
+        return "createdDate,desc";
+    }
+    if (sortFeed == "updated") {
+        return "lastModifiedDate,desc";
+    }
+    return "metadata.titleSort,asc";
+}
+
+function selectedFilterValue(selectionFilters, selectionParam) {
+    for (sf = 0; sf < selectionFilters.length; sf = sf + 1) {
+        selectionData = selectionFilters[sf];
+        if (selectionData["filter"]["param"] == selectionParam) {
+            selectedValue = selectionData["selected"];
+            if (selectedValue != null && selectedValue != "") {
+                return selectedValue;
+            }
+        }
+    }
+    return null;
+}
+
+function selectedLibraryIds() {
+    wantedText = preferenceText("libraries");
+    if (wantedText == "") {
+        return [];
+    }
+    knownLibraries = komgaGet("/api/v1/libraries", {}, "libraries");
+    wantedIds = [];
+    wantedNames = wantedText.split(",");
+    for (wn = 0; wn < wantedNames.length; wn = wn + 1) {
+        wantedName = wantedNames[wn].trim().toLowerCase();
+        if (wantedName == "") {
+            continue;
+        }
+        matchedId = null;
+        for (kl = 0; kl < knownLibraries.length; kl = kl + 1) {
+            knownLibrary = knownLibraries[kl];
+            if (knownLibrary["name"].toLowerCase() == wantedName || knownLibrary["id"].toLowerCase() == wantedName) {
+                matchedId = knownLibrary["id"];
+            }
+        }
+        if (matchedId == null) {
+            throw "Komga has no library named " + wantedNames[wn].trim() + "; check Libraries in the extension settings";
+        }
+        wantedIds.push(matchedId);
+    }
+    return wantedIds;
+}
+
+function seriesConditions(conditionFilters, conditionLibraryIds) {
+    conditions = [{"deleted": {"operator": "isFalse"}}];
+    if (conditionLibraryIds.isNotEmpty) {
+        libraryConditions = [];
+        for (cl = 0; cl < conditionLibraryIds.length; cl = cl + 1) {
+            libraryConditions.push({"libraryId": {"operator": "is", "value": conditionLibraryIds[cl]}});
+        }
+        conditions.push({"anyOf": libraryConditions});
+    }
+    statusValue = selectedFilterValue(conditionFilters, "seriesStatus");
+    if (statusValue != null) {
+        conditions.push({"seriesStatus": {"operator": "is", "value": statusValue}});
+    }
+    readValue = selectedFilterValue(conditionFilters, "readStatus");
+    if (readValue != null) {
+        conditions.push({"readStatus": {"operator": "is", "value": readValue}});
+    }
+    return {"allOf": conditions};
+}
+
+function legacySeriesParams(legacyParams, legacyQuery, legacyFilters, legacyLibraryIds) {
+    if (legacyQuery != "") {
+        legacyParams["search"] = legacyQuery;
+    }
+    if (legacyLibraryIds.length == 1) {
+        legacyParams["library_id"] = legacyLibraryIds[0];
+    }
+    legacyStatus = selectedFilterValue(legacyFilters, "seriesStatus");
+    if (legacyStatus != null) {
+        legacyParams["status"] = legacyStatus;
+    }
+    legacyRead = selectedFilterValue(legacyFilters, "readStatus");
+    if (legacyRead != null) {
+        legacyParams["read_status"] = legacyRead;
+    }
+    return legacyParams;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    gallerySize = galleryPageSize(pageSize);
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    libraryIds = selectedLibraryIds();
+
+    listParams = {"page": galleryPage - 1, "size": gallerySize};
+    listSort = seriesSort(searchText, feed);
+    if (listSort != null) {
+        listParams["sort"] = listSort;
+    }
+    listBody = {"condition": seriesConditions(filters, libraryIds)};
+    if (searchText != "") {
+        listBody["fullTextSearch"] = searchText;
+    }
+
+    listResponse = sendKomgaRequest("POST", "/api/v1/series/list", listParams, listBody);
+    if (isMissingEndpoint(listResponse)) {
+        legacyParams = legacySeriesParams({"page": galleryPage - 1, "size": gallerySize}, searchText, filters, libraryIds);
+        if (listSort != null) {
+            legacyParams["sort"] = listSort;
+        }
+        listResponse = sendKomgaRequest("GET", "/api/v1/series", legacyParams, null);
+    }
+    seriesPage = decodeKomgaResponse(listResponse, "series list");
+
+    serverUrl = komgaServerUrl();
+    galleryItems = [];
+    seriesList = seriesPage["content"];
+    for (si = 0; si < seriesList.length; si = si + 1) {
+        galleryItems.push(seriesGalleryItem(serverUrl, seriesList[si]));
+    }
+    return galleryItems;
+}
+
+function seriesTitleOf(titledSeries) {
+    titledMetadata = titledSeries["metadata"];
+    if (titledMetadata != null) {
+        metadataTitle = titledMetadata["title"];
+        if (metadataTitle != null && metadataTitle != "") {
+            return metadataTitle;
+        }
+    }
+    return titledSeries["name"];
+}
+
+function seriesStatusOf(statusName) {
+    if (statusName == "ONGOING") {
+        return statusOngoing();
+    }
+    if (statusName == "ENDED") {
+        return statusReleased();
+    }
+    if (statusName == "HIATUS") {
+        return statusPaused();
+    }
+    if (statusName == "ABANDONED") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function releaseYearOf(yearSeries) {
+    yearMetadata = yearSeries["booksMetadata"];
+    if (yearMetadata == null) {
+        return null;
+    }
+    releaseDate = yearMetadata["releaseDate"];
+    if (releaseDate == null || releaseDate.length < 4) {
+        return null;
+    }
+    return releaseDate.substring(0, 4);
+}
+
+function seriesGenres(genreSeries) {
+    genreNames = [];
+    genreMetadata = genreSeries["metadata"];
+    if (genreMetadata == null) {
+        return genreNames;
+    }
+    rawGenres = genreMetadata["genres"];
+    if (rawGenres != null) {
+        for (gi = 0; gi < rawGenres.length; gi = gi + 1) {
+            genreNames.push(rawGenres[gi]);
+        }
+    }
+    rawTags = genreMetadata["tags"];
+    if (rawTags != null) {
+        for (ti = 0; ti < rawTags.length; ti = ti + 1) {
+            genreNames.push(rawTags[ti]);
+        }
+    }
+    return genreNames;
+}
+
+function seriesCoverUrl(coverServer, coverSeriesId) {
+    return coverServer + "/api/v1/series/" + coverSeriesId + "/thumbnail";
+}
+
+function booksCountLabel(countedSeries) {
+    booksCount = countedSeries["booksCount"];
+    if (booksCount == null) {
+        return null;
+    }
+    if (booksCount == 1) {
+        return "1 book";
+    }
+    return parseString(booksCount) + " books";
+}
+
+function seriesGalleryItem(itemServer, itemSeries) {
+    itemId = itemSeries["id"];
+    itemTitle = seriesTitleOf(itemSeries);
+    itemCover = seriesCoverUrl(itemServer, itemId);
+    itemStatus = seriesStatusOf(itemSeries["metadata"]["status"]);
+    itemTags = seriesGenres(itemSeries);
+    itemYear = releaseYearOf(itemSeries);
+    itemCount = booksCountLabel(itemSeries);
+    return buildGallery({
+        "uid": itemId,
+        "title": itemTitle,
+        "cover": itemCover,
+        "data": {},
+        "status": itemStatus,
+        "tags": itemTags,
+        "year": itemYear,
+        "latestChapter": itemCount
+    });
+}
+
+function peopleWithRoles(peopleSeries, wantedRoles) {
+    peopleNames = [];
+    peopleMetadata = peopleSeries["booksMetadata"];
+    if (peopleMetadata == null) {
+        return peopleNames;
+    }
+    rawAuthors = peopleMetadata["authors"];
+    if (rawAuthors == null) {
+        return peopleNames;
+    }
+    for (pa = 0; pa < rawAuthors.length; pa = pa + 1) {
+        rawAuthor = rawAuthors[pa];
+        if (wantedRoles.contains(rawAuthor["role"])) {
+            if (peopleNames.contains(rawAuthor["name"]) == false) {
+                peopleNames.push(rawAuthor["name"]);
+            }
+        }
+    }
+    return peopleNames;
+}
+
+function seriesDescription(describedSeries) {
+    seriesSummary = describedSeries["metadata"]["summary"];
+    if (seriesSummary != null && seriesSummary != "") {
+        return seriesSummary;
+    }
+    booksMetadata = describedSeries["booksMetadata"];
+    if (booksMetadata != null) {
+        booksSummary = booksMetadata["summary"];
+        if (booksSummary != null) {
+            return booksSummary;
+        }
+    }
+    return "";
+}
+
+function alternativeTitlesOf(alternativeSeries, mainTitle) {
+    alternativeNames = [];
+    rawAlternatives = alternativeSeries["metadata"]["alternateTitles"];
+    if (rawAlternatives != null) {
+        for (at = 0; at < rawAlternatives.length; at = at + 1) {
+            alternativeName = rawAlternatives[at]["title"];
+            if (alternativeName != null && alternativeName != mainTitle) {
+                alternativeNames.push(alternativeName);
+            }
+        }
+    }
+    if (alternativeSeries["name"] != mainTitle) {
+        alternativeNames.push(alternativeSeries["name"]);
+    }
+    return alternativeNames;
+}
+
+function fetchSeriesBooks(booksSeriesId) {
+    booksParams = {"unpaged": true, "sort": "metadata.numberSort,asc"};
+    booksBody = {
+        "condition": {
+            "allOf": [
+                {"seriesId": {"operator": "is", "value": booksSeriesId}},
+                {"deleted": {"operator": "isFalse"}}
+            ]
+        }
+    };
+    booksResponse = sendKomgaRequest("POST", "/api/v1/books/list", booksParams, booksBody);
+    if (isMissingEndpoint(booksResponse)) {
+        booksResponse = sendKomgaRequest("GET", "/api/v1/series/" + booksSeriesId + "/books", booksParams, null);
+    }
+    return decodeKomgaResponse(booksResponse, "books of the series")["content"];
+}
+
+function formatTimestamp(rawTimestamp) {
+    if (rawTimestamp == null) {
+        return null;
+    }
+    parsedTimestamp = parseDate(rawTimestamp);
+    if (parsedTimestamp == null) {
+        return rawTimestamp;
+    }
+    timestampFormatter = createDateFormatter("yyyy-MM-dd HH:mm");
+    return timestampFormatter.format(parsedTimestamp);
+}
+
+function bookTitleOf(titledBook) {
+    bookMetadata = titledBook["metadata"];
+    bookName = titledBook["name"];
+    if (bookMetadata == null) {
+        return bookName;
+    }
+    metadataTitle = bookMetadata["title"];
+    if (metadataTitle == null || metadataTitle == "") {
+        metadataTitle = bookName;
+    }
+    bookNumber = bookMetadata["number"];
+    if (bookNumber == null || bookNumber == "" || metadataTitle.contains(bookNumber)) {
+        return metadataTitle;
+    }
+    return bookNumber + ". " + metadataTitle;
+}
+
+function bookChapter(chapterBook) {
+    chapterId = chapterBook["id"];
+    chapterTitle = bookTitleOf(chapterBook);
+    chapterTimestamp = formatTimestamp(chapterBook["created"]);
+    chapterNumber = null;
+    if (chapterBook["metadata"] != null) {
+        chapterNumber = chapterBook["metadata"]["numberSort"];
+        releaseDate = chapterBook["metadata"]["releaseDate"];
+        if (releaseDate != null && releaseDate != "") {
+            chapterTimestamp = releaseDate;
+        }
+    }
+    return buildChapter({
+        "uid": chapterId,
+        "title": chapterTitle,
+        "timestamp": chapterTimestamp,
+        "data": {},
+        "number": chapterNumber
+    });
+}
+
+function getConcrete(uid) {
+    serverUrl = komgaServerUrl();
+    concreteSeries = komgaGet("/api/v1/series/" + uid, {}, "series details");
+    concreteTitle = seriesTitleOf(concreteSeries);
+    seriesBooks = fetchSeriesBooks(uid);
+    chapterElements = [];
+    for (bi = 0; bi < seriesBooks.length; bi = bi + 1) {
+        chapterElements.push(bookChapter(seriesBooks[bi]));
+    }
+    concreteGroups = [buildChapterGroups({"title": "Books", "elements": chapterElements})];
+    concreteCover = seriesCoverUrl(serverUrl, uid);
+    concreteDescription = seriesDescription(concreteSeries);
+    concreteTags = seriesGenres(concreteSeries);
+    concreteStatus = seriesStatusOf(concreteSeries["metadata"]["status"]);
+    concreteAlternatives = alternativeTitlesOf(concreteSeries, concreteTitle);
+    concreteAuthors = peopleWithRoles(concreteSeries, ["writer"]);
+    concreteArtists = peopleWithRoles(concreteSeries, ["penciller", "inker", "colorist", "cover"]);
+    concreteYear = releaseYearOf(concreteSeries);
+    concreteUrl = serverUrl + "/series/" + uid;
+    return buildConcrete({
+        "uid": uid,
+        "title": concreteTitle,
+        "cover": concreteCover,
+        "description": concreteDescription,
+        "tags": concreteTags,
+        "status": concreteStatus,
+        "alternativeTitles": concreteAlternatives,
+        "authors": concreteAuthors,
+        "artists": concreteArtists,
+        "year": concreteYear,
+        "url": concreteUrl,
+        "groups": concreteGroups
+    });
+}
+
+function needsConversion(pageMediaType) {
+    if (pageMediaType == null) {
+        return false;
+    }
+    browserTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"];
+    return browserTypes.contains(pageMediaType) == false;
+}
+
+function checkBookReadable(readableBook) {
+    bookMedia = readableBook["media"];
+    if (bookMedia == null) {
+        return null;
+    }
+    mediaStatus = bookMedia["status"];
+    if (mediaStatus == "UNKNOWN" || mediaStatus == "OUTDATED") {
+        throw "Komga has not analyzed this book yet; try again in a moment";
+    }
+    if (mediaStatus == "ERROR" || mediaStatus == "UNSUPPORTED") {
+        throwSourceError("unsupported", "Komga could not read this book file");
+    }
+    if (bookMedia["mediaProfile"] == "EPUB" && bookMedia["epubDivinaCompatible"] != true) {
+        throwSourceError("unsupported", "This book is a text EPUB; only comic pages can be shown");
+    }
+    return null;
+}
+
+function getPages(uid) {
+    serverUrl = komgaServerUrl();
+    pagesBook = komgaGet("/api/v1/books/" + uid, {}, "book details");
+    checkBookReadable(pagesBook);
+    bookPages = komgaGet("/api/v1/books/" + uid + "/pages", {}, "book pages");
+    pageUrls = [];
+    for (pi = 0; pi < bookPages.length; pi = pi + 1) {
+        bookPage = bookPages[pi];
+        pageUrl = serverUrl + "/api/v1/books/" + uid + "/pages/" + parseString(bookPage["number"]);
+        if (needsConversion(bookPage["mediaType"])) {
+            pageUrl = pageUrl + "?convert=png";
+        }
+        pageUrls.push(pageUrl);
+    }
+    return buildPages({"uid": uid, "value": pageUrls});
+}
+
+function getImageHeaders(uid) {
+    return komgaAuthHeaders();
+}
