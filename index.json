@@ -896,7 +896,7 @@
     {
       "category": "manga",
       "path": "manga/kavita",
-      "revision": "1b3827fd8eed3ff4",
+      "revision": "8c1a8d9ed9f26e1c",
       "apiVersion": 2,
       "config": {
         "name": "Kavita",
@@ -912,6 +912,7 @@
           "comic"
         ],
         "searchAvailable": true,
+        "multiInstance": true,
         "protectorConfig": null,
         "filters": [
           {
@@ -997,7 +998,7 @@
     {
       "category": "manga",
       "path": "manga/komga",
-      "revision": "d2a1c45ad1564940",
+      "revision": "3dbea1be21857592",
       "apiVersion": 2,
       "config": {
         "name": "Komga",
@@ -1013,6 +1014,7 @@
           "comic"
         ],
         "searchAvailable": true,
+        "multiInstance": true,
         "protectorConfig": null,
         "filters": [
           {
@@ -2108,7 +2110,7 @@
     {
       "category": "manga",
       "path": "manga/opds",
-      "revision": "cafe27b3911d6629",
+      "revision": "aaba7c739bba1ccb",
       "apiVersion": 2,
       "config": {
         "name": "OPDS",
@@ -2124,6 +2126,7 @@
           "comic"
         ],
         "searchAvailable": true,
+        "multiInstance": true,
         "protectorConfig": null,
         "filters": [],
         "preferences": [

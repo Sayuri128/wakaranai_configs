@@ -9,6 +9,7 @@
   "apiVersion": 2,
   "contentKinds": ["manga", "comic"],
   "searchAvailable": true,
+  "multiInstance": true,
   "protectorConfig": null,
   "filters": [],
   "preferences": [

@@ -259,6 +259,10 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     }
   }
   _validateContentKinds(config['contentKinds'], fail);
+  final multiInstance = config['multiInstance'];
+  if (multiInstance != null && multiInstance is! bool) {
+    fail('"multiInstance" must be true or false');
+  }
   if (category == _novelCategory) {
     _validateNovelConfig(config, fail);
   }
