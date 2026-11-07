@@ -35,6 +35,10 @@
     {"id": "popular", "title": "Popular"},
     {"id": "latest", "title": "Latest updates"}
   ],
+  "pagination": {
+    "pageSizes": [20, 50, 100],
+    "defaultPageSize": 20
+  },
   "preferences": [
     {
       "key": "chapterLanguages",

@@ -97,23 +97,50 @@ function getMangaTitle(titleMap) {
     return titleMap.values.first;
 }
 
-function getGallery(page, query, filters, feed) {
+function galleryPageSize(requestedPageSize) {
+    if (requestedPageSize == null) {
+        return 20;
+    }
+    if (requestedPageSize < 1) {
+        return 20;
+    }
+    if (requestedPageSize > 100) {
+        return 100;
+    }
+    return requestedPageSize;
+}
+
+function galleryResultCeiling() {
+    return 10000;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
     if (query == "" && feed == "latest") {
         return getLatestGallery(page, filters);
     }
 
-    limit = 20;
+    limit = galleryPageSize(pageSize);
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    offset = limit * (galleryPage - 1);
+    if (offset >= galleryResultCeiling()) {
+        return [];
+    }
+    if (offset + limit > galleryResultCeiling()) {
+        limit = galleryResultCeiling() - offset;
+    }
 
     params = {
         "limit": limit,
-        "offset": limit * page,
+        "offset": offset,
         "includes": ["cover_art"]
     };
 
     if (query != "") {
         params["title"] = query;
     } else if (feed == "popular") {
-        params["offset"] = limit * (page - 1);
         params["order"] = {"followedCount": "desc"};
     }
 

@@ -61,6 +61,7 @@ ExtensionHost hostFor(
     preferences: MapPreferences(preferences),
     storage: storage,
     requestPolicy: requestPolicy ?? config.requestPolicy,
+    pagination: config.pagination,
   );
 }
 
