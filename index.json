@@ -1776,6 +1776,49 @@
     },
     {
       "category": "anime",
+      "path": "anime/cikava_ideya",
+      "revision": "8bd5615cdb8b64a1",
+      "apiVersion": 1,
+      "config": {
+        "name": "Цікава Ідея",
+        "uid": "7c6bf45d-0eb2-4be9-8e37-8d59fdc7b3a1",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/cikava_ideya/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "contentKinds": [
+          "movie",
+          "series",
+          "cartoon"
+        ],
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Section",
+            "param": "section",
+            "values": [
+              "serialy",
+              "filmy",
+              "cartoon",
+              "arthaus",
+              "soon"
+            ],
+            "labels": [
+              "Series",
+              "Movies",
+              "Animation",
+              "Arthouse",
+              "Announcements"
+            ]
+          }
+        ],
+        "protectorConfig": null,
+        "searchAvailable": true
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/uaflix",
       "revision": "eb2748d239a6aecf",
       "apiVersion": 1,
