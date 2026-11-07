@@ -1444,6 +1444,65 @@
     },
     {
       "category": "manga",
+      "path": "manga/manga_read",
+      "revision": "340993694ff3158e",
+      "apiVersion": 1,
+      "config": {
+        "name": "MangaRead",
+        "uid": "de80290e-ad4e-44e5-8f6e-9b2c8abe43ae",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_read/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Order",
+            "param": "m_orderby",
+            "values": [
+              "latest",
+              "alphabet",
+              "rating",
+              "trending",
+              "views",
+              "new-manga"
+            ],
+            "labels": [
+              "Latest updates",
+              "A-Z",
+              "Rating",
+              "Trending",
+              "Most views",
+              "New"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status[]",
+            "values": [
+              "on-going",
+              "end",
+              "on-hold",
+              "canceled",
+              "upcoming"
+            ],
+            "labels": [
+              "Ongoing",
+              "Completed",
+              "On hold",
+              "Canceled",
+              "Upcoming"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/nhentai",
       "revision": "7d6fb194a9fa6d24",
       "apiVersion": 1,

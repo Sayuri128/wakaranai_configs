@@ -11,6 +11,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | MangaDex | Manga | English | Status, demographic and content-rating filters |
 | NHentai | Manga (NSFW) | Multi | |
 | Manga/in/UA | Manga | Ukrainian | |
+| MangaRead | Manga | English | Madara engine |
 | Anitube.in.ua | Anime | Ukrainian | |
 
 ## Structure
@@ -26,6 +27,7 @@ tests/               integration tests for each extension
 
 - `config.json` — metadata: `uid`, `name`, `logoUrl`, `type` (`0` manga, `1` anime), `nsfw`, `language`, `version`, `searchAvailable`, an optional `protectorConfig` for sites behind challenges or logins, and optional gallery `filters`.
 - `main.capyscript` — implements `getGallery`, `getConcrete`, `getPages` / video lists, and optionally `passProtector`. Shared code is pulled in with relative imports such as `import "../../shared/lib_social_api";`.
+- `shared/madara.capyscript` — a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
 
 The full extension authoring guide lives in the app repo: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).
 

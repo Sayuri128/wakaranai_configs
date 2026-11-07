@@ -1,0 +1,664 @@
+import "http";
+import "html";
+import "manga_models";
+import "converter";
+
+function madaraOption(settings, key, fallback) {
+    value = settings[key];
+    if (value == null) {
+        return fallback;
+    }
+    return value;
+}
+
+function madaraBaseUrl(settings) {
+    baseUrl = settings["baseUrl"];
+    if (baseUrl.endsWith("/")) {
+        baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+    }
+    return baseUrl;
+}
+
+function madaraUserAgent(settings) {
+    return madaraOption(settings, "userAgent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+}
+
+function madaraRequestHeaders(settings, referer) {
+    return {
+        "User-Agent": madaraUserAgent(settings),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": referer
+    };
+}
+
+function madaraAjaxHeaders(settings, referer) {
+    ajaxHeaders = madaraRequestHeaders(settings, referer);
+    ajaxHeaders["X-Requested-With"] = "XMLHttpRequest";
+    ajaxHeaders["Accept"] = "*/*";
+    return ajaxHeaders;
+}
+
+function madaraTrimSlashes(value) {
+    trimmed = value.trim();
+    if (trimmed.startsWith("/")) {
+        trimmed = trimmed.substring(1);
+    }
+    if (trimmed.endsWith("/")) {
+        trimmed = trimmed.substring(0, trimmed.length - 1);
+    }
+    return trimmed;
+}
+
+function madaraPathOf(link) {
+    path = link.trim();
+    schemeIndex = path.indexOf("://");
+    if (schemeIndex >= 0) {
+        path = path.substring(schemeIndex + 3);
+        hostEnd = path.indexOf("/");
+        if (hostEnd < 0) {
+            path = "";
+        } else {
+            path = path.substring(hostEnd);
+        }
+    }
+    queryIndex = path.indexOf("?");
+    if (queryIndex >= 0) {
+        path = path.substring(0, queryIndex);
+    }
+    hashIndex = path.indexOf("#");
+    if (hashIndex >= 0) {
+        path = path.substring(0, hashIndex);
+    }
+    return madaraTrimSlashes(path);
+}
+
+function madaraPageUrl(settings, path) {
+    return madaraBaseUrl(settings) + "/" + madaraTrimSlashes(path) + "/";
+}
+
+function madaraAbsoluteUrl(settings, link) {
+    absolute = link.trim();
+    if (absolute.startsWith("//")) {
+        return "https:" + absolute;
+    }
+    if (absolute.startsWith("/")) {
+        return madaraBaseUrl(settings) + absolute;
+    }
+    return absolute;
+}
+
+function madaraUsableSource(candidate) {
+    if (candidate == null) {
+        return false;
+    }
+    cleaned = candidate.trim();
+    if (cleaned == "") {
+        return false;
+    }
+    if (cleaned.startsWith("data:")) {
+        return false;
+    }
+    return true;
+}
+
+function madaraImageSource(settings, image) {
+    if (image == null) {
+        return "";
+    }
+    imageAttributes = image.attributes;
+    sourceKeys = ["data-src", "data-lazy-src", "data-cfsrc", "data-original", "src"];
+    for (k = 0; k < sourceKeys.length; k++) {
+        candidate = imageAttributes[sourceKeys[k]];
+        if (madaraUsableSource(candidate)) {
+            return madaraAbsoluteUrl(settings, candidate);
+        }
+    }
+    srcsetKeys = ["data-srcset", "data-lazy-srcset", "srcset"];
+    for (k = 0; k < srcsetKeys.length; k++) {
+        srcset = imageAttributes[srcsetKeys[k]];
+        if (madaraUsableSource(srcset)) {
+            firstCandidate = srcset.trim().split(" ")[0];
+            if (madaraUsableSource(firstCandidate)) {
+                return madaraAbsoluteUrl(settings, firstCandidate);
+            }
+        }
+    }
+    return "";
+}
+
+function madaraCheckResponse(response, label) {
+    statusCode = response["statusCode"];
+    if (statusCode >= 200) {
+        if (statusCode < 400) {
+            return response["body"];
+        }
+    }
+    responseBody = response["body"];
+    if (statusCode == 403 || statusCode == 503) {
+        if (responseBody != null) {
+            if (responseBody.contains("challenge-platform") || responseBody.contains("Just a moment")) {
+                throw "The site asked for a Cloudflare check (" + label + ")";
+            }
+        }
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function madaraFetchDocument(settings, url, params, label) {
+    response = httpGet({
+        "url": url,
+        "params": params,
+        "paths": {},
+        "headers": madaraRequestHeaders(settings, madaraBaseUrl(settings) + "/")
+    });
+    body = madaraCheckResponse(response, label);
+    return createHTMLParser(body);
+}
+
+function madaraSelectorFor(settings, key, fallback) {
+    return madaraOption(settings, key, fallback);
+}
+
+function madaraGalleryParams(settings, query, filters) {
+    params = {};
+    params["s"] = query;
+    params["post_type"] = "wp-manga";
+    if (query == "") {
+        defaultOrder = madaraOption(settings, "defaultOrder", "latest");
+        if (defaultOrder != "") {
+            params["m_orderby"] = defaultOrder;
+        }
+    }
+    if (filters == null) {
+        return params;
+    }
+    for (f = 0; f < filters.length; f++) {
+        filterData = filters[f];
+        filter = filterData["filter"];
+        filterType = filter["type"];
+        if (filterType == "ONE_OF_MULTIPLE" || filterType == "ONE_OF_ANY") {
+            selected = filterData["selected"];
+            if (selected != null) {
+                if (selected != "") {
+                    params[filter["param"]] = selected;
+                }
+            }
+        }
+        if (filterType == "MULTIPLE_OF_ANY") {
+            params[filter["param"]] = filterData["selected"];
+        }
+        if (filterType == "MULTIPLE_OF_MULTIPLE") {
+            selectedValues = [];
+            selectedGroups = filterData["selected"];
+            for (g = 0; g < selectedGroups.length; g++) {
+                selectedGroup = selectedGroups[g];
+                for (v = 0; v < selectedGroup.length; v++) {
+                    selectedValues.push(selectedGroup[v]);
+                }
+            }
+            params[filter["param"]] = selectedValues;
+        }
+    }
+    return params;
+}
+
+function madaraGetGallery(settings, page, query, filters) {
+    searchQuery = query;
+    if (searchQuery == null) {
+        searchQuery = "";
+    }
+    searchQuery = searchQuery.trim();
+    hasFilters = false;
+    if (filters != null) {
+        if (filters.length > 0) {
+            hasFilters = true;
+        }
+    }
+    if (madaraOption(settings, "galleryMode", "search") == "ajax") {
+        if (searchQuery == "") {
+            if (hasFilters == false) {
+                return madaraLoadMoreGallery(settings, page);
+            }
+        }
+    }
+    galleryUrl = madaraBaseUrl(settings) + "/";
+    if (page > 1) {
+        galleryUrl = galleryUrl + "page/" + parseString(page) + "/";
+    }
+    response = httpGet({
+        "url": galleryUrl,
+        "params": madaraGalleryParams(settings, searchQuery, filters),
+        "paths": {},
+        "headers": madaraRequestHeaders(settings, madaraBaseUrl(settings) + "/")
+    });
+    if (response["statusCode"] == 404) {
+        return [];
+    }
+    body = madaraCheckResponse(response, "gallery page " + parseString(page));
+    return madaraParseGallery(settings, createHTMLParser(body));
+}
+
+function madaraLoadMoreGallery(settings, page) {
+    response = httpPost({
+        "url": madaraBaseUrl(settings) + "/wp-admin/admin-ajax.php",
+        "params": {},
+        "paths": {},
+        "headers": madaraAjaxHeaders(settings, madaraBaseUrl(settings) + "/"),
+        "body": {
+            "action": "madara_load_more",
+            "page": parseString(page - 1),
+            "template": "madara-core/content/content-archive",
+            "vars[paged]": "1",
+            "vars[orderby]": "meta_value_num",
+            "vars[template]": "archive",
+            "vars[sidebar]": "full",
+            "vars[post_type]": "wp-manga",
+            "vars[post_status]": "publish",
+            "vars[meta_key]": "_latest_update",
+            "vars[order]": "desc",
+            "vars[meta_query][relation]": "AND",
+            "vars[manga_archives_item_layout]": "big_thumbnail"
+        }
+    });
+    body = madaraCheckResponse(response, "gallery page " + parseString(page));
+    if (body.trim() == "") {
+        return [];
+    }
+    return madaraParseGallery(settings, createHTMLParser(body));
+}
+
+function madaraParseGallery(settings, document) {
+    itemSelector = madaraSelectorFor(settings, "gallerySelector", ".c-tabs-item__content, .page-item-detail");
+    items = document.querySelectorAll(itemSelector);
+    seenUids = [];
+    galleryItems = [];
+    for (i = 0; i < items.length; i++) {
+        item = items[i];
+        link = item.querySelector(".post-title a");
+        if (link == null) {
+            link = item.querySelector("h3 a, h4 a, h5 a");
+        }
+        if (link == null) {
+            continue;
+        }
+        href = link.attributes["href"];
+        if (href == null) {
+            continue;
+        }
+        itemUid = madaraPathOf(href);
+        if (itemUid == "") {
+            continue;
+        }
+        if (seenUids.contains(itemUid)) {
+            continue;
+        }
+        seenUids.push(itemUid);
+        itemTitle = link.text.trim();
+        itemCover = madaraImageSource(settings, item.querySelector("img"));
+        latestLink = item.querySelector(".chapter a, .latest-chap .chapter a");
+        itemLatest = null;
+        if (latestLink != null) {
+            itemLatest = latestLink.text.trim();
+        }
+        galleryItems.push(buildGallery({
+            "uid": itemUid,
+            "title": itemTitle,
+            "cover": itemCover,
+            "latestChapter": itemLatest,
+            "data": {}
+        }));
+    }
+    return galleryItems;
+}
+
+function madaraElementText(element) {
+    if (element == null) {
+        return "";
+    }
+    return element.text.trim();
+}
+
+function madaraTitleOf(document) {
+    heading = document.querySelector(".post-title h1, #manga-title h1, .post-title h3");
+    if (heading == null) {
+        return "";
+    }
+    headingText = heading.text;
+    badges = heading.querySelectorAll("span");
+    for (b = 0; b < badges.length; b++) {
+        badgeText = badges[b].text;
+        if (badgeText.trim() != "") {
+            headingText = headingText.replaceFirst(badgeText, "");
+        }
+    }
+    return headingText.trim();
+}
+
+function madaraStatusOf(statusText) {
+    lowered = statusText.toLowerCase();
+    if (lowered.contains("hold") || lowered.contains("hiatus") || lowered.contains("pause")) {
+        return statusPaused();
+    }
+    if (lowered.contains("cancel") || lowered.contains("drop")) {
+        return statusCanceled();
+    }
+    if (lowered.contains("upcoming") || lowered.contains("soon")) {
+        return statusAnnounce();
+    }
+    if (lowered.contains("complete") || lowered.contains("end") || lowered.contains("finish")) {
+        return statusReleased();
+    }
+    if (lowered.contains("going") || lowered.contains("ongoing") || lowered.contains("releasing")) {
+        return statusOngoing();
+    }
+    return statusUndefined();
+}
+
+function madaraSplitNames(value) {
+    names = [];
+    parts = value.split(",");
+    for (n = 0; n < parts.length; n++) {
+        namePart = parts[n].trim();
+        if (namePart != "") {
+            if (namePart.toLowerCase() != "updating") {
+                names.push(namePart);
+            }
+        }
+    }
+    return names;
+}
+
+function madaraLinkTexts(container) {
+    texts = [];
+    if (container == null) {
+        return texts;
+    }
+    links = container.querySelectorAll("a");
+    for (l = 0; l < links.length; l++) {
+        linkText = links[l].text.trim();
+        if (linkText != "") {
+            texts.push(linkText);
+        }
+    }
+    return texts;
+}
+
+function madaraSummaryItems(document) {
+    summary = [];
+    rows = document.querySelectorAll(".post-content_item");
+    for (r = 0; r < rows.length; r++) {
+        row = rows[r];
+        heading = row.querySelector(".summary-heading");
+        content = row.querySelector(".summary-content");
+        if (heading != null) {
+            if (content != null) {
+                summary.push({"key": heading.text.trim().toLowerCase(), "content": content});
+            }
+        }
+    }
+    return summary;
+}
+
+function madaraSummaryContent(summary, prefix) {
+    for (s = 0; s < summary.length; s++) {
+        entry = summary[s];
+        if (entry["key"].startsWith(prefix)) {
+            return entry["content"];
+        }
+    }
+    return null;
+}
+
+function madaraGetConcrete(settings, uid) {
+    mangaPath = madaraTrimSlashes(uid);
+    mangaUrl = madaraPageUrl(settings, mangaPath);
+    document = madaraFetchDocument(settings, mangaUrl, {}, "title page");
+
+    mangaTitle = madaraTitleOf(document);
+    coverImage = document.querySelector(".summary_image img, .tab-summary img");
+    mangaCover = madaraImageSource(settings, coverImage);
+    if (mangaCover == "") {
+        ogImage = document.querySelector('meta[property="og:image"]');
+        if (ogImage != null) {
+            mangaCover = ogImage.attributes["content"];
+        }
+    }
+
+    descriptionElement = document.querySelector(madaraSelectorFor(settings, "descriptionSelector", ".description-summary .summary__content, .summary__content, .manga-excerpt, .post-content_item.mg_summary .summary-content"));
+    mangaDescription = madaraElementText(descriptionElement);
+
+    summary = madaraSummaryItems(document);
+    mangaTags = madaraLinkTexts(document.querySelector(".genres-content"));
+    mangaAuthors = madaraLinkTexts(document.querySelector(".author-content"));
+    mangaArtists = madaraLinkTexts(document.querySelector(".artist-content"));
+
+    alternativeContent = madaraSummaryContent(summary, "alternative");
+    mangaAlternativeTitles = [];
+    if (alternativeContent != null) {
+        mangaAlternativeTitles = madaraSplitNames(alternativeContent.text.replaceAll(";", ","));
+    }
+
+    statusContent = madaraSummaryContent(summary, "status");
+    mangaStatus = statusUndefined();
+    if (statusContent != null) {
+        mangaStatus = madaraStatusOf(statusContent.text);
+    }
+
+    mangaChapters = madaraLoadChapters(settings, document, mangaUrl);
+    chapterGroup = buildChapterGroups({
+        "title": madaraOption(settings, "chapterGroupTitle", "Chapters"),
+        "elements": mangaChapters
+    });
+
+    return buildConcrete({
+        "uid": mangaPath,
+        "title": mangaTitle,
+        "cover": mangaCover,
+        "description": mangaDescription,
+        "tags": mangaTags,
+        "status": mangaStatus,
+        "alternativeTitles": mangaAlternativeTitles,
+        "authors": mangaAuthors,
+        "artists": mangaArtists,
+        "url": mangaUrl,
+        "groups": [chapterGroup]
+    });
+}
+
+function madaraChapterElements(document) {
+    return document.querySelectorAll("li.wp-manga-chapter");
+}
+
+function madaraPostIdOf(document) {
+    holder = document.querySelector("#manga-chapters-holder");
+    if (holder != null) {
+        holderId = holder.attributes["data-id"];
+        if (holderId != null) {
+            if (holderId != "") {
+                return holderId;
+            }
+        }
+    }
+    ratingInput = document.querySelector(".rating-post-id");
+    if (ratingInput != null) {
+        ratingId = ratingInput.attributes["value"];
+        if (ratingId != null) {
+            if (ratingId != "") {
+                return ratingId;
+            }
+        }
+    }
+    shortLink = document.querySelector('link[rel="shortlink"]');
+    if (shortLink != null) {
+        shortHref = shortLink.attributes["href"];
+        if (shortHref != null) {
+            postMarker = shortHref.indexOf("?p=");
+            if (postMarker >= 0) {
+                return shortHref.substring(postMarker + 3);
+            }
+        }
+    }
+    return null;
+}
+
+function madaraChaptersFromAjax(settings, mangaUrl) {
+    response = httpPost({
+        "url": mangaUrl + "ajax/chapters/",
+        "params": {},
+        "paths": {},
+        "headers": madaraAjaxHeaders(settings, mangaUrl),
+        "body": {}
+    });
+    if (response["statusCode"] >= 400) {
+        return [];
+    }
+    return madaraChapterElements(createHTMLParser(response["body"]));
+}
+
+function madaraChaptersFromAdminAjax(settings, document, mangaUrl) {
+    postId = madaraPostIdOf(document);
+    if (postId == null) {
+        return [];
+    }
+    response = httpPost({
+        "url": madaraBaseUrl(settings) + "/wp-admin/admin-ajax.php",
+        "params": {},
+        "paths": {},
+        "headers": madaraAjaxHeaders(settings, mangaUrl),
+        "body": {
+            "action": "manga_get_chapters",
+            "manga": postId
+        }
+    });
+    if (response["statusCode"] >= 400) {
+        return [];
+    }
+    return madaraChapterElements(createHTMLParser(response["body"]));
+}
+
+function madaraLoadChapters(settings, document, mangaUrl) {
+    chaptersMode = madaraOption(settings, "chaptersMode", "auto");
+    elements = [];
+    if (chaptersMode == "auto" || chaptersMode == "page") {
+        elements = madaraChapterElements(document);
+    }
+    if (elements.length == 0) {
+        if (chaptersMode == "auto" || chaptersMode == "ajax") {
+            elements = madaraChaptersFromAjax(settings, mangaUrl);
+        }
+    }
+    if (elements.length == 0) {
+        if (chaptersMode == "auto" || chaptersMode == "admin-ajax") {
+            elements = madaraChaptersFromAdminAjax(settings, document, mangaUrl);
+        }
+    }
+    return madaraParseChapters(settings, elements);
+}
+
+function madaraChapterDate(element) {
+    dateHolder = element.querySelector(".chapter-release-date");
+    if (dateHolder == null) {
+        return "";
+    }
+    dateItalic = dateHolder.querySelector("i");
+    if (dateItalic != null) {
+        italicText = dateItalic.text.trim();
+        if (italicText != "") {
+            return italicText;
+        }
+    }
+    dateLink = dateHolder.querySelector("a");
+    if (dateLink != null) {
+        linkTitle = dateLink.attributes["title"];
+        if (linkTitle != null) {
+            return linkTitle.trim();
+        }
+    }
+    return dateHolder.text.trim();
+}
+
+function madaraParseChapters(settings, elements) {
+    chapters = [];
+    seenChapters = [];
+    for (c = 0; c < elements.length; c++) {
+        element = elements[c];
+        anchor = element.querySelector("a");
+        if (anchor == null) {
+            continue;
+        }
+        chapterHref = anchor.attributes["href"];
+        if (chapterHref == null) {
+            continue;
+        }
+        chapterPath = madaraPathOf(chapterHref);
+        if (chapterPath == "") {
+            continue;
+        }
+        if (seenChapters.contains(chapterPath)) {
+            continue;
+        }
+        seenChapters.push(chapterPath);
+        chapterTitle = anchor.text.trim();
+        if (chapterTitle == "") {
+            chapterTitle = chapterPath;
+        }
+        chapterDate = madaraChapterDate(element);
+        chapters.push(buildChapter({
+            "uid": chapterPath,
+            "title": chapterTitle,
+            "timestamp": chapterDate,
+            "data": {}
+        }));
+    }
+    return chapters;
+}
+
+function madaraExcluded(settings, pageUrl) {
+    excludePatterns = madaraOption(settings, "pageExclude", []);
+    for (x = 0; x < excludePatterns.length; x++) {
+        if (pageUrl.contains(excludePatterns[x])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function madaraGetPages(settings, uid) {
+    chapterPath = madaraTrimSlashes(uid);
+    chapterUrl = madaraPageUrl(settings, chapterPath);
+    document = madaraFetchDocument(settings, chapterUrl, {"style": "list"}, "chapter page");
+    images = document.querySelectorAll(madaraSelectorFor(settings, "pageSelector", ".reading-content img"));
+    if (images.length == 0) {
+        images = document.querySelectorAll(".read-container img");
+    }
+    pageUrls = [];
+    for (p = 0; p < images.length; p++) {
+        pageUrl = madaraImageSource(settings, images[p]);
+        if (pageUrl == "") {
+            continue;
+        }
+        if (pageUrls.contains(pageUrl)) {
+            continue;
+        }
+        if (madaraExcluded(settings, pageUrl)) {
+            continue;
+        }
+        pageUrls.push(pageUrl);
+    }
+    if (pageUrls.length == 0) {
+        if (document.querySelector(".chapter-protector, #chapter-protector-data") != null) {
+            throw "This chapter is encrypted by the site, which is not supported";
+        }
+        throw "No pages found in the chapter";
+    }
+    return buildPages({"uid": chapterPath, "value": pageUrls});
+}
+
+function madaraGetImageHeaders(settings) {
+    return {
+        "User-Agent": madaraUserAgent(settings),
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": madaraBaseUrl(settings) + "/"
+    };
+}
