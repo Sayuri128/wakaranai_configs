@@ -45,6 +45,7 @@
     {
       "key": "apiKey",
       "type": "text",
+      "secret": true,
       "title": "API key",
       "summary": "Created in Komga under Account settings, API keys (Komga 1.13 or newer). Used instead of the username and password when set"
     },
@@ -57,6 +58,7 @@
     {
       "key": "password",
       "type": "text",
+      "secret": true,
       "title": "Password"
     },
     {

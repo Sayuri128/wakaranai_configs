@@ -27,6 +27,7 @@
     {
       "key": "password",
       "type": "text",
+      "secret": true,
       "title": "Password"
     }
   ]

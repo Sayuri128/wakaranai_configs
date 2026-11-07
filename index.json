@@ -896,7 +896,7 @@
     {
       "category": "manga",
       "path": "manga/kavita",
-      "revision": "d7a5a9259f3b9d50",
+      "revision": "1b3827fd8eed3ff4",
       "apiVersion": 2,
       "config": {
         "name": "Kavita",
@@ -981,6 +981,7 @@
           {
             "key": "apiKey",
             "type": "text",
+            "secret": true,
             "title": "API key",
             "summary": "Your Kavita API key, from User settings, 3rd Party Clients (or Auth Keys) in Kavita"
           },
@@ -996,7 +997,7 @@
     {
       "category": "manga",
       "path": "manga/komga",
-      "revision": "e25291bc8d6b2ae0",
+      "revision": "d2a1c45ad1564940",
       "apiVersion": 2,
       "config": {
         "name": "Komga",
@@ -1079,6 +1080,7 @@
           {
             "key": "apiKey",
             "type": "text",
+            "secret": true,
             "title": "API key",
             "summary": "Created in Komga under Account settings, API keys (Komga 1.13 or newer). Used instead of the username and password when set"
           },
@@ -1091,6 +1093,7 @@
           {
             "key": "password",
             "type": "text",
+            "secret": true,
             "title": "Password"
           },
           {
@@ -2105,7 +2108,7 @@
     {
       "category": "manga",
       "path": "manga/opds",
-      "revision": "001f430d83b1a649",
+      "revision": "cafe27b3911d6629",
       "apiVersion": 2,
       "config": {
         "name": "OPDS",
@@ -2139,6 +2142,7 @@
           {
             "key": "password",
             "type": "text",
+            "secret": true,
             "title": "Password"
           }
         ]

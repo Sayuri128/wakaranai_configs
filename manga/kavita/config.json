@@ -45,6 +45,7 @@
     {
       "key": "apiKey",
       "type": "text",
+      "secret": true,
       "title": "API key",
       "summary": "Your Kavita API key, from User settings, 3rd Party Clients (or Auth Keys) in Kavita"
     },
