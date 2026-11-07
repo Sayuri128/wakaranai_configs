@@ -1342,6 +1342,13 @@ function readMoonanimePlayerState(moonExpectedSlug) {
         const deadline = Date.now() + 1500;
         const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
         const isLink = (value) => typeof value === "string" && value.indexOf("http") === 0;
+        const requested = () => {
+            try {
+                return performance.getEntriesByType("resource").map((entry) => entry.name).filter(isLink);
+            } catch (e) {
+                return [];
+            }
+        };
         const readStreams = () => {
             const streams = [];
             const listed = Array.isArray(window.videoSources) ? window.videoSources : [];
@@ -1352,6 +1359,14 @@ function readMoonanimePlayerState(moonExpectedSlug) {
             }
             if (streams.length === 0 && isLink(window.rawVideo)) {
                 streams.push({url: window.rawVideo, quality: ""});
+            }
+            if (streams.length > 0) {
+                return streams;
+            }
+            const playlists = requested().filter((name) => name.split("?")[0].toLowerCase().endsWith(".m3u8"));
+            const master = playlists.find((name) => name.indexOf("/quality/") < 0) || playlists[0];
+            if (master) {
+                streams.push({url: master, quality: ""});
             }
             return streams;
         };
