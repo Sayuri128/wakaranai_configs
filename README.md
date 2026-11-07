@@ -1,6 +1,6 @@
 # Wakaranai Configs
 
-The official extension repository for the [Wakaranai](https://github.com/Sayuri128/wakaranai) manga/anime reader. Extensions are written in [Capyscript](https://github.com/Sayuri128/capyscript) and loaded by the app at runtime — no app update is needed to add or fix a source.
+The official extension repository for the [Wakaranai](https://github.com/Sayuri128/wakaranai) manga, anime and light novel reader. Extensions are written in [Capyscript](https://github.com/Sayuri128/capyscript) and loaded by the app at runtime — no app update is needed to add or fix a source.
 
 ## Extensions
 
@@ -30,14 +30,16 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 ```
 manga/<extension>/   config.json, main.capyscript, logo.png
 anime/<extension>/   same layout
+novel/<extension>/   same layout, for light novels and web novels
 shared/              Capyscript code imported by several extensions
 index.json           generated list of all configs, read by the app
 tool/                index generator and local dev server
 tests/               integration tests for each extension
 ```
 
-- `config.json` — metadata: `uid`, `name`, `logoUrl`, `type` (`0` manga, `1` anime), `nsfw`, `language`, `version`, `searchAvailable`, an optional `protectorConfig` for sites behind challenges or logins, and optional gallery `filters`.
-- `main.capyscript` — implements `getGallery`, `getConcrete`, `getPages` / video lists, and optionally `passProtector`. Shared code is pulled in with relative imports such as `import "../../shared/lib_social_api";`.
+- `config.json` — metadata: `uid`, `name`, `logoUrl`, `type` (`0` manga, `1` anime, `2` novel), `nsfw`, `language`, `version`, `searchAvailable`, an optional `protectorConfig` for sites behind challenges or logins, and optional gallery `filters`.
+- `main.capyscript` — implements `getGallery`, `getConcrete`, `getPages` / video lists / `getChapterText`, and optionally `passProtector`. Shared code is pulled in with relative imports such as `import "../../shared/lib_social_api";`.
+- Novel extensions (`novel/`) import `novel_models`, which has the manga builders plus `buildNovelChapter`, and return the chapter body as HTML from `getChapterText(uid, data)` instead of page images. They only run on app releases with novel support, so they must declare `"apiVersion": 2` and a `minAppVersion` of at least `0.4.0`.
 - `shared/madara.capyscript` — a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
 
 The full extension authoring guide lives in the app repo: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).
@@ -56,7 +58,7 @@ cd tests && dart run bin/health.dart                # smoke-test every extension
 
 Extensions configured through their settings (Komga, Kavita, OPDS) need preferences in the health check: pass each one as `--pref <key>=<value>`, for example `dart run bin/health.dart --only komga --pref serverUrl=http://localhost:25600 --pref apiKey=<key>`. The values apply to every extension in the run, so combine them with `--only`.
 
-The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
+The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. That interpreter predates novels, so novel configs and scripts get structural checks instead: type `2`, api version, `minAppVersion`, the `novel_models` import and `getChapterText`. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
 
 ## Custom repositories
 

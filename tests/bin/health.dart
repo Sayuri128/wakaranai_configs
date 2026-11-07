@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:capyscript/api_clients/anime_api_client.dart';
 import 'package:capyscript/api_clients/api_client.dart';
+import 'package:capyscript/api_clients/host/extension_host.dart';
 import 'package:capyscript/api_clients/manga_api_client.dart';
+import 'package:capyscript/api_clients/novel_api_client.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_video/anime_video.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_video/anime_view_type.dart';
 import 'package:capyscript/modules/waka_models/models/common/element_of_elements_group_of_concrete.dart';
@@ -17,8 +19,9 @@ import '../test/helpers/auth_session.dart';
 import '../test/helpers/extension_host_helpers.dart';
 import '../test/helpers/real_browser_interceptor_controller.dart';
 import '../test/helpers/scraper_helpers.dart';
+import '../test/helpers/script_bundle.dart';
 
-const List<String> categories = ['manga', 'anime'];
+const List<String> categories = ['manga', 'anime', 'novel'];
 const Map<String, String> sessionAliases = {'lib_social': 'mangalib'};
 const String desktopUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -190,55 +193,6 @@ String normalizeSelector(String selector) {
   return normalized;
 }
 
-String bundleScript(String entryPath) {
-  final imports = <String>[];
-  final bodies = <String>[];
-  collectScript(p.normalize(entryPath), imports, bodies, <String>{});
-  final uniqueImports = <String>[];
-  for (final line in imports) {
-    if (uniqueImports.contains(line) == false) {
-      uniqueImports.add(line);
-    }
-  }
-  return [
-    if (uniqueImports.isNotEmpty) uniqueImports.join('\n'),
-    ...bodies.where((body) => body.trim().isNotEmpty),
-  ].join('\n\n');
-}
-
-final RegExp importPattern = RegExp(
-  r'''^\s*import\s+["']([^"']+)["'];\s*$''',
-  multiLine: true,
-);
-
-void collectScript(
-  String path,
-  List<String> imports,
-  List<String> bodies,
-  Set<String> visited,
-) {
-  if (visited.add(path) == false) {
-    return;
-  }
-  final source = File(path).readAsStringSync();
-  for (final match in importPattern.allMatches(source)) {
-    final target = match.group(1)!;
-    if (target.startsWith('./') || target.startsWith('../')) {
-      var resolved = p.normalize(p.join(p.dirname(path), target));
-      if (p.extension(resolved).isEmpty) {
-        resolved = '$resolved.capyscript';
-      }
-      collectScript(resolved, imports, bodies, visited);
-    } else {
-      imports.add(match.group(0)!.trim());
-    }
-  }
-  final body = source.replaceAll(importPattern, '').trim();
-  if (body.isNotEmpty) {
-    bodies.add(body);
-  }
-}
-
 String? savedSessionFor(String directory, ConfigInfo config) {
   final group = config.protectorConfig?.sessionGroup;
   final candidates = <String>[
@@ -301,9 +255,7 @@ Future<HealthResult> checkExtension(String directory, HealthOptions options) asy
 
     final code = bundleScript(scriptPath('$directory/main.capyscript'));
     final host = hostFor(config, preferences: options.preferences);
-    final ApiClient client = config.type == ConfigInfoType.ANIME
-        ? AnimeApiClient(code: code, host: host)
-        : MangaApiClient(code: code, host: host);
+    final ApiClient client = clientFor(config.type, code, host);
     if (client.interpreter.hasFunction('getGallery') == false) {
       throw const StepFailure('getGallery is not defined');
     }
@@ -328,12 +280,25 @@ Future<HealthResult> checkExtension(String directory, HealthOptions options) asy
       await checkMangaPages(run, client, element);
     } else if (client is AnimeApiClient) {
       await checkAnimeSources(run, client, element as AnimeVideo);
+    } else if (client is NovelApiClient) {
+      await checkNovelText(run, client, element);
     }
     return run.finish(Outcome.ok, run.notes.join(', '));
   } catch (error) {
     return run.finish(Outcome.fail, shortError(error));
   } finally {
     await run.browser?.dispose();
+  }
+}
+
+ApiClient clientFor(ConfigInfoType type, String code, ExtensionHost host) {
+  switch (type) {
+    case ConfigInfoType.ANIME:
+      return AnimeApiClient(code: code, host: host);
+    case ConfigInfoType.NOVEL:
+      return NovelApiClient(code: code, host: host);
+    case ConfigInfoType.MANGA:
+      return MangaApiClient(code: code, host: host);
   }
 }
 
@@ -441,6 +406,22 @@ Future<void> checkMangaPages(
   );
   final contentType = await run.run('image', () => probeFirstImage(run, pages.value, headers));
   run.notes.add(contentType);
+}
+
+Future<void> checkNovelText(
+  ExtensionRun run,
+  NovelApiClient client,
+  ElementOfElementsGroupOfConcrete chapter,
+) async {
+  final content = await run.run(
+    'text',
+    () => client.getChapterText(uid: chapter.uid, data: chapter.data),
+  );
+  final text = content.html.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+  if (text.isEmpty) {
+    throw const StepFailure('empty chapter text');
+  }
+  run.notes.add('${content.html.length} chars html');
 }
 
 Future<String> probeFirstImage(

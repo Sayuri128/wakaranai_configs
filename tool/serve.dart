@@ -16,7 +16,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-const List<String> _categories = <String>['manga', 'anime'];
+const List<String> _categories = <String>['manga', 'anime', 'novel'];
 
 late final Directory _root;
 

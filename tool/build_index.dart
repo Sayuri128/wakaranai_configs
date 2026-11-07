@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-const List<String> _categories = <String>['manga', 'anime'];
+const List<String> _categories = <String>['manga', 'anime', 'novel'];
 const String _outputPath = 'index.json';
 
 void main(List<String> args) {

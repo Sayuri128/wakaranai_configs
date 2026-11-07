@@ -6,11 +6,20 @@ import 'package:capyscript/modules/abstract/base_module.dart';
 import 'package:capyscript/modules/waka_models/models/config_info/config_info.dart';
 import 'package:capyscript/parser/parser.dart';
 
-const Map<String, int> _categoryTypes = {'manga': 0, 'anime': 1};
+const Map<String, int> _categoryTypes = {'manga': 0, 'anime': 1, 'novel': 2};
 
 const Map<String, List<String>> _requiredFunctions = {
   'manga': ['getGallery', 'getConcrete', 'getPages'],
   'anime': ['getGallery', 'getConcrete'],
+  'novel': ['getGallery', 'getConcrete', 'getChapterText'],
+};
+
+const String _novelCategory = 'novel';
+const String _novelModelsModule = 'novel_models';
+const int _novelApiVersion = 2;
+const String _novelMinAppVersion = '0.4.0';
+const Map<String, Set<String>> _categoryModules = {
+  _novelCategory: {_novelModelsModule},
 };
 
 final RegExp _uuid =
@@ -138,7 +147,12 @@ void _validateExtension(Directory dir, String name, String category,
     return;
   }
   final functions = <String>{};
-  _validateScript(script, functions, <String>{}, features, fail);
+  final imports = <String>{};
+  _validateScript(script, functions, imports, <String>{}, features,
+      _categoryModules[category] ?? const <String>{}, fail);
+  if (category == _novelCategory && !imports.contains(_novelModelsModule)) {
+    fail('main.capyscript must import "$_novelModelsModule"');
+  }
   for (final required in _requiredFunctions[category]!) {
     if (!functions.contains(required)) {
       fail('main.capyscript does not define $required');
@@ -245,6 +259,9 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     }
   }
   _validateContentKinds(config['contentKinds'], fail);
+  if (category == _novelCategory) {
+    _validateNovelConfig(config, fail);
+  }
 
   final filters = config['filters'];
   if (filters is List) {
@@ -259,11 +276,56 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     }
   }
 
+  if (category == _novelCategory) {
+    _validateNovelSharedFields(config, fail);
+    return;
+  }
   try {
     ConfigInfo.fromJson(config);
   } catch (e) {
     fail('the app cannot parse config.json: $e');
   }
+}
+
+void _validateNovelConfig(
+    Map<String, dynamic> config, void Function(String) fail) {
+  if (config['apiVersion'] != _novelApiVersion) {
+    fail('novel extensions must declare "apiVersion": $_novelApiVersion');
+  }
+  final minAppVersion = config['minAppVersion'];
+  if (minAppVersion is! String) {
+    fail('novel extensions must declare "minAppVersion" (at least '
+        '$_novelMinAppVersion, the first app release with novel support)');
+    return;
+  }
+  if (_semanticVersion.hasMatch(minAppVersion) &&
+      _compareVersions(minAppVersion, _novelMinAppVersion) < 0) {
+    fail('"minAppVersion" $minAppVersion is older than $_novelMinAppVersion, '
+        'the first app release with novel support');
+  }
+}
+
+void _validateNovelSharedFields(
+    Map<String, dynamic> config, void Function(String) fail) {
+  final mangaShaped = Map<String, dynamic>.of(config)
+    ..['type'] = _categoryTypes['manga'];
+  try {
+    ConfigInfo.fromJson(mangaShaped);
+  } catch (e) {
+    fail('the fields novel configs share with manga configs do not parse: $e');
+  }
+}
+
+int _compareVersions(String left, String right) {
+  final leftParts = left.split('.').map(int.parse).toList();
+  final rightParts = right.split('.').map(int.parse).toList();
+  for (var index = 0; index < leftParts.length; index++) {
+    final difference = leftParts[index] - rightParts[index];
+    if (difference != 0) {
+      return difference;
+    }
+  }
+  return 0;
 }
 
 void _collectConfigApiFeatures(
@@ -682,8 +744,14 @@ void _validateDownloadConfig(
   }
 }
 
-void _validateScript(File file, Set<String> functions, Set<String> visited,
-    List<_ApiFeature> features, void Function(String) fail) {
+void _validateScript(
+    File file,
+    Set<String> functions,
+    Set<String> imports,
+    Set<String> visited,
+    List<_ApiFeature> features,
+    Set<String> categoryModules,
+    void Function(String) fail) {
   final path = file.absolute.path;
   if (!visited.add(path)) {
     return;
@@ -726,7 +794,8 @@ void _validateScript(File file, Set<String> functions, Set<String> visited,
   for (final match in _import.allMatches(code)) {
     final module = source.substring(match.start, match.end);
     final name = _import.firstMatch(module)!.group(1)!;
-    if (moduleFactories.containsKey(name)) {
+    imports.add(name);
+    if (moduleFactories.containsKey(name) || categoryModules.contains(name)) {
       continue;
     }
     final moduleApiVersion = _moduleApiVersions[name];
@@ -744,7 +813,8 @@ void _validateScript(File file, Set<String> functions, Set<String> visited,
       fail('$label imports "$name", but ${imported.path} does not exist');
       continue;
     }
-    _validateScript(imported, functions, visited, features, fail);
+    _validateScript(imported, functions, imports, visited, features,
+        categoryModules, fail);
   }
 }
 
