@@ -1,0 +1,378 @@
+import "http";
+import "json";
+import "converter";
+import "manga_models";
+import "errors";
+
+function zenkoApiBase() {
+    return "https://api.zenko.online";
+}
+
+function zenkoStorageBase() {
+    return "https://storage.zenko.online/";
+}
+
+function zenkoPageSize() {
+    return 30;
+}
+
+function zenkoNameSeparator() {
+    return "@#%&;№%#&**#!@";
+}
+
+function zenkoHeaders() {
+    return {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Origin": "https://zenko.online",
+        "Referer": "https://zenko.online/"
+    };
+}
+
+function zenkoRequest(requestUrl, requestParams, requestPaths, requestLabel) {
+    apiResponse = httpGet({
+        "url": requestUrl,
+        "params": requestParams,
+        "paths": requestPaths,
+        "headers": zenkoHeaders(),
+        "throughWeb": false
+    });
+    apiStatus = apiResponse["statusCode"];
+    if (apiStatus == 200) {
+        return jsonDecode(apiResponse["body"]);
+    }
+    if (apiStatus == 404) {
+        throwSourceError("notFound", requestLabel + " is no longer on Zenko");
+    }
+    if (apiStatus == 401 || apiStatus == 403) {
+        throwSourceError("loginRequired", "Zenko needs a signed-in account for " + requestLabel);
+    }
+    if (apiStatus == 429) {
+        throwSourceError("rateLimited", "Zenko is rate limiting requests (" + requestLabel + ")");
+    }
+    if (apiStatus == 0 || apiStatus >= 500) {
+        throwSourceError("sourceDown", "Zenko answered HTTP " + parseString(apiStatus) + " (" + requestLabel + ")");
+    }
+    throw "HTTP " + parseString(apiStatus) + " (Zenko " + requestLabel + ")";
+}
+
+function zenkoImageUrl(imageId) {
+    if (imageId == null || imageId == "") {
+        return "";
+    }
+    if (parseString(imageId).startsWith("http")) {
+        return imageId;
+    }
+    return zenkoStorageBase() + imageId;
+}
+
+function zenkoStatus(statusValue) {
+    if (statusValue == "ONGOING") {
+        return statusOngoing();
+    }
+    if (statusValue == "FINISHED") {
+        return statusReleased();
+    }
+    if (statusValue == "PAUSED") {
+        return statusPaused();
+    }
+    if (statusValue == "COMING_SOON") {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function zenkoCategoryLabel(categoryValue) {
+    categoryValues = ["MANGA", "MANHVA", "MANHUA", "MANGA_UA", "WESTERN_COMICS", "COMICS", "OTHER", "RANOBE"];
+    categoryLabels = ["Манґа", "Манхва", "Маньхва", "Мальопис", "Вебкомікс", "Комікс", "Інше", "Ранобе"];
+    categoryIndex = categoryValues.indexOf(categoryValue);
+    if (categoryIndex < 0) {
+        return categoryValue;
+    }
+    return categoryLabels[categoryIndex];
+}
+
+function zenkoNamesOf(namedList) {
+    foundNames = [];
+    if (namedList == null) {
+        return foundNames;
+    }
+    for (nl = 0; nl < namedList.length; nl = nl + 1) {
+        listedName = namedList[nl]["name"];
+        if (listedName != null && listedName != "" && foundNames.contains(listedName) == false) {
+            foundNames.push(listedName);
+        }
+    }
+    return foundNames;
+}
+
+function zenkoGalleryItem(titleItem) {
+    itemCover = zenkoImageUrl(titleItem["coverImg"]);
+    return buildGallery({
+        "uid": parseString(titleItem["id"]),
+        "title": titleItem["name"],
+        "cover": itemCover,
+        "data": {},
+        "status": zenkoStatus(titleItem["status"]),
+        "subtitle": zenkoCategoryLabel(titleItem["category"]),
+        "tags": zenkoNamesOf(titleItem["genres"]),
+        "year": titleItem["releaseYear"]
+    });
+}
+
+function zenkoQueryValue(rawValue) {
+    return parseString(rawValue).replaceAll("%", "%25").replaceAll("&", "%26").replaceAll("#", "%23").replaceAll("+", "%2B").replaceAll(" ", "%20");
+}
+
+function zenkoCatalogQuery(catalogFilters) {
+    sortField = "viewsCount";
+    showAdult = false;
+    chosenCategories = [];
+    queryParts = [];
+    if (catalogFilters != null) {
+        for (cf = 0; cf < catalogFilters.length; cf = cf + 1) {
+            filterData = catalogFilters[cf];
+            filterInfo = filterData["filter"];
+            filterParam = filterInfo["param"];
+            filterType = filterInfo["type"];
+            if (filterType == "SWITCHER") {
+                if (filterData["on"] == true) {
+                    showAdult = true;
+                }
+                continue;
+            }
+            if (filterType == "ONE_OF_MULTIPLE") {
+                sortChoice = filterData["selected"];
+                if (sortChoice != null && sortChoice != "") {
+                    sortField = sortChoice;
+                }
+                continue;
+            }
+            if (filterType == "MULTIPLE_OF_MULTIPLE") {
+                chosenGroups = filterData["selected"];
+                for (cg = 0; cg < chosenGroups.length; cg = cg + 1) {
+                    for (cv = 0; cv < chosenGroups[cg].length; cv = cv + 1) {
+                        chosenValue = chosenGroups[cg][cv];
+                        if (filterParam == "categories") {
+                            chosenCategories.push(chosenValue);
+                        } else {
+                            queryParts.push(filterParam + "=" + zenkoQueryValue(chosenValue));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (chosenCategories.isEmpty) {
+        chosenCategories = ["MANGA", "MANHVA", "MANHUA", "MANGA_UA", "WESTERN_COMICS", "COMICS", "OTHER"];
+    }
+    for (cc = 0; cc < chosenCategories.length; cc = cc + 1) {
+        queryParts.push("categories=" + zenkoQueryValue(chosenCategories[cc]));
+    }
+    if (showAdult == false) {
+        queryParts.push("ageLimit=0");
+        queryParts.push("ageLimit=16");
+    }
+    queryParts.push("sortBy=" + sortField);
+    queryParts.push("order=DESC");
+    return queryParts.join("&");
+}
+
+function getGallery(page, query, filters) {
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    pageOffset = page - 1;
+    pageOffset = pageOffset * zenkoPageSize();
+    titlesPage = null;
+    if (searchText != "") {
+        titlesPage = zenkoRequest(zenkoApiBase() + "/titles", {
+            "limit": parseString(zenkoPageSize()),
+            "offset": parseString(pageOffset),
+            "name": searchText
+        }, {}, "search");
+    } else {
+        catalogUrl = zenkoApiBase() + "/titles?" + zenkoCatalogQuery(filters) + "&limit=" + parseString(zenkoPageSize()) + "&offset=" + parseString(pageOffset) + "&_=1";
+        titlesPage = zenkoRequest(catalogUrl, {}, {"&_=1?": ""}, "catalog page " + parseString(page));
+    }
+    titleItems = titlesPage["data"];
+    if (titleItems == null) {
+        return [];
+    }
+    galleryItems = [];
+    for (ti = 0; ti < titleItems.length; ti = ti + 1) {
+        if (titleItems[ti]["id"] == null) {
+            continue;
+        }
+        if (titleItems[ti]["category"] == "RANOBE") {
+            continue;
+        }
+        galleryItems.push(zenkoGalleryItem(titleItems[ti]));
+    }
+    return galleryItems;
+}
+
+function zenkoNumber(numberText) {
+    parsedNumber = null;
+    if (numberText == null || numberText == "") {
+        return null;
+    }
+    try {
+        parsedNumber = parseDouble(numberText.replaceAll(",", "."));
+    } catch (e) {
+        parsedNumber = null;
+    }
+    return parsedNumber;
+}
+
+function zenkoTimestamp(epochSeconds) {
+    if (epochSeconds == null) {
+        return null;
+    }
+    epochMillis = epochSeconds * 1000;
+    return parseString(epochMillis);
+}
+
+function zenkoChapter(chapterInfo) {
+    nameParts = parseString(chapterInfo["name"]).split(zenkoNameSeparator());
+    volumeText = "";
+    numberText = "";
+    chapterName = "";
+    if (nameParts.length >= 3) {
+        volumeText = nameParts[0].trim();
+        numberText = nameParts[1].trim();
+        chapterName = nameParts.sublist(2).join(" ").trim();
+    } else {
+        chapterName = nameParts.join(" ").trim();
+    }
+    chapterLabel = "";
+    if (volumeText != "") {
+        chapterLabel = "Том " + volumeText + " ";
+    }
+    if (numberText != "") {
+        chapterLabel = chapterLabel + "Розділ " + numberText;
+    }
+    if (chapterName != "") {
+        if (chapterLabel == "") {
+            chapterLabel = chapterName;
+        } else {
+            chapterLabel = chapterLabel.trim() + " - " + chapterName;
+        }
+    }
+    if (chapterLabel.trim() == "") {
+        chapterLabel = "Розділ";
+    }
+    return buildChapter({
+        "uid": parseString(chapterInfo["id"]),
+        "title": chapterLabel.trim(),
+        "timestamp": zenkoTimestamp(chapterInfo["createdAt"]),
+        "data": {},
+        "number": zenkoNumber(numberText),
+        "volume": zenkoNumber(volumeText)
+    });
+}
+
+function zenkoChapterGroups(titleId) {
+    chapterList = zenkoRequest(zenkoApiBase() + "/titles/" + titleId + "/chapters", {}, {}, "chapters of " + titleId);
+    groupNames = [];
+    groupChapters = [];
+    for (cl = 0; cl < chapterList.length; cl = cl + 1) {
+        listedChapter = chapterList[cl];
+        if (listedChapter["isPublished"] == false) {
+            continue;
+        }
+        publisherName = "Переклад";
+        if (listedChapter["publisher"] != null) {
+            if (listedChapter["publisher"]["name"] != null) {
+                publisherName = listedChapter["publisher"]["name"];
+            }
+        }
+        groupIndex = groupNames.indexOf(publisherName);
+        if (groupIndex < 0) {
+            groupNames.push(publisherName);
+            groupChapters.push([]);
+            groupIndex = groupNames.length - 1;
+        }
+        targetGroup = groupChapters[groupIndex];
+        targetGroup.push(zenkoChapter(listedChapter));
+    }
+    builtGroups = [];
+    for (bg = 0; bg < groupNames.length; bg = bg + 1) {
+        builtGroups.push(buildChapterGroups({"title": groupNames[bg], "elements": groupChapters[bg]}));
+    }
+    return builtGroups;
+}
+
+function getConcrete(uid, data) {
+    titleId = uid;
+    titleInfo = zenkoRequest(zenkoApiBase() + "/titles/" + titleId, {}, {}, "title " + titleId);
+    alternativeNames = [];
+    englishName = titleInfo["engName"];
+    if (englishName != null && englishName != "") {
+        alternativeNames.push(englishName);
+    }
+    originalName = titleInfo["originalName"];
+    if (originalName != null && originalName != "" && alternativeNames.contains(originalName) == false) {
+        alternativeNames.push(originalName);
+    }
+    titleTags = zenkoNamesOf(titleInfo["genres"]);
+    extraTags = zenkoNamesOf(titleInfo["tags"]);
+    for (et = 0; et < extraTags.length; et = et + 1) {
+        if (titleTags.contains(extraTags[et]) == false) {
+            titleTags.push(extraTags[et]);
+        }
+    }
+    titleDescription = titleInfo["description"];
+    if (titleDescription == null) {
+        titleDescription = "";
+    }
+    return buildConcrete({
+        "uid": titleId,
+        "title": titleInfo["name"],
+        "cover": zenkoImageUrl(titleInfo["coverImg"]),
+        "description": titleDescription,
+        "tags": titleTags,
+        "status": zenkoStatus(titleInfo["status"]),
+        "alternativeTitles": alternativeNames,
+        "authors": zenkoNamesOf(titleInfo["writers"]),
+        "artists": zenkoNamesOf(titleInfo["painters"]),
+        "year": titleInfo["releaseYear"],
+        "url": "https://zenko.online/titles/" + titleId,
+        "groups": zenkoChapterGroups(titleId)
+    });
+}
+
+function getPages(uid, data) {
+    chapterId = uid;
+    chapterInfo = zenkoRequest(zenkoApiBase() + "/chapters/" + chapterId, {}, {}, "chapter " + chapterId);
+    chapterPages = chapterInfo["pages"];
+    if (chapterPages == null || chapterPages.isEmpty) {
+        throwSourceError("notFound", "Zenko returned no pages for chapter " + chapterId);
+    }
+    pageLinks = [];
+    for (order = 0; order < chapterPages.length; order = order + 1) {
+        for (cp = 0; cp < chapterPages.length; cp = cp + 1) {
+            if (chapterPages[cp]["order"] == order) {
+                pageLinks.push(zenkoImageUrl(chapterPages[cp]["content"]));
+            }
+        }
+    }
+    if (pageLinks.length != chapterPages.length) {
+        pageLinks = [];
+        for (up = 0; up < chapterPages.length; up = up + 1) {
+            pageLinks.push(zenkoImageUrl(chapterPages[up]["content"]));
+        }
+    }
+    return buildPages({
+        "uid": chapterId,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Referer": "https://zenko.online/"
+    };
+}
