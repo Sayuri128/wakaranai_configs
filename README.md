@@ -51,6 +51,8 @@ cd tests && dart test                               # run integration tests (hit
 cd tests && dart run bin/health.dart                # smoke-test every extension end to end (--only <dir>, --browser)
 ```
 
+Extensions configured through their settings (Komga, Kavita, OPDS) need preferences in the health check: pass each one as `--pref <key>=<value>`, for example `dart run bin/health.dart --only komga --pref serverUrl=http://localhost:25600 --pref apiKey=<key>`. The values apply to every extension in the run, so combine them with `--only`.
+
 The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
 
 ## Custom repositories

@@ -31,11 +31,13 @@ class HealthOptions {
   final List<String> only;
   final bool allowBrowser;
   final Duration stepTimeout;
+  final Map<String, Object?> preferences;
 
   const HealthOptions({
     required this.only,
     required this.allowBrowser,
     required this.stepTimeout,
+    required this.preferences,
   });
 }
 
@@ -103,6 +105,7 @@ HealthOptions? parseOptions(List<String> arguments) {
   final only = <String>[];
   var allowBrowser = false;
   var timeoutSeconds = 90;
+  final preferences = <String, Object?>{};
   for (var index = 0; index < arguments.length; index++) {
     final argument = arguments[index];
     if (argument == '--only' && index + 1 < arguments.length) {
@@ -113,9 +116,16 @@ HealthOptions? parseOptions(List<String> arguments) {
     } else if (argument == '--timeout' && index + 1 < arguments.length) {
       index++;
       timeoutSeconds = int.parse(arguments[index]);
+    } else if (argument == '--pref' &&
+        index + 1 < arguments.length &&
+        arguments[index + 1].contains('=')) {
+      index++;
+      final separator = arguments[index].indexOf('=');
+      preferences[arguments[index].substring(0, separator)] =
+          arguments[index].substring(separator + 1);
     } else {
       stderr.writeln(
-        'usage: dart run bin/health.dart [--only <dir>[,<dir>]] [--browser] [--timeout <seconds>]',
+        'usage: dart run bin/health.dart [--only <dir>[,<dir>]] [--browser] [--timeout <seconds>] [--pref <key>=<value>]...',
       );
       return null;
     }
@@ -124,6 +134,7 @@ HealthOptions? parseOptions(List<String> arguments) {
     only: only,
     allowBrowser: allowBrowser,
     stepTimeout: Duration(seconds: timeoutSeconds),
+    preferences: preferences,
   );
 }
 
@@ -289,7 +300,7 @@ Future<HealthResult> checkExtension(String directory, HealthOptions options) asy
     }
 
     final code = bundleScript(scriptPath('$directory/main.capyscript'));
-    final host = hostFor(config);
+    final host = hostFor(config, preferences: options.preferences);
     final ApiClient client = config.type == ConfigInfoType.ANIME
         ? AnimeApiClient(code: code, host: host)
         : MangaApiClient(code: code, host: host);
@@ -503,7 +514,7 @@ Future<String> probe(String url, Map<String, String> headers) async {
 }
 
 final RegExp secretPattern = RegExp(
-  r'''(cookie|set-cookie|authorization|x-xsrf-token|cf_clearance)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^,}\n]*)''',
+  r'''(cookie|set-cookie|authorization|x-api-key|apikey|x-xsrf-token|cf_clearance)(["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^,}\n]*)''',
   caseSensitive: false,
 );
 
