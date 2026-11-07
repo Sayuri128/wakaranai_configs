@@ -4,7 +4,7 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
-      "revision": "34f53ec3cb0417f9",
+      "revision": "0301ac89fb93b74f",
       "apiVersion": 2,
       "config": {
         "name": "HentaiLib",
@@ -703,7 +703,7 @@
     {
       "category": "manga",
       "path": "manga/manga_dex",
-      "revision": "a381e5a14bb6d4dc",
+      "revision": "6a4585abb38ebbeb",
       "apiVersion": 2,
       "config": {
         "name": "MangaDex",
@@ -906,7 +906,7 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
-      "revision": "52012ca7cda9e46e",
+      "revision": "acce0dfccbd263c4",
       "apiVersion": 2,
       "config": {
         "name": "MangaLib",
@@ -1459,7 +1459,7 @@
     {
       "category": "anime",
       "path": "anime/anitube_in_ua",
-      "revision": "02fcc1993b3d06ab",
+      "revision": "6bab0220715f9839",
       "apiVersion": 2,
       "config": {
         "name": "Anitube.in.ua",
