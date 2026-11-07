@@ -1,5 +1,6 @@
 import 'package:capyscript/Interpreter/interpreter.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_concrete_view.dart';
+import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_video/anime_view_type.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_gallery_view/anime_gallery_view.dart';
 import 'package:test/test.dart';
 import '../helpers/auth_session.dart';
@@ -108,6 +109,15 @@ void main() {
 
     test('groups is a list', () {
       expect(concrete.groups, isA<List>());
+    });
+
+    test('episodes stay iframe embeds for older app builds', () {
+      for (final group in concrete.groups) {
+        for (final video in group.elements) {
+          expect(video.type, AnimeVideoType.IFRAME);
+          expect(video.src, isNotEmpty);
+        }
+      }
     });
   });
 
