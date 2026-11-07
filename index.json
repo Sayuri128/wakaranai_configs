@@ -702,6 +702,65 @@
     },
     {
       "category": "manga",
+      "path": "manga/lh_translation",
+      "revision": "e3cb7169c4173063",
+      "apiVersion": 1,
+      "config": {
+        "name": "LHTranslation",
+        "uid": "3dcd16a1-5ca5-4f24-a7ad-c34aa388eff3",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/lh_translation/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Order",
+            "param": "m_orderby",
+            "values": [
+              "latest",
+              "alphabet",
+              "rating",
+              "trending",
+              "views",
+              "new-manga"
+            ],
+            "labels": [
+              "Latest updates",
+              "A-Z",
+              "Rating",
+              "Trending",
+              "Most views",
+              "New"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status[]",
+            "values": [
+              "on-going",
+              "end",
+              "on-hold",
+              "canceled",
+              "upcoming"
+            ],
+            "labels": [
+              "Ongoing",
+              "Completed",
+              "On hold",
+              "Canceled",
+              "Upcoming"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/manga_dex",
       "revision": "bb7f9a8f01a21685",
       "apiVersion": 2,
