@@ -2104,6 +2104,48 @@
     },
     {
       "category": "manga",
+      "path": "manga/opds",
+      "revision": "001f430d83b1a649",
+      "apiVersion": 2,
+      "config": {
+        "name": "OPDS",
+        "uid": "57e20190-051b-40e4-ae28-c22cf8a29ee5",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/opds/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "Multi",
+        "version": 1,
+        "apiVersion": 2,
+        "contentKinds": [
+          "manga",
+          "comic"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "filters": [],
+        "preferences": [
+          {
+            "key": "catalogUrl",
+            "type": "text",
+            "title": "Catalog address",
+            "summary": "OPDS 1.x feed to browse. Its entries are shown as titles, so point it at a feed that lists series, for example http://192.168.1.10:25600/opds/v1.2/series on Komga"
+          },
+          {
+            "key": "username",
+            "type": "text",
+            "title": "Username",
+            "summary": "Only for catalogs that ask for a login"
+          },
+          {
+            "key": "password",
+            "type": "text",
+            "title": "Password"
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/remanga",
       "revision": "f551ca33f495f11c",
       "apiVersion": 2,

@@ -1,0 +1,671 @@
+import "http";
+import "json";
+import "html";
+import "date";
+import "converter";
+import "manga_models";
+import "preferences";
+import "errors";
+import "storage";
+
+function preferenceText(preferenceKey) {
+    preferenceValue = getPreference(preferenceKey);
+    if (preferenceValue == null) {
+        return "";
+    }
+    return parseString(preferenceValue).trim();
+}
+
+function catalogUrl() {
+    configuredUrl = preferenceText("catalogUrl");
+    if (configuredUrl == "") {
+        throwSourceError("loginRequired", "Enter the OPDS catalog address in the extension settings");
+    }
+    if (configuredUrl.startsWith("http://") == false && configuredUrl.startsWith("https://") == false) {
+        configuredUrl = "http://" + configuredUrl;
+    }
+    return configuredUrl;
+}
+
+function authHeaders() {
+    username = preferenceText("username");
+    if (username == "") {
+        return {};
+    }
+    password = preferenceText("password");
+    return {"Authorization": "Basic " + base64Encode(username + ":" + password)};
+}
+
+function urlOrigin(originUrl) {
+    originParts = originUrl.split("://");
+    if (originParts.length < 2) {
+        return "";
+    }
+    hostPart = originParts[1].split("/")[0].split("?")[0].split("#")[0];
+    return originParts[0] + "://" + hostPart;
+}
+
+function stripQuery(queryUrl) {
+    return queryUrl.split("#")[0].split("?")[0];
+}
+
+function urlDirectory(directoryUrl) {
+    directoryOrigin = urlOrigin(directoryUrl);
+    directoryPath = stripQuery(directoryUrl).substring(directoryOrigin.length);
+    if (directoryPath == "") {
+        return directoryOrigin + "/";
+    }
+    pathSegments = directoryPath.split("/");
+    pathSegments.removeAt(pathSegments.length - 1);
+    return directoryOrigin + pathSegments.join("/") + "/";
+}
+
+function resolveUrl(relativeHref, baseUrl) {
+    if (relativeHref.startsWith("http://") || relativeHref.startsWith("https://")) {
+        return relativeHref;
+    }
+    if (relativeHref.startsWith("//")) {
+        return baseUrl.split("://")[0] + ":" + relativeHref;
+    }
+    if (relativeHref.startsWith("/")) {
+        return urlOrigin(baseUrl) + relativeHref;
+    }
+    if (relativeHref.startsWith("?")) {
+        return stripQuery(baseUrl) + relativeHref;
+    }
+    siblingHref = relativeHref;
+    if (siblingHref.startsWith("./")) {
+        siblingHref = siblingHref.substring(2);
+    }
+    return urlDirectory(baseUrl) + siblingHref;
+}
+
+function compactUrl(fullUrl) {
+    catalogOrigin = urlOrigin(catalogUrl());
+    if (fullUrl.startsWith(catalogOrigin + "/")) {
+        return fullUrl.substring(catalogOrigin.length);
+    }
+    return fullUrl;
+}
+
+function expandUrl(compactedUrl) {
+    return resolveUrl(compactedUrl, catalogUrl());
+}
+
+function decodeQueryPart(queryPart) {
+    spacedPart = queryPart.replaceAll("+", " ");
+    decodedPart = spacedPart;
+    try {
+        decodedPart = urlDecode(spacedPart);
+    } catch (decodeError) {
+        decodedPart = spacedPart;
+    }
+    return decodedPart;
+}
+
+function queryParams(paramsUrl) {
+    paramsMap = {};
+    withoutFragment = paramsUrl.split("#")[0];
+    queryStart = withoutFragment.indexOf("?");
+    if (queryStart < 0) {
+        return paramsMap;
+    }
+    queryPairs = withoutFragment.substring(queryStart + 1).split("&");
+    for (qp = 0; qp < queryPairs.length; qp = qp + 1) {
+        pairText = queryPairs[qp];
+        if (pairText == "") {
+            continue;
+        }
+        equalsAt = pairText.indexOf("=");
+        if (equalsAt < 0) {
+            paramsMap[decodeQueryPart(pairText)] = "";
+        } else {
+            paramsMap[decodeQueryPart(pairText.substring(0, equalsAt))] = decodeQueryPart(pairText.substring(equalsAt + 1));
+        }
+    }
+    return paramsMap;
+}
+
+function latin1ToUtf8(latinText) {
+    encodedText = urlEncode(latinText);
+    if (encodedText.contains("%C2%") == false && encodedText.contains("%C3%") == false) {
+        return latinText;
+    }
+    encodedText = encodedText.replaceAll("%C2%", "%");
+    highParts = encodedText.split("%C3%");
+    highLeads = {"8": "C", "9": "D", "A": "E", "B": "F"};
+    rebuiltParts = [highParts[0]];
+    for (hp = 1; hp < highParts.length; hp = hp + 1) {
+        highPart = highParts[hp];
+        highLead = highLeads[highPart.substring(0, 1)];
+        if (highLead == null) {
+            return latinText;
+        }
+        rebuiltParts.push(highLead + highPart.substring(1));
+    }
+    repairedText = latinText;
+    try {
+        repairedText = urlDecode(rebuiltParts.join("%"));
+    } catch (repairError) {
+        repairedText = latinText;
+    }
+    return repairedText;
+}
+
+function responseText(textResponse) {
+    rawBody = textResponse["body"];
+    responseHeaders = textResponse["headers"];
+    contentType = "";
+    if (responseHeaders != null && responseHeaders["content-type"] != null) {
+        contentType = responseHeaders["content-type"].toLowerCase();
+    }
+    if (contentType.contains("charset") || contentType.contains("json")) {
+        return rawBody;
+    }
+    return latin1ToUtf8(rawBody);
+}
+
+function fetchText(fetchUrl) {
+    requestHeaders = authHeaders();
+    requestHeaders["Accept"] = "application/atom+xml, application/xml;q=0.9, */*;q=0.8";
+    fetchResponse = null;
+    try {
+        fetchResponse = httpGet({
+            "url": stripQuery(fetchUrl),
+            "params": queryParams(fetchUrl),
+            "paths": {},
+            "headers": requestHeaders,
+            "throughWeb": false
+        });
+    } catch (fetchError) {
+        throwSourceError("sourceDown", "Can't reach the OPDS server at " + urlOrigin(fetchUrl) + ": " + fetchError);
+    }
+    fetchStatus = fetchResponse["statusCode"];
+    if (fetchStatus >= 200 && fetchStatus < 300) {
+        return responseText(fetchResponse);
+    }
+    if (fetchStatus == 401 || fetchStatus == 403) {
+        if (preferenceText("username") == "") {
+            throwSourceError("loginRequired", "The OPDS catalog asks for a login; enter the username and password in the extension settings");
+        }
+        throwSourceError("loginRequired", "The OPDS catalog rejected the username and password; check them in the extension settings");
+    }
+    if (fetchStatus == 404) {
+        throwSourceError("notFound", "The OPDS server has no feed at " + fetchUrl);
+    }
+    if (fetchStatus == 429) {
+        throwSourceError("rateLimited", "The OPDS server is rate limiting requests");
+    }
+    if (fetchStatus >= 500) {
+        throwSourceError("sourceDown", "The OPDS server answered HTTP " + parseString(fetchStatus));
+    }
+    throw "The OPDS server answered HTTP " + parseString(fetchStatus) + " for " + fetchUrl;
+}
+
+function fetchFeed(feedUrl) {
+    return createHTMLParser(fetchText(feedUrl));
+}
+
+function textOrEmpty(textValue) {
+    if (textValue == null) {
+        return "";
+    }
+    return textValue;
+}
+
+function childText(parentElement, childSelector) {
+    childElement = parentElement.querySelector(childSelector);
+    if (childElement == null) {
+        return "";
+    }
+    return childElement.text.trim();
+}
+
+function feedLink(linkDocument, wantedRel, linkBaseUrl) {
+    feedLinks = linkDocument.querySelectorAll("feed > link");
+    for (fl = 0; fl < feedLinks.length; fl = fl + 1) {
+        feedLinkAttributes = feedLinks[fl].attributes;
+        feedLinkHref = feedLinkAttributes["href"];
+        if (feedLinkAttributes["rel"] == wantedRel && feedLinkHref != null && feedLinkHref != "") {
+            return resolveUrl(feedLinkHref, linkBaseUrl);
+        }
+    }
+    return null;
+}
+
+function pseCount(countAttributes) {
+    encodedAttributes = jsonEncode(countAttributes);
+    countMarker = `:count":"`;
+    markerAt = encodedAttributes.indexOf(countMarker);
+    if (markerAt < 0) {
+        return 0;
+    }
+    countText = encodedAttributes.substring(markerAt + countMarker.length).split(`"`)[0];
+    parsedCount = 0;
+    try {
+        parsedCount = parseInt(countText);
+    } catch (countError) {
+        parsedCount = 0;
+    }
+    return parsedCount;
+}
+
+function plainText(markupText) {
+    flatText = markupText.replaceAll("<br/>", " ").replaceAll("<br />", " ").replaceAll("<br>", " ");
+    return flatText.trim();
+}
+
+function readEntry(entryElement, entryBaseUrl) {
+    entrySummary = childText(entryElement, "summary");
+    if (entrySummary == "") {
+        entrySummary = childText(entryElement, "content");
+    }
+    entryInfo = {
+        "title": childText(entryElement, "title"),
+        "summary": plainText(entrySummary),
+        "author": childText(entryElement, "author name"),
+        "updated": childText(entryElement, "updated"),
+        "stream": null,
+        "count": 0,
+        "acquisition": null,
+        "feed": null,
+        "cover": null,
+        "image": null
+    };
+    entryLinks = entryElement.querySelectorAll("link");
+    for (el = 0; el < entryLinks.length; el = el + 1) {
+        linkAttributes = entryLinks[el].attributes;
+        linkRel = textOrEmpty(linkAttributes["rel"]);
+        linkType = textOrEmpty(linkAttributes["type"]).toLowerCase();
+        linkHref = textOrEmpty(linkAttributes["href"]);
+        if (linkHref == "") {
+            continue;
+        }
+        absoluteHref = resolveUrl(linkHref, entryBaseUrl);
+        if (linkRel == "http://vaemendis.net/opds-pse/stream") {
+            entryInfo["stream"] = absoluteHref;
+            entryInfo["count"] = pseCount(linkAttributes);
+        } else if (linkRel == "http://opds-spec.org/image/thumbnail" || linkRel == "x-stanza-cover-image-thumbnail") {
+            entryInfo["cover"] = absoluteHref;
+        } else if (linkRel == "http://opds-spec.org/image" || linkRel == "x-stanza-cover-image") {
+            entryInfo["image"] = absoluteHref;
+        } else if (linkRel.startsWith("http://opds-spec.org/acquisition")) {
+            if (entryInfo["acquisition"] == null) {
+                entryInfo["acquisition"] = absoluteHref;
+            }
+        } else if (linkType.contains("application/atom+xml") && linkType.contains("type=entry") == false && linkRel != "self") {
+            if (entryInfo["feed"] == null) {
+                entryInfo["feed"] = absoluteHref;
+            }
+        }
+    }
+    if (entryInfo["cover"] == null) {
+        entryInfo["cover"] = entryInfo["image"];
+    }
+    return entryInfo;
+}
+
+function readEntries(entriesDocument, entriesBaseUrl) {
+    entryInfos = [];
+    entryElements = entriesDocument.querySelectorAll("entry");
+    for (ee = 0; ee < entryElements.length; ee = ee + 1) {
+        entryInfos.push(readEntry(entryElements[ee], entriesBaseUrl));
+    }
+    return entryInfos;
+}
+
+function isBook(bookEntry) {
+    return bookEntry["stream"] != null || bookEntry["acquisition"] != null;
+}
+
+function bookChapterUid(chapterEntry) {
+    if (chapterEntry["stream"] != null) {
+        return "pse|" + parseString(chapterEntry["count"]) + "|" + compactUrl(chapterEntry["stream"]);
+    }
+    return "none|0|" + compactUrl(chapterEntry["acquisition"]);
+}
+
+function nextPageKey(pagedStartUrl, pagedNumber) {
+    return "next|" + pagedStartUrl + "|" + parseString(pagedNumber);
+}
+
+function rememberNextPage(rememberedStartUrl, rememberedNumber, rememberedUrl) {
+    storedUrl = rememberedUrl;
+    if (storedUrl == null) {
+        storedUrl = "";
+    }
+    storageSet(nextPageKey(rememberedStartUrl, rememberedNumber), storedUrl, 3600);
+}
+
+function galleryPageUrl(pageStartUrl, wantedPage) {
+    if (wantedPage <= 1) {
+        return pageStartUrl;
+    }
+    storedPageUrl = storageGet(nextPageKey(pageStartUrl, wantedPage));
+    if (storedPageUrl == "") {
+        return null;
+    }
+    if (storedPageUrl != null) {
+        return storedPageUrl;
+    }
+    walkUrl = pageStartUrl;
+    for (walkPage = 1; walkPage < wantedPage; walkPage = walkPage + 1) {
+        walkNext = feedLink(fetchFeed(walkUrl), "next", walkUrl);
+        rememberNextPage(pageStartUrl, walkPage + 1, walkNext);
+        if (walkNext == null) {
+            return null;
+        }
+        walkUrl = walkNext;
+    }
+    return walkUrl;
+}
+
+function searchTemplateFrom(searchFeedUrl) {
+    searchDocument = fetchFeed(searchFeedUrl);
+    searchLinks = searchDocument.querySelectorAll("feed > link");
+    startUrl = null;
+    foundTemplate = null;
+    for (sl = 0; sl < searchLinks.length; sl = sl + 1) {
+        searchAttributes = searchLinks[sl].attributes;
+        searchRel = textOrEmpty(searchAttributes["rel"]);
+        searchType = textOrEmpty(searchAttributes["type"]).toLowerCase();
+        searchHref = textOrEmpty(searchAttributes["href"]);
+        if (searchHref == "") {
+            continue;
+        }
+        if (searchRel == "start") {
+            startUrl = resolveUrl(searchHref, searchFeedUrl);
+        }
+        if (searchRel == "search" && foundTemplate == null) {
+            if (searchType.contains("opensearchdescription")) {
+                foundTemplate = openSearchTemplate(resolveUrl(searchHref, searchFeedUrl));
+            } else if (searchHref.contains("{searchTerms}")) {
+                foundTemplate = resolveUrl(searchHref, searchFeedUrl);
+            }
+        }
+    }
+    return {"template": foundTemplate, "start": startUrl};
+}
+
+function openSearchTemplate(descriptionUrl) {
+    descriptionDocument = fetchFeed(descriptionUrl);
+    templateUrls = descriptionDocument.querySelectorAll("url");
+    fallbackTemplate = null;
+    for (tu = 0; tu < templateUrls.length; tu = tu + 1) {
+        templateAttributes = templateUrls[tu].attributes;
+        templateText = textOrEmpty(templateAttributes["template"]);
+        if (templateText.contains("{searchTerms}")) {
+            if (textOrEmpty(templateAttributes["type"]).contains("atom")) {
+                return resolveUrl(templateText, descriptionUrl);
+            }
+            if (fallbackTemplate == null) {
+                fallbackTemplate = resolveUrl(templateText, descriptionUrl);
+            }
+        }
+    }
+    return fallbackTemplate;
+}
+
+function discoverSearchTemplate(discoveryUrl) {
+    discovered = searchTemplateFrom(discoveryUrl);
+    if (discovered["template"] != null) {
+        return discovered["template"];
+    }
+    rootUrl = discovered["start"];
+    if (rootUrl == null || rootUrl == discoveryUrl) {
+        return null;
+    }
+    rootDiscovered = searchTemplateFrom(rootUrl);
+    return rootDiscovered["template"];
+}
+
+function searchTemplate() {
+    templateKey = "search|" + catalogUrl();
+    storedTemplate = storageGet(templateKey);
+    if (storedTemplate == "") {
+        return null;
+    }
+    if (storedTemplate != null) {
+        return storedTemplate;
+    }
+    foundTemplate = discoverSearchTemplate(catalogUrl());
+    if (foundTemplate == null) {
+        storageSet(templateKey, "", 3600);
+        return null;
+    }
+    storageSet(templateKey, foundTemplate, 86400);
+    return foundTemplate;
+}
+
+function searchUrl(searchQuery) {
+    searchPattern = searchTemplate();
+    if (searchPattern == null) {
+        throwSourceError("unsupported", "This OPDS catalog does not offer search");
+    }
+    filledUrl = searchPattern.replaceAll("{searchTerms}", urlEncode(searchQuery));
+    optionalParameters = ["{startPage?}", "{startIndex?}", "{count?}", "{language?}", "{inputEncoding?}", "{outputEncoding?}"];
+    for (op = 0; op < optionalParameters.length; op = op + 1) {
+        filledUrl = filledUrl.replaceAll(optionalParameters[op], "");
+    }
+    return filledUrl;
+}
+
+function galleryItem(itemEntry) {
+    itemUid = null;
+    if (isBook(itemEntry)) {
+        itemUid = "book|" + bookChapterUid(itemEntry);
+    } else if (itemEntry["feed"] != null) {
+        itemUid = "feed|" + compactUrl(itemEntry["feed"]);
+    }
+    if (itemUid == null) {
+        return null;
+    }
+    itemCover = textOrEmpty(itemEntry["cover"]);
+    itemTitle = itemEntry["title"];
+    itemSummary = itemEntry["summary"];
+    itemAuthor = itemEntry["author"];
+    return buildGallery({
+        "uid": itemUid,
+        "title": itemTitle,
+        "cover": itemCover,
+        "data": {"title": itemTitle, "cover": itemCover, "summary": itemSummary},
+        "subtitle": itemAuthor
+    });
+}
+
+function getGallery(page, query, filters) {
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    startUrl = catalogUrl();
+    if (searchText != "") {
+        startUrl = searchUrl(searchText);
+    }
+    pageUrl = galleryPageUrl(startUrl, galleryPage);
+    if (pageUrl == null) {
+        return [];
+    }
+    pageDocument = fetchFeed(pageUrl);
+    rememberNextPage(startUrl, galleryPage + 1, feedLink(pageDocument, "next", pageUrl));
+    pageEntries = readEntries(pageDocument, pageUrl);
+    galleryItems = [];
+    for (pe = 0; pe < pageEntries.length; pe = pe + 1) {
+        pageItem = galleryItem(pageEntries[pe]);
+        if (pageItem != null) {
+            galleryItems.push(pageItem);
+        }
+    }
+    return galleryItems;
+}
+
+function maxFeedPages() {
+    return 50;
+}
+
+function collectFeed(collectUrl) {
+    collectedEntries = [];
+    visitedUrls = [];
+    collectedTitle = "";
+    collectedImage = null;
+    pageAddress = collectUrl;
+    for (cp = 0; cp < maxFeedPages(); cp = cp + 1) {
+        if (pageAddress == null || visitedUrls.contains(pageAddress)) {
+            break;
+        }
+        visitedUrls.push(pageAddress);
+        collectedDocument = fetchFeed(pageAddress);
+        if (cp == 0) {
+            collectedTitle = childText(collectedDocument, "feed > title");
+            collectedImage = feedLink(collectedDocument, "http://opds-spec.org/image", pageAddress);
+        }
+        pageEntries = readEntries(collectedDocument, pageAddress);
+        for (ce = 0; ce < pageEntries.length; ce = ce + 1) {
+            collectedEntries.push(pageEntries[ce]);
+        }
+        pageAddress = feedLink(collectedDocument, "next", pageAddress);
+    }
+    return {"title": collectedTitle, "image": collectedImage, "entries": collectedEntries};
+}
+
+function chapterTitle(rawChapterTitle, ownerTitle) {
+    ownerPrefix = ownerTitle + " - ";
+    prefixAt = rawChapterTitle.indexOf(ownerPrefix);
+    if (ownerTitle != "" && prefixAt >= 0 && prefixAt <= 4) {
+        return rawChapterTitle.substring(prefixAt + ownerPrefix.length);
+    }
+    return rawChapterTitle;
+}
+
+function formatTimestamp(rawTimestamp) {
+    if (rawTimestamp == null || rawTimestamp == "") {
+        return null;
+    }
+    parsedTimestamp = null;
+    try {
+        parsedTimestamp = parseDate(rawTimestamp);
+    } catch (dateError) {
+        parsedTimestamp = null;
+    }
+    if (parsedTimestamp == null) {
+        return rawTimestamp;
+    }
+    timestampFormatter = createDateFormatter("yyyy-MM-dd HH:mm");
+    return timestampFormatter.format(parsedTimestamp);
+}
+
+function dataText(textData, textKey) {
+    if (textData == null) {
+        return "";
+    }
+    return textOrEmpty(textData[textKey]);
+}
+
+function bookConcrete(bookUid, bookData) {
+    bookTitle = dataText(bookData, "title");
+    if (bookTitle == "") {
+        bookTitle = "Book";
+    }
+    bookElement = buildChapter({
+        "uid": bookUid.substring(5),
+        "title": bookTitle,
+        "timestamp": null,
+        "data": {}
+    });
+    return buildConcrete({
+        "uid": bookUid,
+        "title": bookTitle,
+        "cover": dataText(bookData, "cover"),
+        "description": dataText(bookData, "summary"),
+        "tags": [],
+        "status": statusUndefined(),
+        "alternativeTitles": [],
+        "groups": [buildChapterGroups({"title": "Book", "elements": [bookElement]})]
+    });
+}
+
+function getConcrete(uid, data) {
+    if (uid.startsWith("book|")) {
+        return bookConcrete(uid, data);
+    }
+    if (uid.startsWith("feed|") == false) {
+        throwSourceError("notFound", "This is not an OPDS entry");
+    }
+    feedUrl = expandUrl(uid.substring(5));
+    collected = collectFeed(feedUrl);
+    concreteTitle = dataText(data, "title");
+    if (concreteTitle == "") {
+        concreteTitle = collected["title"];
+    }
+    concreteCover = dataText(data, "cover");
+    if (concreteCover == "" && collected["image"] != null) {
+        concreteCover = collected["image"];
+    }
+    concreteDescription = dataText(data, "summary");
+    chapterElements = [];
+    folderCount = 0;
+    collectedEntries = collected["entries"];
+    for (ce = 0; ce < collectedEntries.length; ce = ce + 1) {
+        collectedEntry = collectedEntries[ce];
+        if (isBook(collectedEntry)) {
+            chapterElements.push(buildChapter({
+                "uid": bookChapterUid(collectedEntry),
+                "title": chapterTitle(collectedEntry["title"], concreteTitle),
+                "timestamp": formatTimestamp(collectedEntry["updated"]),
+                "data": {}
+            }));
+            if (concreteCover == "" && collectedEntry["cover"] != null) {
+                concreteCover = collectedEntry["cover"];
+            }
+        } else if (collectedEntry["feed"] != null) {
+            folderCount = folderCount + 1;
+        }
+    }
+    concreteGroups = [];
+    if (chapterElements.isNotEmpty) {
+        concreteGroups.push(buildChapterGroups({"title": "Books", "elements": chapterElements}));
+    } else if (folderCount > 0) {
+        concreteDescription = "This entry is a folder of " + parseString(folderCount) + " entries, not a title. To browse it, set the catalog address in the extension settings to " + feedUrl;
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": concreteTitle,
+        "cover": concreteCover,
+        "description": concreteDescription,
+        "tags": [],
+        "status": statusUndefined(),
+        "alternativeTitles": [],
+        "url": feedUrl,
+        "groups": concreteGroups
+    });
+}
+
+function getPages(uid) {
+    uidParts = uid.split("|");
+    if (uidParts.length < 3 || uidParts[0] != "pse") {
+        throwSourceError("unsupported", "The server does not stream the pages of this book (OPDS-PSE), so it can only be downloaded, not read here");
+    }
+    pageCount = 0;
+    try {
+        pageCount = parseInt(uidParts[1]);
+    } catch (countError) {
+        pageCount = 0;
+    }
+    if (pageCount < 1) {
+        throwSourceError("unsupported", "The server did not say how many pages this book has");
+    }
+    streamTemplate = expandUrl(uidParts.sublist(2).join("|"));
+    pageUrls = [];
+    for (pn = 0; pn < pageCount; pn = pn + 1) {
+        pageUrls.push(streamTemplate.replaceAll("{pageNumber}", parseString(pn)).replaceAll("{maxWidth}", "4000"));
+    }
+    return buildPages({"uid": uid, "value": pageUrls});
+}
+
+function getImageHeaders(uid) {
+    return authHeaders();
+}
