@@ -29,10 +29,13 @@ void main(List<String> args) {
       }
 
       final Object? config = jsonDecode(configFile.readAsStringSync());
+      final String? minAppVersion = _minAppVersion(config);
       configs.add(<String, dynamic>{
         'category': category,
         'path': '$category/$name',
         'revision': _revision(extensionDir),
+        'apiVersion': _apiVersion(config),
+        if (minAppVersion != null) 'minAppVersion': minAppVersion,
         'config': config,
       });
     }
@@ -62,6 +65,22 @@ void main(List<String> args) {
 
   outputFile.writeAsStringSync(output);
   stdout.writeln('wrote $_outputPath (${configs.length} configs)');
+}
+
+const int _legacyApiVersion = 1;
+
+int _apiVersion(Object? config) {
+  if (config is Map && config['apiVersion'] is int) {
+    return config['apiVersion'] as int;
+  }
+  return _legacyApiVersion;
+}
+
+String? _minAppVersion(Object? config) {
+  if (config is Map && config['minAppVersion'] is String) {
+    return config['minAppVersion'] as String;
+  }
+  return null;
 }
 
 final RegExp _relativeImport =

@@ -5,6 +5,7 @@
       "category": "manga",
       "path": "manga/hentai_lib",
       "revision": "db6b1ac5b4e72bd6",
+      "apiVersion": 1,
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -695,6 +696,7 @@
       "category": "manga",
       "path": "manga/manga_dex",
       "revision": "2572a9ac900e5884",
+      "apiVersion": 1,
       "config": {
         "name": "MangaDex",
         "uid": "23cf3ac5-3c7b-4914-9031-0d2c0e5a84b9",
@@ -764,6 +766,7 @@
       "category": "manga",
       "path": "manga/manga_in_ua",
       "revision": "4f55ddf2a7c9af03",
+      "apiVersion": 1,
       "config": {
         "name": "Manga/in/UA",
         "uid": "fd4a9341-5cb4-4d24-ac1a-f9183f3e9b0a",
@@ -785,6 +788,7 @@
       "category": "manga",
       "path": "manga/manga_lib",
       "revision": "f5292fce252ba5f5",
+      "apiVersion": 1,
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",
@@ -1307,6 +1311,7 @@
       "category": "manga",
       "path": "manga/nhentai",
       "revision": "7d6fb194a9fa6d24",
+      "apiVersion": 1,
       "config": {
         "name": "NHentai",
         "uid": "26bf8976-5952-461c-b9c1-fdc505be275c",
@@ -1328,6 +1333,7 @@
       "category": "anime",
       "path": "anime/anitube_in_ua",
       "revision": "00a3c0c8b7151096",
+      "apiVersion": 1,
       "config": {
         "name": "Anitube.in.ua",
         "uid": "6ca5a587-28ad-4bc2-8d67-bc038e60e4d2",
