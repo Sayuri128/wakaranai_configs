@@ -77,6 +77,18 @@ void main() {
     test('query search returns results', () {
       expect(galleryWithQuery, isNotEmpty);
     });
+
+    test('items carry listing metadata', () {
+      expect(galleryPage1.any((item) => item.status != null), isTrue);
+      expect(galleryPage1.any((item) => item.tags.isNotEmpty), isTrue);
+      expect(galleryPage1.any((item) => item.rating != null), isTrue);
+      for (final item in galleryPage1) {
+        final rating = item.rating;
+        if (rating != null) {
+          expect(rating, inInclusiveRange(0, 10));
+        }
+      }
+    });
   });
 
   group('getConcrete', () {

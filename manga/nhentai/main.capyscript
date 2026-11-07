@@ -16,11 +16,20 @@ function handleMangaItem(manga) {
 
     cover = "https://t.nhentai.net/" + manga["thumbnail"];
 
+    gallerySubtitle = null;
+    japaneseTitle = manga["japanese_title"];
+    if (japaneseTitle != null) {
+        if (japaneseTitle != title) {
+            gallerySubtitle = japaneseTitle;
+        }
+    }
+
     return buildGallery({
         "uid": uid,
         "title": title,
         "cover": cover,
-        "data": manga
+        "data": manga,
+        "subtitle": gallerySubtitle
     });
 }
 

@@ -69,23 +69,123 @@ function getGallery(page, query, filters) {
     decoded = jsonDecode(result["body"]);
     data = decoded["data"];
 
+    mangaIds = [];
+    for (i = 0; i < data.length; i = i + 1) {
+        mangaIds.push(data[i]["id"]);
+    }
+    ratings = getRatings(mangaIds);
+
     mangas = [];
 
     for (i = 0; i < data.length; i = i + 1) {
         manga = data[i];
         uid = manga["id"];
-        title = getMangaTitle(manga["attributes"]["title"]);
+        attributes = manga["attributes"];
+        title = getMangaTitle(attributes["title"]);
         cover = getCoverUrl(uid, manga["relationships"]);
+        galleryStatus = getStatus(attributes["status"]);
+        gallerySubtitle = getSubtitle(attributes, title);
+        galleryTags = getTags(attributes["tags"]);
+        galleryYear = attributes["year"];
+        galleryRating = null;
+        if (ratings.containsKey(uid)) {
+            galleryRating = ratings[uid];
+        }
+        galleryLatest = null;
+        lastChapter = attributes["lastChapter"];
+        if (lastChapter != null) {
+            if (lastChapter != "") {
+                galleryLatest = "Ch. " + lastChapter;
+            }
+        }
 
         mangas.push(buildGallery({
             "uid": uid,
             "title": title,
             "cover": cover,
-            "data": {}
+            "data": {},
+            "status": galleryStatus,
+            "subtitle": gallerySubtitle,
+            "tags": galleryTags,
+            "year": galleryYear,
+            "rating": galleryRating,
+            "latestChapter": galleryLatest
         }));
     }
 
     return mangas;
+}
+
+function getTags(rawTags) {
+    tagNames = [];
+    if (rawTags == null) {
+        return tagNames;
+    }
+    for (t = 0; t < rawTags.length; t = t + 1) {
+        tagName = rawTags[t]["attributes"]["name"]["en"];
+        if (tagName != null) {
+            tagNames.push(tagName);
+        }
+    }
+    return tagNames;
+}
+
+function getSubtitle(attributes, mainTitle) {
+    altTitles = attributes["altTitles"];
+    if (altTitles == null) {
+        return null;
+    }
+    languages = ["ja-ro", "ko-ro", "zh-ro"];
+    originalLanguage = attributes["originalLanguage"];
+    if (originalLanguage != null) {
+        languages = [originalLanguage + "-ro", originalLanguage, "ja-ro", "ko-ro", "zh-ro"];
+    }
+    for (l = 0; l < languages.length; l = l + 1) {
+        for (j = 0; j < altTitles.length; j = j + 1) {
+            candidate = altTitles[j][languages[l]];
+            if (candidate != null) {
+                if (candidate != mainTitle) {
+                    return candidate;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function getRatings(mangaIds) {
+    ratings = {};
+    if (mangaIds.isEmpty) {
+        return ratings;
+    }
+    try {
+        result = httpGet({
+            "url": "https://api.mangadex.org/statistics/manga",
+            "params": {
+                "manga": mangaIds
+            },
+            "paths": {},
+            "throughWeb": false,
+            "headers": {}
+        });
+        statistics = jsonDecode(result["body"])["statistics"];
+        if (statistics == null) {
+            return ratings;
+        }
+        for (r = 0; r < mangaIds.length; r = r + 1) {
+            mangaId = mangaIds[r];
+            entry = statistics[mangaId];
+            if (entry != null) {
+                rating = entry["rating"];
+                if (rating != null) {
+                    ratings[mangaId] = rating["bayesian"];
+                }
+            }
+        }
+    } catch (e) {
+        return ratings;
+    }
+    return ratings;
 }
 
 function handleChapterItem(chapter) {
@@ -261,14 +361,7 @@ function getConcrete(uid) {
 
     cover = getCoverUrl(uid, data["relationships"]);
 
-    rawTags = attr["tags"];
-    tags = [];
-    for (i = 0; i < rawTags.length; i = i + 1) {
-        tagName = rawTags[i]["attributes"]["name"]["en"];
-        if (tagName != null) {
-            tags.push(tagName);
-        }
-    }
+    tags = getTags(attr["tags"]);
 
     return buildConcrete({
         "uid": uid,

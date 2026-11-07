@@ -143,15 +143,81 @@ function libSocialGetGallery(page, query, siteId, filters) {
             }
         }
 
+        galleryTitle = libSocialTitle(element);
+        details = libSocialGalleryDetails(element, galleryTitle);
+
         items.push(buildGallery({
             "uid": element["slug_url"],
-            "title": libSocialTitle(element),
+            "title": galleryTitle,
             "cover": cover,
-            "data": element
+            "data": element,
+            "status": details["status"],
+            "subtitle": details["subtitle"],
+            "year": details["year"],
+            "rating": details["rating"]
         }));
     }
 
     return items;
+}
+
+function libSocialGalleryDetails(item, mainTitle) {
+    details = {"status": null, "subtitle": null, "year": null, "rating": null};
+    try {
+        if(item["status"] != null) {
+            details["status"] = libSocialStatus(item["status"]);
+        }
+    } catch(e) {
+        details["status"] = null;
+    }
+    try {
+        details["subtitle"] = libSocialSubtitle(item, mainTitle);
+    } catch(e) {
+        details["subtitle"] = null;
+    }
+    try {
+        details["year"] = libSocialYear(item);
+    } catch(e) {
+        details["year"] = null;
+    }
+    try {
+        itemRating = item["rating"];
+        if(itemRating != null) {
+            details["rating"] = itemRating["average"];
+        }
+    } catch(e) {
+        details["rating"] = null;
+    }
+    return details;
+}
+
+function libSocialSubtitle(item, mainTitle) {
+    keys = ["eng_name", "name"];
+    for(k = 0; k < keys.length; k = k + 1) {
+        candidate = item[keys[k]];
+        if(candidate != null) {
+            if(candidate != "") {
+                if(candidate != mainTitle) {
+                    return candidate;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function libSocialYear(item) {
+    keys = ["releaseDate", "releaseDateString"];
+    for(k = 0; k < keys.length; k = k + 1) {
+        candidate = item[keys[k]];
+        if(candidate != null) {
+            candidateText = parseString(candidate);
+            if(candidateText.length >= 4) {
+                return candidateText.substring(0, 4);
+            }
+        }
+    }
+    return null;
 }
 
 function libSocialProcessChapter(chapter, mangaSlug) {
