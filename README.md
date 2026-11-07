@@ -14,6 +14,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | MangaRead | Manga | English | Madara engine |
 | Mangasushi | Manga | English | Madara engine |
 | LHTranslation | Manga | English | Madara engine |
+| LilyManga | Manga (NSFW) | English | Madara engine |
 | Anitube.in.ua | Anime | Ukrainian | |
 
 ## Structure
