@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:capyscript/api_clients/host/extension_host.dart';
 import 'package:capyscript/api_clients/manga_api_client.dart';
 import 'package:capyscript/api_clients/source_error.dart';
 import 'package:capyscript/modules/waka_models/models/config_info/config_info.dart';
@@ -16,10 +17,11 @@ const String missingMangaId = '00000000-0000-4000-8000-000000000000';
 MangaApiClient clientWith(
   ConfigInfo config, [
   Map<String, Object?> preferences = const {},
+  ExtensionStorage storage = const NoopExtensionStorage(),
 ]) {
   return MangaApiClient(
     code: readScript(extensionDirectory),
-    host: hostFor(config, preferences: preferences),
+    host: hostFor(config, preferences: preferences, storage: storage),
   );
 }
 
@@ -103,6 +105,34 @@ void main() {
 
     test('latest differs from popular', () {
       expect(latest.first.uid, isNot(popular.first.uid));
+    });
+
+    test('latest pages list disjoint titles', () async {
+      final client = clientWith(config, const {}, MemoryExtensionStorage());
+      final firstPage = await client.getGallery(page: 1, feed: 'latest');
+      final secondPage = await client.getGallery(page: 2, feed: 'latest');
+      expect(firstPage, isNotEmpty);
+      expect(secondPage, isNotEmpty);
+      final firstUids = firstPage.map((item) => item.uid).toSet();
+      final secondUids = secondPage.map((item) => item.uid).toList();
+      expect(secondUids.toSet(), hasLength(secondUids.length));
+      expect(secondUids.toSet().intersection(firstUids), isEmpty);
+
+      final retriedSecondPage =
+          await client.getGallery(page: 2, feed: 'latest');
+      expect(
+        retriedSecondPage.map((item) => item.uid).toSet().intersection(firstUids),
+        isEmpty,
+      );
+      final thirdPage = await client.getGallery(page: 3, feed: 'latest');
+      final shownUids = {
+        ...firstUids,
+        ...retriedSecondPage.map((item) => item.uid),
+      };
+      expect(
+        thirdPage.map((item) => item.uid).toSet().intersection(shownUids),
+        isEmpty,
+      );
     });
 
     test('a search query overrides the feed', () async {

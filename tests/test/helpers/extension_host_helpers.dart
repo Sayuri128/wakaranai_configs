@@ -18,6 +18,23 @@ class MapPreferences extends ExtensionPreferencesProvider {
   Future<Object?> getPreference(String key) async => values[key];
 }
 
+class MemoryExtensionStorage extends ExtensionStorage {
+  final Map<String, String> values = {};
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value, {Duration? ttl}) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<void> remove(String key) async {
+    values.remove(key);
+  }
+}
+
 ConfigInfo loadConfig(String extensionDirectory) {
   final file = File(scriptPath('$extensionDirectory/config.json'));
   return ConfigInfo.fromJson(
@@ -36,11 +53,13 @@ ExtensionHost hostFor(
   Map<String, Object?> preferences = const {},
   RequestPolicy? requestPolicy,
   String uidSuffix = '',
+  ExtensionStorage storage = const NoopExtensionStorage(),
 }) {
   return ExtensionHost(
     extensionUid: '${config.uid}$uidSuffix',
     preferenceDefinitions: config.preferences,
     preferences: MapPreferences(preferences),
+    storage: storage,
     requestPolicy: requestPolicy ?? config.requestPolicy,
   );
 }
