@@ -1773,6 +1773,52 @@
         },
         "searchAvailable": true
       }
+    },
+    {
+      "category": "anime",
+      "path": "anime/uaflix",
+      "revision": "eb2748d239a6aecf",
+      "apiVersion": 1,
+      "config": {
+        "name": "UAFlix",
+        "uid": "222f5f03-cceb-486d-bba2-531fb406d5e9",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/uaflix/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "contentKinds": [
+          "movie",
+          "series",
+          "cartoon",
+          "anime"
+        ],
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Section",
+            "param": "section",
+            "values": [
+              "films",
+              "serials",
+              "cartoons",
+              "serials/multseial",
+              "anime",
+              "dubbing"
+            ],
+            "labels": [
+              "Movies",
+              "Series",
+              "Cartoons",
+              "Animated series",
+              "Anime",
+              "UAFlix dubbing"
+            ]
+          }
+        ],
+        "protectorConfig": null,
+        "searchAvailable": true
+      }
     }
   ]
 }
