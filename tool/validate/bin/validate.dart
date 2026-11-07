@@ -300,6 +300,7 @@ const Set<String> _preferenceFields = {
   'summary',
   'default',
   'options',
+  'secret',
 };
 const Set<String> _requestPolicyFields = {
   'rateLimit',
@@ -362,6 +363,11 @@ void _validatePreferences(Object? preferences, void Function(String) fail) {
     final summary = preference['summary'];
     if (summary != null && summary is! String) {
       fail('"$path.summary" must be a string or null');
+    }
+    final secret = preference['secret'];
+    if (secret != null && (secret is! bool || type != 'text')) {
+      fail('"$path.secret" must be a bool and is only allowed on text '
+          'preferences');
     }
     final optionValues = _validatePreferenceOptions(
         preference['options'], type, path, fail);
