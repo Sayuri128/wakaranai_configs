@@ -4,7 +4,7 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
-      "revision": "f62dbcd444837a78",
+      "revision": "ab3e741f7ff3a447",
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -684,6 +684,10 @@
           "inAppBrowserInterceptor": true,
           "sessionGroup": "lib_social"
         },
+        "downloadConfig": {
+          "pageDelayMs": 300,
+          "chapterDelayMs": 2000
+        },
         "searchAvailable": true
       }
     },
@@ -780,7 +784,7 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
-      "revision": "0c63e7bec119a2d7",
+      "revision": "75c84bb0e4bf8d24",
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",
@@ -1291,6 +1295,10 @@
           "needToLogin": true,
           "inAppBrowserInterceptor": true,
           "sessionGroup": "lib_social"
+        },
+        "downloadConfig": {
+          "pageDelayMs": 300,
+          "chapterDelayMs": 2000
         },
         "searchAvailable": true
       }

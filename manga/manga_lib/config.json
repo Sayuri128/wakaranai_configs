@@ -509,5 +509,9 @@
     "inAppBrowserInterceptor": true,
     "sessionGroup": "lib_social"
   },
+  "downloadConfig": {
+    "pageDelayMs": 300,
+    "chapterDelayMs": 2000
+  },
   "searchAvailable": true
 }
