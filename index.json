@@ -4,7 +4,7 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
-      "revision": "e8a75c387f892337",
+      "revision": "db6b1ac5b4e72bd6",
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -694,7 +694,7 @@
     {
       "category": "manga",
       "path": "manga/manga_dex",
-      "revision": "3296615add698001",
+      "revision": "2572a9ac900e5884",
       "config": {
         "name": "MangaDex",
         "uid": "23cf3ac5-3c7b-4914-9031-0d2c0e5a84b9",
@@ -784,7 +784,7 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
-      "revision": "61667e71e4bde6b6",
+      "revision": "f5292fce252ba5f5",
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",

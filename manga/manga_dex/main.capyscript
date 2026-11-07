@@ -2,6 +2,26 @@ import "http";
 import "json";
 import "date";
 import "manga_models";
+import "converter";
+
+function decodeApiResponse(apiResponse, requestLabel) {
+    apiStatusCode = apiResponse["statusCode"];
+    if (apiStatusCode >= 200) {
+        if (apiStatusCode < 300) {
+            return jsonDecode(apiResponse["body"]);
+        }
+    }
+    if (apiStatusCode == 401) {
+        throw "HTTP 401 Unauthorized (" + requestLabel + ")";
+    }
+    if (apiStatusCode == 403) {
+        throw "HTTP 403 Forbidden (" + requestLabel + ")";
+    }
+    if (apiStatusCode == 429) {
+        throw "HTTP 429 Too Many Requests (" + requestLabel + ")";
+    }
+    throw "HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")";
+}
 
 function getCoverUrl(mangaId, relationships) {
     for (i = 0; i < relationships.length; i = i + 1) {
@@ -66,7 +86,7 @@ function getGallery(page, query, filters) {
         "headers": {}
     });
 
-    decoded = jsonDecode(result["body"]);
+    decoded = decodeApiResponse(result, "mangadex gallery");
     data = decoded["data"];
 
     mangaIds = [];
@@ -168,7 +188,7 @@ function getRatings(mangaIds) {
             "throughWeb": false,
             "headers": {}
         });
-        statistics = jsonDecode(result["body"])["statistics"];
+        statistics = decodeApiResponse(result, "mangadex ratings")["statistics"];
         if (statistics == null) {
             return ratings;
         }
@@ -257,7 +277,7 @@ function getChapters(uid) {
 
     for (offset = 0; offset < total; offset = offset + limit) {
         response = fetchChaptersPage(uid, offset);
-        decoded = jsonDecode(response["body"]);
+        decoded = decodeApiResponse(response, "mangadex chapter list");
         total = decoded["total"];
         data = decoded["data"];
 
@@ -315,7 +335,7 @@ function getRating(mangaId) {
             "throughWeb": false,
             "headers": {}
         });
-        statistics = jsonDecode(result["body"])["statistics"][mangaId];
+        statistics = decodeApiResponse(result, "mangadex rating")["statistics"][mangaId];
         if (statistics == null) {
             return null;
         }
@@ -342,7 +362,7 @@ function getConcrete(uid) {
         "headers": {}
     });
 
-    body = jsonDecode(result["body"]);
+    body = decodeApiResponse(result, "mangadex title details");
     data = body["data"];
     attr = data["attributes"];
 

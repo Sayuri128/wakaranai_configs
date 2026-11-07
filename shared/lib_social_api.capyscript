@@ -35,6 +35,25 @@ function extractRichText(node) {
     return result;
 }
 
+function libSocialDecodeResponse(apiResponse, requestLabel) {
+    apiStatusCode = apiResponse["statusCode"];
+    if(apiStatusCode >= 200) {
+        if(apiStatusCode < 300) {
+            return jsonDecode(apiResponse["body"]);
+        }
+    }
+    if(apiStatusCode == 401) {
+        throw "HTTP 401 Unauthorized (" + requestLabel + ")";
+    }
+    if(apiStatusCode == 403) {
+        throw "HTTP 403 Forbidden (" + requestLabel + ")";
+    }
+    if(apiStatusCode == 429) {
+        throw "HTTP 429 Too Many Requests (" + requestLabel + ")";
+    }
+    throw "HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")";
+}
+
 // Maps the app's FilterData list onto api.cdnlibs.org query params. The API
 // requires repeated `key[]=` entries for multi-value filters and rejects a
 // comma-joined list with HTTP 422.
@@ -128,7 +147,7 @@ function libSocialGetGallery(page, query, siteId, filters) {
         "throughWeb": false
     });
 
-    serialized = jsonDecode(result["body"]);
+    serialized = libSocialDecodeResponse(result, "lib social gallery");
     data = serialized["data"];
 
     items = [];
@@ -316,7 +335,7 @@ function libSocialRating(uid) {
             },
             "throughWeb": false
         });
-        votes = jsonDecode(result["body"])["data"]["rating"]["stats"];
+        votes = libSocialDecodeResponse(result, "lib social rating")["data"]["rating"]["stats"];
         total = 0;
         weighted = 0;
         for(i = 0; i < votes.length; i = i + 1) {
@@ -367,7 +386,7 @@ function libSocialGetConcrete(uid, siteUrl) {
         "throughWeb": false
     });
 
-    serialized = jsonDecode(result["body"]);
+    serialized = libSocialDecodeResponse(result, "lib social title details");
     data = serialized["data"];
 
     cover = "";
@@ -419,7 +438,7 @@ function libSocialGetConcrete(uid, siteUrl) {
         "throughWeb": false
     });
 
-    chapSerialized = jsonDecode(chapResult["body"]);
+    chapSerialized = libSocialDecodeResponse(chapResult, "lib social chapter list");
     chapData = chapSerialized["data"];
 
     chapterGroups = [];
@@ -519,7 +538,7 @@ function libSocialGetPages(uid, data, imageBaseUrl) {
         "throughWeb": false
     });
 
-    deserialized = jsonDecode(result["body"]);
+    deserialized = libSocialDecodeResponse(result, "lib social chapter pages");
     pages = deserialized["data"]["pages"];
 
     value = [];
