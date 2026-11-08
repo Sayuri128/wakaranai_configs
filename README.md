@@ -19,6 +19,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | Anitube.in.ua | Anime | Ukrainian | |
 | UAFlix | Video | Ukrainian | Movies, series, cartoons and anime; section filter |
 | Цікава Ідея | Video | Ukrainian | Dub team catalogue: movies, series, animation |
+| AnimeVost | Anime | Russian | AnimeVost dubs; latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
 | ReManga | Manga | Russian | Translation branches; type, status, genre and age filters |
 | Honey Manga | Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
 | Zenko | Manga | Ukrainian | Type, status and genre filters; chapters grouped by team |

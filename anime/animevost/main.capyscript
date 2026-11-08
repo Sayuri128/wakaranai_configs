@@ -1,0 +1,762 @@
+import "http";
+import "json";
+import "anime_models";
+import "converter";
+import "errors";
+
+function apiBase() {
+    return "https://api.animevost.org/v1";
+}
+
+function siteOrigin() {
+    return "https://animevost.org";
+}
+
+function latestPageSize() {
+    return 20;
+}
+
+function studioLabel() {
+    return "AnimeVost";
+}
+
+function lineBreak() {
+    return `
+`;
+}
+
+function digitsAlphabet() {
+    return "0123456789";
+}
+
+function leadingNumber(numberSource) {
+    if (numberSource == null) {
+        return null;
+    }
+    scanText = parseString(numberSource);
+    scanDigits = digitsAlphabet();
+    scanValue = null;
+    scanFinished = false;
+    for (sn = 0; sn < scanText.length; sn = sn + 1) {
+        if (scanFinished) {
+            continue;
+        }
+        scanDigit = scanDigits.indexOf(scanText.substring(sn, sn + 1));
+        if (scanDigit < 0) {
+            if (scanValue != null) {
+                scanFinished = true;
+            }
+            continue;
+        }
+        if (scanValue == null) {
+            scanValue = 0;
+        }
+        scanValue = scanValue * 10 + scanDigit;
+    }
+    return scanValue;
+}
+
+function isDigitsOnly(digitsText) {
+    if (digitsText == null || digitsText == "") {
+        return false;
+    }
+    onlyDigits = digitsAlphabet();
+    for (od = 0; od < digitsText.length; od = od + 1) {
+        if (onlyDigits.indexOf(digitsText.substring(od, od + 1)) < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function absoluteUrl(rawLink) {
+    if (rawLink == null) {
+        return "";
+    }
+    linkText = parseString(rawLink).trim();
+    if (linkText == "") {
+        return "";
+    }
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("http://")) {
+        return "https://" + linkText.substring(7);
+    }
+    if (linkText.startsWith("/")) {
+        return siteOrigin() + linkText;
+    }
+    return linkText;
+}
+
+function ongoingStatus() {
+    ongoingValue = null;
+    try {
+        ongoingValue = statusOngoing();
+    } catch (e) {
+        ongoingValue = null;
+    }
+    if (ongoingValue == null) {
+        ongoingValue = statusUndefined();
+    }
+    return ongoingValue;
+}
+
+function failOnBadStatus(checkedResponse, checkedLabel, missingAllowed) {
+    checkedStatus = checkedResponse["statusCode"];
+    if (checkedStatus == 200) {
+        return true;
+    }
+    if (checkedStatus == 429) {
+        throwSourceError("rateLimited", "AnimeVost is rate limiting requests (" + checkedLabel + ")");
+    }
+    if (checkedStatus == 451) {
+        throwSourceError("regionBlocked", "AnimeVost is not available in this region (" + checkedLabel + ")");
+    }
+    if (checkedStatus == 404 && missingAllowed) {
+        return false;
+    }
+    throwSourceError("sourceDown", "AnimeVost answered HTTP " + parseString(checkedStatus) + " (" + checkedLabel + ")");
+    return false;
+}
+
+function apiGet(getPath, getLabel) {
+    getResponse = null;
+    getFailed = false;
+    try {
+        getResponse = httpGet({
+            "url": apiBase() + getPath,
+            "params": {},
+            "paths": {},
+            "headers": {},
+            "throughWeb": false
+        });
+    } catch (e) {
+        getFailed = true;
+    }
+    if (getFailed) {
+        throwSourceError("sourceDown", "AnimeVost did not answer (" + getLabel + ")");
+    }
+    return getResponse;
+}
+
+function apiPost(postMethod, postFields, postLabel) {
+    postResponse = null;
+    postFailed = false;
+    try {
+        postResponse = httpPost({
+            "url": apiBase() + "/" + postMethod,
+            "params": {},
+            "paths": {},
+            "body": postFields,
+            "headers": {},
+            "throughWeb": false
+        });
+    } catch (e) {
+        postFailed = true;
+    }
+    if (postFailed) {
+        throwSourceError("sourceDown", "AnimeVost did not answer (" + postLabel + ")");
+    }
+    return postResponse;
+}
+
+function sitePage(sitePath, siteLabel) {
+    siteResponse = null;
+    siteFailed = false;
+    try {
+        siteResponse = httpGet({
+            "url": siteOrigin() + sitePath,
+            "params": {},
+            "paths": {},
+            "headers": {},
+            "throughWeb": false
+        });
+    } catch (e) {
+        siteFailed = true;
+    }
+    if (siteFailed) {
+        throwSourceError("sourceDown", "animevost.org did not answer (" + siteLabel + ")");
+    }
+    return siteResponse;
+}
+
+function decodeJsonBody(jsonBody, jsonLabel) {
+    decodedValue = null;
+    decodeFailed = false;
+    try {
+        decodedValue = jsonDecode(jsonBody);
+    } catch (e) {
+        decodeFailed = true;
+    }
+    if (decodeFailed || decodedValue == null) {
+        throwSourceError("sourceDown", "AnimeVost returned an unreadable answer (" + jsonLabel + ")");
+    }
+    return decodedValue;
+}
+
+function cleanTitleText(rawTitle) {
+    if (rawTitle == null) {
+        return "";
+    }
+    cleanedTitle = parseString(rawTitle).replaceAll(`\"`, '"').replaceAll(`\'`, "'");
+    cleanedTitle = cleanedTitle.replaceAll("&quot;", '"').replaceAll("&amp;", "&");
+    return cleanedTitle.trim();
+}
+
+function titleWithoutCounters(fullTitle) {
+    bracketAt = fullTitle.indexOf("[");
+    if (bracketAt > 0) {
+        return fullTitle.substring(0, bracketAt).trim();
+    }
+    return fullTitle.trim();
+}
+
+function russianTitle(fullTitle) {
+    ruPart = titleWithoutCounters(fullTitle);
+    ruSlashAt = ruPart.indexOf(" / ");
+    if (ruSlashAt > 0) {
+        return ruPart.substring(0, ruSlashAt).trim();
+    }
+    return ruPart;
+}
+
+function originalTitle(fullTitle) {
+    enPart = titleWithoutCounters(fullTitle);
+    enSlashAt = enPart.indexOf(" / ");
+    if (enSlashAt < 0) {
+        return "";
+    }
+    return enPart.substring(enSlashAt + 3).trim();
+}
+
+function episodeCounter(fullTitle) {
+    counterPieces = fullTitle.split("[");
+    for (cp = 1; cp < counterPieces.length; cp = cp + 1) {
+        counterPiece = counterPieces[cp].split("]")[0].trim();
+        if (counterPiece.contains(" из ")) {
+            return counterPiece;
+        }
+    }
+    return "";
+}
+
+function counterStatus(counterText) {
+    if (counterText == "") {
+        return statusUndefined();
+    }
+    if (counterText.contains("+")) {
+        return ongoingStatus();
+    }
+    counterHalves = counterText.split(" из ");
+    if (counterHalves.length < 2) {
+        return statusUndefined();
+    }
+    totalCount = leadingNumber(counterHalves[1]);
+    releasedWords = counterHalves[0].trim().split(" ");
+    releasedRange = releasedWords[releasedWords.length - 1].split("-");
+    releasedCount = leadingNumber(releasedRange[releasedRange.length - 1]);
+    if (totalCount == null || releasedCount == null) {
+        return statusUndefined();
+    }
+    if (releasedCount >= totalCount) {
+        return statusReleased();
+    }
+    return ongoingStatus();
+}
+
+function capitalized(wordText) {
+    if (wordText == "") {
+        return wordText;
+    }
+    return wordText.substring(0, 1).toUpperCase() + wordText.substring(1);
+}
+
+function genreList(genreText) {
+    genreNames = [];
+    if (genreText == null) {
+        return genreNames;
+    }
+    genreParts = parseString(genreText).split(",");
+    for (gp = 0; gp < genreParts.length; gp = gp + 1) {
+        genreName = capitalized(genreParts[gp].trim());
+        if (genreName != "" && genreNames.contains(genreName) == false) {
+            genreNames.push(genreName);
+        }
+    }
+    return genreNames;
+}
+
+function averageRating(ratedItem) {
+    ratingSum = leadingNumber(ratedItem["rating"]);
+    ratingVotes = leadingNumber(ratedItem["votes"]);
+    if (ratingSum == null || ratingVotes == null) {
+        return null;
+    }
+    if (ratingVotes < 5) {
+        return null;
+    }
+    return ratingSum * 2 / ratingVotes;
+}
+
+function stripTags(taggedText) {
+    tagPieces = taggedText.split("<");
+    strippedText = tagPieces[0];
+    for (tp = 1; tp < tagPieces.length; tp = tp + 1) {
+        tagPiece = tagPieces[tp];
+        tagCloseAt = tagPiece.indexOf(">");
+        if (tagCloseAt < 0) {
+            strippedText = strippedText + "<" + tagPiece;
+            continue;
+        }
+        strippedText = strippedText + tagPiece.substring(tagCloseAt + 1);
+    }
+    return strippedText;
+}
+
+function plainDescription(rawDescription) {
+    if (rawDescription == null) {
+        return "";
+    }
+    newLine = lineBreak();
+    plainText = parseString(rawDescription);
+    plainText = plainText.replaceAll("<br />" + newLine, newLine).replaceAll("<br/>" + newLine, newLine).replaceAll("<br>" + newLine, newLine);
+    plainText = plainText.replaceAll("<br />", newLine).replaceAll("<br/>", newLine).replaceAll("<br>", newLine);
+    plainText = stripTags(plainText);
+    plainText = plainText.replaceAll("&nbsp;", " ").replaceAll("&quot;", '"').replaceAll("&#039;", "'").replaceAll("&#39;", "'");
+    plainText = plainText.replaceAll("&laquo;", "«").replaceAll("&raquo;", "»").replaceAll("&mdash;", "—").replaceAll("&ndash;", "–");
+    plainText = plainText.replaceAll("&hellip;", "…").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+    for (pc = 0; pc < 6; pc = pc + 1) {
+        plainText = plainText.replaceAll(newLine + newLine + newLine, newLine + newLine);
+    }
+    return plainText.trim();
+}
+
+function galleryItem(apiItem) {
+    itemId = parseString(apiItem["id"]);
+    itemFullTitle = cleanTitleText(apiItem["title"]);
+    itemName = russianTitle(itemFullTitle);
+    if (itemName == "") {
+        itemName = itemFullTitle;
+    }
+    itemCover = absoluteUrl(apiItem["urlImagePreview"]);
+    itemCounter = episodeCounter(itemFullTitle);
+    itemOriginal = originalTitle(itemFullTitle);
+    if (itemOriginal == "") {
+        itemOriginal = null;
+    }
+    itemLatest = null;
+    if (itemCounter != "") {
+        itemLatest = itemCounter;
+    }
+    return buildGallery({
+        "uid": itemId,
+        "title": itemName,
+        "cover": itemCover,
+        "data": {"title": itemName, "cover": itemCover},
+        "status": counterStatus(itemCounter),
+        "subtitle": itemOriginal,
+        "year": leadingNumber(apiItem["year"]),
+        "rating": averageRating(apiItem),
+        "latestChapter": itemLatest,
+        "tags": genreList(apiItem["genre"])
+    });
+}
+
+function galleryItems(apiItems) {
+    builtItems = [];
+    if (apiItems == null) {
+        return builtItems;
+    }
+    for (gi = 0; gi < apiItems.length; gi = gi + 1) {
+        if (apiItems[gi] == null) {
+            continue;
+        }
+        builtItems.push(galleryItem(apiItems[gi]));
+    }
+    return builtItems;
+}
+
+function latestGallery(latestPage) {
+    latestLabel = "latest page " + parseString(latestPage);
+    latestResponse = apiGet("/last?page=" + parseString(latestPage) + "&quantity=" + parseString(latestPageSize()), latestLabel);
+    failOnBadStatus(latestResponse, latestLabel, false);
+    latestJson = decodeJsonBody(latestResponse["body"], latestLabel);
+    latestState = latestJson["state"];
+    latestData = latestJson["data"];
+    if (latestState != null) {
+        if (latestState["status"] != "ok") {
+            if (latestPage > 1) {
+                return [];
+            }
+            throwSourceError("sourceDown", "AnimeVost could not list the latest titles");
+        }
+    }
+    return galleryItems(latestData);
+}
+
+function searchGallery(searchPage, searchText) {
+    if (searchPage > 1) {
+        return [];
+    }
+    searchLabel = "search";
+    searchResponse = apiPost("search", {"name": searchText}, searchLabel);
+    if (failOnBadStatus(searchResponse, searchLabel, true) == false) {
+        return [];
+    }
+    searchJson = decodeJsonBody(searchResponse["body"], searchLabel);
+    return galleryItems(searchJson["data"]);
+}
+
+function selectedFilterValue(galleryFilters, wantedParam) {
+    if (galleryFilters == null) {
+        return "";
+    }
+    for (sf = 0; sf < galleryFilters.length; sf = sf + 1) {
+        filterEntry = galleryFilters[sf];
+        if (filterEntry == null) {
+            continue;
+        }
+        entryFilter = filterEntry["filter"];
+        if (entryFilter == null) {
+            continue;
+        }
+        if (entryFilter["param"] != wantedParam) {
+            continue;
+        }
+        entrySelected = filterEntry["selected"];
+        if (entrySelected == null) {
+            continue;
+        }
+        selectedText = parseString(entrySelected).trim();
+        if (selectedText != "") {
+            return selectedText;
+        }
+    }
+    return "";
+}
+
+function selectedCategoryPath(categoryFilters) {
+    chosenGenre = selectedFilterValue(categoryFilters, "genre");
+    if (chosenGenre != "") {
+        return "zhanr/" + chosenGenre;
+    }
+    chosenType = selectedFilterValue(categoryFilters, "type");
+    if (chosenType != "") {
+        return "tip/" + chosenType;
+    }
+    chosenYear = selectedFilterValue(categoryFilters, "year");
+    if (chosenYear != "") {
+        return "god/" + chosenYear;
+    }
+    return "";
+}
+
+function listedTitleIds(listBody) {
+    listedIds = [];
+    if (listBody == null) {
+        return listedIds;
+    }
+    storyChunks = listBody.split('class="shortstoryHead"');
+    for (sc = 1; sc < storyChunks.length; sc = sc + 1) {
+        storyChunk = storyChunks[sc];
+        storyHrefAt = storyChunk.indexOf('href="');
+        if (storyHrefAt < 0) {
+            continue;
+        }
+        storyHref = storyChunk.substring(storyHrefAt + 6).split('"')[0];
+        storyPathParts = storyHref.split("/");
+        storyFile = storyPathParts[storyPathParts.length - 1];
+        storyIdText = storyFile.split("-")[0];
+        if (isDigitsOnly(storyIdText) == false) {
+            continue;
+        }
+        if (listedIds.contains(storyIdText) == false) {
+            listedIds.push(storyIdText);
+        }
+    }
+    return listedIds;
+}
+
+function sitePageGallery(categoryPath, categoryPage) {
+    categoryLabel = categoryPath + " page " + parseString(categoryPage);
+    categoryUrlPath = "/" + categoryPath + "/";
+    if (categoryPage > 1) {
+        categoryUrlPath = categoryUrlPath + "page/" + parseString(categoryPage) + "/";
+    }
+    categoryResponse = sitePage(categoryUrlPath, categoryLabel);
+    if (failOnBadStatus(categoryResponse, categoryLabel, true) == false) {
+        return [];
+    }
+    categoryIds = listedTitleIds(categoryResponse["body"]);
+    if (categoryIds.isEmpty) {
+        return [];
+    }
+    infoLabel = categoryLabel + " details";
+    infoResponse = apiPost("info", {"id": categoryIds.join(",")}, infoLabel);
+    failOnBadStatus(infoResponse, infoLabel, false);
+    infoJson = decodeJsonBody(infoResponse["body"], infoLabel);
+    infoItems = infoJson["data"];
+    if (infoItems == null) {
+        return [];
+    }
+    infoById = {};
+    for (ib = 0; ib < infoItems.length; ib = ib + 1) {
+        infoEntry = infoItems[ib];
+        if (infoEntry == null) {
+            continue;
+        }
+        infoById[parseString(infoEntry["id"])] = infoEntry;
+    }
+    orderedItems = [];
+    for (oi = 0; oi < categoryIds.length; oi = oi + 1) {
+        orderedEntry = infoById[categoryIds[oi]];
+        if (orderedEntry != null) {
+            orderedItems.push(orderedEntry);
+        }
+    }
+    return galleryItems(orderedItems);
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    galleryPage = page;
+    if (galleryPage == null || galleryPage < 1) {
+        galleryPage = 1;
+    }
+    galleryQuery = "";
+    if (query != null) {
+        galleryQuery = parseString(query).trim();
+    }
+    if (galleryQuery != "") {
+        return searchGallery(galleryPage, galleryQuery);
+    }
+    galleryCategory = selectedCategoryPath(filters);
+    if (galleryCategory != "") {
+        return sitePageGallery(galleryCategory, galleryPage);
+    }
+    if (feed == "ongoing") {
+        return sitePageGallery("ongoing", galleryPage);
+    }
+    return latestGallery(galleryPage);
+}
+
+function videoFileKey(videoLink) {
+    if (videoLink == "") {
+        return "";
+    }
+    videoPathParts = videoLink.split("?")[0].split("/");
+    videoFile = videoPathParts[videoPathParts.length - 1];
+    return videoFile.split(".")[0];
+}
+
+function readPlaylist(playlistId) {
+    playlistLabel = "episodes of " + playlistId;
+    playlistResponse = apiPost("playlist", {"id": playlistId}, playlistLabel);
+    failOnBadStatus(playlistResponse, playlistLabel, false);
+    playlistBody = playlistResponse["body"];
+    if (playlistBody == null) {
+        return [];
+    }
+    if (parseString(playlistBody).trim().startsWith("[") == false) {
+        return [];
+    }
+    playlistEntries = decodeJsonBody(playlistBody, playlistLabel);
+    if (playlistEntries == null) {
+        return [];
+    }
+    return playlistEntries;
+}
+
+function sortedEpisodes(unsortedEntries) {
+    sortedList = [];
+    for (ue = 0; ue < unsortedEntries.length; ue = ue + 1) {
+        rawEpisode = unsortedEntries[ue];
+        if (rawEpisode == null) {
+            continue;
+        }
+        episodeOrder = leadingNumber(rawEpisode["name"]);
+        insertAt = sortedList.length;
+        if (episodeOrder != null) {
+            insertAt = 0;
+            for (se = 0; se < sortedList.length; se = se + 1) {
+                placedOrder = sortedList[se]["order"];
+                if (placedOrder != null) {
+                    if (placedOrder <= episodeOrder) {
+                        insertAt = se + 1;
+                    }
+                }
+            }
+        }
+        sortedList.insert(insertAt, {"order": episodeOrder, "entry": rawEpisode});
+    }
+    return sortedList;
+}
+
+function buildEpisodes(episodeTitleId, playlistEntries) {
+    episodeVideos = [];
+    usedUids = [];
+    orderedEpisodes = sortedEpisodes(playlistEntries);
+    for (be = 0; be < orderedEpisodes.length; be = be + 1) {
+        episodeEntry = orderedEpisodes[be]["entry"];
+        episodeName = cleanTitleText(episodeEntry["name"]);
+        episodeHd = absoluteUrl(episodeEntry["hd"]);
+        episodeStd = absoluteUrl(episodeEntry["std"]);
+        episodeMain = episodeStd;
+        if (episodeMain == "") {
+            episodeMain = episodeHd;
+        }
+        if (episodeMain == "") {
+            continue;
+        }
+        episodeKey = videoFileKey(episodeStd);
+        if (episodeKey == "") {
+            episodeKey = videoFileKey(episodeHd);
+        }
+        episodeUid = episodeTitleId + "/" + episodeKey;
+        if (usedUids.contains(episodeUid)) {
+            episodeUid = episodeUid + "-" + parseString(be);
+        }
+        usedUids.push(episodeUid);
+        if (episodeName == "") {
+            episodeName = "Серия " + parseString(be + 1);
+        }
+        episodeVideos.push(buildAnimeVideo({
+            "uid": episodeUid,
+            "src": episodeMain,
+            "title": episodeName,
+            "timestamp": null,
+            "type": typeDirect(),
+            "data": {"titleId": episodeTitleId, "name": episodeName, "hd": episodeHd, "std": episodeStd},
+            "number": orderedEpisodes[be]["order"]
+        }));
+    }
+    return episodeVideos;
+}
+
+function getConcrete(uid, data) {
+    concreteId = parseString(uid).trim();
+    concreteData = data;
+    if (concreteData == null) {
+        concreteData = {};
+    }
+    if (isDigitsOnly(concreteId) == false) {
+        throwSourceError("notFound", concreteId + " is not an AnimeVost title");
+    }
+    detailsLabel = "title " + concreteId;
+    detailsResponse = apiPost("info", {"id": concreteId}, detailsLabel);
+    failOnBadStatus(detailsResponse, detailsLabel, false);
+    detailsJson = decodeJsonBody(detailsResponse["body"], detailsLabel);
+    detailsItems = detailsJson["data"];
+    if (detailsItems == null || detailsItems.isEmpty) {
+        throwSourceError("notFound", detailsLabel + " is no longer on AnimeVost");
+    }
+    details = detailsItems[0];
+
+    fullName = cleanTitleText(details["title"]);
+    concreteName = russianTitle(fullName);
+    if (concreteName == "") {
+        concreteName = concreteData["title"];
+    }
+    if (concreteName == null || concreteName == "") {
+        concreteName = concreteId;
+    }
+    concreteAlternatives = [];
+    concreteOriginal = originalTitle(fullName);
+    if (concreteOriginal != "") {
+        concreteAlternatives.push(concreteOriginal);
+    }
+    concreteCover = absoluteUrl(details["urlImagePreview"]);
+    if (concreteCover == "" && concreteData["cover"] != null) {
+        concreteCover = concreteData["cover"];
+    }
+    concreteDirectors = [];
+    directorName = cleanTitleText(details["director"]);
+    if (directorName != "") {
+        concreteDirectors.push(directorName);
+    }
+    concreteTags = genreList(details["genre"]);
+    concreteKind = cleanTitleText(details["type"]);
+    if (concreteKind != "" && concreteTags.contains(concreteKind) == false) {
+        concreteTags.push(concreteKind);
+    }
+
+    concreteVideos = buildEpisodes(concreteId, readPlaylist(concreteId));
+    concreteGroups = [];
+    if (concreteVideos.isEmpty == false) {
+        concreteGroups.push(buildAnimeVideoGroup({
+            "title": studioLabel(),
+            "videos": concreteVideos
+        }));
+    }
+
+    return buildConcrete({
+        "uid": concreteId,
+        "cover": concreteCover,
+        "title": concreteName,
+        "alternativeTitles": concreteAlternatives,
+        "description": plainDescription(details["description"]),
+        "tags": concreteTags,
+        "status": counterStatus(episodeCounter(fullName)),
+        "groups": concreteGroups,
+        "authors": concreteDirectors,
+        "year": leadingNumber(details["year"]),
+        "rating": averageRating(details),
+        "url": siteOrigin() + "/index.php?newsid=" + concreteId
+    });
+}
+
+function mp4Source(mp4Link, mp4Quality) {
+    return {
+        "url": mp4Link,
+        "quality": mp4Quality,
+        "format": "mp4",
+        "headers": {},
+        "audioLabel": studioLabel()
+    };
+}
+
+function fileIsServed(probedLink) {
+    probeResponse = null;
+    probeFailed = false;
+    try {
+        probeResponse = httpGet({
+            "url": probedLink,
+            "params": {},
+            "paths": {},
+            "headers": {"Range": "bytes=0-0"},
+            "throughWeb": false
+        });
+    } catch (e) {
+        probeFailed = true;
+    }
+    if (probeFailed || probeResponse == null) {
+        return false;
+    }
+    probeStatus = probeResponse["statusCode"];
+    return probeStatus == 200 || probeStatus == 206;
+}
+
+function getVideoSources(uid, src, data) {
+    sourceData = data;
+    if (sourceData == null) {
+        sourceData = {};
+    }
+    hdLink = absoluteUrl(sourceData["hd"]);
+    sdLink = absoluteUrl(sourceData["std"]);
+    if (hdLink == "" && sdLink == "") {
+        hdLink = absoluteUrl(src);
+    }
+    videoSources = [];
+    if (hdLink != "" && sdLink != "" && hdLink != sdLink) {
+        if (fileIsServed(hdLink) == false) {
+            hdLink = "";
+        }
+    }
+    if (hdLink != "") {
+        videoSources.push(mp4Source(hdLink, "720p"));
+    }
+    if (sdLink != "" && sdLink != hdLink) {
+        videoSources.push(mp4Source(sdLink, "480p"));
+    }
+    return videoSources;
+}
