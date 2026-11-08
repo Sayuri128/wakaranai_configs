@@ -2559,6 +2559,151 @@
     },
     {
       "category": "manga",
+      "path": "manga/suwayomi",
+      "revision": "4c70293cc42a9329",
+      "apiVersion": 2,
+      "config": {
+        "name": "Suwayomi",
+        "uid": "bca2221e-2482-44c8-bace-d3ec5438e5e6",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/suwayomi/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "Multi",
+        "version": 1,
+        "apiVersion": 2,
+        "contentKinds": [
+          "manga",
+          "manhwa",
+          "manhua",
+          "comic"
+        ],
+        "searchAvailable": true,
+        "multiInstance": true,
+        "protectorConfig": null,
+        "filters": [
+          {
+            "type": "ONE_OF_ANY",
+            "paramName": "Status (library)",
+            "param": "status",
+            "values": [
+              "ONGOING",
+              "COMPLETED",
+              "PUBLISHING_FINISHED",
+              "ON_HIATUS",
+              "CANCELLED",
+              "LICENSED"
+            ],
+            "labels": [
+              "Ongoing",
+              "Completed",
+              "Publishing finished",
+              "On hiatus",
+              "Cancelled",
+              "Licensed"
+            ]
+          },
+          {
+            "type": "ONE_OF_ANY",
+            "paramName": "Sort (library)",
+            "param": "sort",
+            "values": [
+              "TITLE",
+              "IN_LIBRARY_AT",
+              "LAST_FETCHED_AT"
+            ],
+            "labels": [
+              "Title",
+              "Recently added",
+              "Recently updated"
+            ]
+          }
+        ],
+        "feeds": [
+          {
+            "id": "library",
+            "title": "Library"
+          },
+          {
+            "id": "popular",
+            "title": "Popular"
+          },
+          {
+            "id": "latest",
+            "title": "Latest"
+          }
+        ],
+        "pagination": {
+          "pageSizes": [
+            20,
+            50,
+            100
+          ],
+          "defaultPageSize": 50
+        },
+        "preferences": [
+          {
+            "key": "serverUrl",
+            "type": "text",
+            "title": "Server address",
+            "summary": "Address of your Suwayomi server, for example http://192.168.1.10:4567"
+          },
+          {
+            "key": "username",
+            "type": "text",
+            "title": "Username",
+            "summary": "Only needed when the server has basic authentication or UI login turned on"
+          },
+          {
+            "key": "password",
+            "type": "text",
+            "secret": true,
+            "title": "Password"
+          },
+          {
+            "key": "source",
+            "type": "text",
+            "title": "Source",
+            "summary": "Installed Suwayomi source for the Popular and Latest tabs and for searching, for example MangaDex (EN). Leave empty to see the installed sources"
+          },
+          {
+            "key": "searchIn",
+            "type": "select",
+            "title": "Search in",
+            "summary": "Where the search box looks for titles",
+            "default": "auto",
+            "options": [
+              {
+                "value": "auto",
+                "label": "The source when one is set, else the library"
+              },
+              {
+                "value": "library",
+                "label": "The Suwayomi library"
+              },
+              {
+                "value": "source",
+                "label": "The chosen source"
+              }
+            ]
+          },
+          {
+            "key": "categories",
+            "type": "text",
+            "title": "Library categories",
+            "summary": "Comma-separated category names the Library tab shows. Leave empty for the whole library"
+          },
+          {
+            "key": "refreshChapters",
+            "type": "toggle",
+            "title": "Refresh chapters on open",
+            "summary": "Ask the source for new chapters every time a title opens. Otherwise the server's stored chapter list is used once it has one",
+            "default": false
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/zenko",
       "revision": "725b5652436c55f6",
       "apiVersion": 2,

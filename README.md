@@ -27,6 +27,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | Komga | Manga | Multi | Your own Komga server; set the address and an API key or email and password in the extension settings |
 | Kavita | Manga | Multi | Your own Kavita server; set the address and API key in the extension settings |
 | OPDS | Manga | Multi | Any OPDS 1.x catalog with page streaming (OPDS-PSE); set the catalog address in the extension settings |
+| Suwayomi | Manga | Multi | Your own Suwayomi (Tachidesk) server: its library, plus browsing and searching one of its installed sources; set the address, an optional login and the source in the extension settings |
 
 ## Structure
 
@@ -59,7 +60,7 @@ cd tests && dart test                               # run integration tests (hit
 cd tests && dart run bin/health.dart                # smoke-test every extension end to end (--only <dir>, --browser)
 ```
 
-Extensions configured through their settings (Komga, Kavita, OPDS) need preferences in the health check: pass each one as `--pref <key>=<value>`, for example `dart run bin/health.dart --only komga --pref serverUrl=http://localhost:25600 --pref apiKey=<key>`. The values apply to every extension in the run, so combine them with `--only`.
+Extensions configured through their settings (Komga, Kavita, OPDS, Suwayomi) need preferences in the health check: pass each one as `--pref <key>=<value>`, for example `dart run bin/health.dart --only komga --pref serverUrl=http://localhost:25600 --pref apiKey=<key>`. The values apply to every extension in the run, so combine them with `--only`.
 
 The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. That interpreter predates novels, so novel configs and scripts get structural checks instead: type `2`, api version, `minAppVersion`, the `novel_models` import and `getChapterText`. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
 

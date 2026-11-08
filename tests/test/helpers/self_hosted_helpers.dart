@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:logger/logger.dart';
 import 'package:test/test.dart';
 
 String environmentValue(String name, [String fallback = '']) {
@@ -37,4 +38,14 @@ Future<String> probeContentType(String url, Map<String, String> headers) async {
   expect(response.statusCode, 200, reason: 'GET $url');
   expect(response.bodyBytes, isNotEmpty);
   return (response.headers['content-type'] ?? '').split(';').first.trim();
+}
+
+class SilentLogOutput extends LogOutput {
+  @override
+  void output(OutputEvent event) {}
+}
+
+void silenceInterpreterLogs() {
+  Logger.level = Level.off;
+  Logger.defaultOutput = () => SilentLogOutput();
 }
