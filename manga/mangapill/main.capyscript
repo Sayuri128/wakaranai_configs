@@ -1,0 +1,581 @@
+import "http";
+import "html";
+import "converter";
+import "manga_models";
+import "errors";
+
+function mangapillBase() {
+    return "https://mangapill.com";
+}
+
+function mangapillUserAgent() {
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+}
+
+function mangapillHeaders() {
+    return {
+        "User-Agent": mangapillUserAgent(),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://mangapill.com/"
+    };
+}
+
+function mangapillFetch(requestUrl, requestPaths, requestLabel) {
+    pageResponse = httpGet({
+        "url": requestUrl,
+        "params": {},
+        "paths": requestPaths,
+        "headers": mangapillHeaders(),
+        "throughWeb": false
+    });
+    pageStatus = pageResponse["statusCode"];
+    if (pageStatus == 200) {
+        return pageResponse["body"];
+    }
+    if (pageStatus == 404) {
+        throwSourceError("notFound", requestLabel + " is no longer on MangaPill");
+    }
+    if (pageStatus == 429) {
+        throwSourceError("rateLimited", "MangaPill is rate limiting requests (" + requestLabel + ")");
+    }
+    if (pageStatus == 0 || pageStatus >= 500) {
+        throwSourceError("sourceDown", "MangaPill answered HTTP " + parseString(pageStatus) + " (" + requestLabel + ")");
+    }
+    throw "HTTP " + parseString(pageStatus) + " (MangaPill " + requestLabel + ")";
+}
+
+function mangapillPathOf(link) {
+    pathText = parseString(link).trim();
+    schemeAt = pathText.indexOf("://");
+    if (schemeAt >= 0) {
+        pathText = pathText.substring(schemeAt + 3);
+        hostEnd = pathText.indexOf("/");
+        if (hostEnd < 0) {
+            pathText = "";
+        } else {
+            pathText = pathText.substring(hostEnd);
+        }
+    }
+    queryAt = pathText.indexOf("?");
+    if (queryAt >= 0) {
+        pathText = pathText.substring(0, queryAt);
+    }
+    if (pathText.startsWith("/")) {
+        pathText = pathText.substring(1);
+    }
+    if (pathText.endsWith("/")) {
+        pathText = pathText.substring(0, pathText.length - 1);
+    }
+    return pathText;
+}
+
+function mangapillPageUrl(sitePath) {
+    return mangapillBase() + "/" + mangapillPathOf(sitePath);
+}
+
+function mangapillAbsolute(rawLink) {
+    linkText = parseString(rawLink).trim();
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("/")) {
+        return mangapillBase() + linkText;
+    }
+    return linkText;
+}
+
+function mangapillImageOf(imageElement) {
+    if (imageElement == null) {
+        return "";
+    }
+    imageAttributes = imageElement.attributes;
+    dataSource = imageAttributes["data-src"];
+    if (dataSource != null && dataSource.trim() != "") {
+        return mangapillAbsolute(dataSource);
+    }
+    plainSource = imageAttributes["src"];
+    if (plainSource != null && plainSource.trim() != "" && plainSource.startsWith("data:") == false) {
+        return mangapillAbsolute(plainSource);
+    }
+    return "";
+}
+
+function mangapillTextOf(textElement) {
+    if (textElement == null) {
+        return "";
+    }
+    return textElement.text.trim();
+}
+
+function mangapillEncode(rawText) {
+    return parseString(rawText).replaceAll("%", "%25").replaceAll("&", "%26").replaceAll("#", "%23").replaceAll("+", "%2B").replaceAll("=", "%3D").replaceAll("?", "%3F").replaceAll("/", "%2F").replaceAll(" ", "+");
+}
+
+function mangapillStatus(statusText) {
+    loweredStatus = parseString(statusText).trim().toLowerCase();
+    if (loweredStatus == "publishing") {
+        return statusOngoing();
+    }
+    if (loweredStatus == "finished") {
+        return statusReleased();
+    }
+    if (loweredStatus == "on hiatus") {
+        return statusPaused();
+    }
+    if (loweredStatus == "discontinued") {
+        return statusCanceled();
+    }
+    if (loweredStatus == "not yet published") {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function mangapillKnownStatuses() {
+    return ["publishing", "finished", "on hiatus", "discontinued", "not yet published"];
+}
+
+function mangapillYear(yearText) {
+    trimmedYear = parseString(yearText).trim();
+    if (trimmedYear.length != 4) {
+        return null;
+    }
+    parsedYear = null;
+    try {
+        parsedYear = parseInt(trimmedYear);
+    } catch (e) {
+        parsedYear = null;
+    }
+    return parsedYear;
+}
+
+function mangapillMangaCard(cardElement) {
+    cardLink = cardElement.querySelector("a[href^='/manga/']");
+    if (cardLink == null) {
+        return null;
+    }
+    cardHref = cardLink.attributes["href"];
+    if (cardHref == null) {
+        return null;
+    }
+    cardUid = mangapillPathOf(cardHref);
+    cardTitle = mangapillTextOf(cardElement.querySelector("div.font-black"));
+    cardImage = cardElement.querySelector("img");
+    if (cardTitle == "" && cardImage != null) {
+        altText = cardImage.attributes["alt"];
+        if (altText != null) {
+            cardTitle = altText.trim();
+        }
+    }
+    if (cardTitle == "") {
+        return null;
+    }
+    cardSubtitle = null;
+    cardYear = null;
+    cardStatus = null;
+    cardTags = [];
+    badgeGroups = cardElement.querySelectorAll("div.flex-wrap");
+    for (bg = 0; bg < badgeGroups.length; bg = bg + 1) {
+        groupBadges = badgeGroups[bg].children;
+        for (bd = 0; bd < groupBadges.length; bd = bd + 1) {
+            badgeText = groupBadges[bd].text.trim();
+            if (badgeText == "") {
+                continue;
+            }
+            if (bg > 0) {
+                cardTags.push(badgeText);
+                continue;
+            }
+            if (mangapillKnownStatuses().contains(badgeText.toLowerCase())) {
+                cardStatus = mangapillStatus(badgeText);
+                continue;
+            }
+            if (mangapillYear(badgeText) != null) {
+                cardYear = mangapillYear(badgeText);
+                continue;
+            }
+            if (cardSubtitle == null) {
+                cardSubtitle = badgeText;
+            }
+        }
+    }
+    return {
+        "uid": cardUid,
+        "item": buildGallery({
+            "uid": cardUid,
+            "title": cardTitle,
+            "cover": mangapillImageOf(cardImage),
+            "data": {},
+            "status": cardStatus,
+            "subtitle": cardSubtitle,
+            "tags": cardTags,
+            "year": cardYear
+        })
+    };
+}
+
+function mangapillChapterCard(chapterCard) {
+    titleLink = chapterCard.querySelector("a[href^='/manga/']");
+    chapterLink = chapterCard.querySelector("a[href^='/chapters/']");
+    if (titleLink == null || chapterLink == null) {
+        return null;
+    }
+    titleHref = titleLink.attributes["href"];
+    if (titleHref == null) {
+        return null;
+    }
+    chapterTitle = mangapillTextOf(titleLink.querySelector("div.font-bold"));
+    if (chapterTitle == "") {
+        return null;
+    }
+    englishTitle = mangapillTextOf(titleLink.querySelector("div.text-xs"));
+    englishSubtitle = null;
+    if (englishTitle != "" && englishTitle != chapterTitle) {
+        englishSubtitle = englishTitle;
+    }
+    chapterLabel = mangapillTextOf(chapterCard.querySelector("a[href^='/chapters/'] div.font-black"));
+    if (chapterLabel.startsWith("#")) {
+        chapterLabel = "Chapter " + chapterLabel.substring(1).trim();
+    }
+    latestLabel = null;
+    if (chapterLabel != "") {
+        latestLabel = chapterLabel;
+    }
+    titleUid = mangapillPathOf(titleHref);
+    return {
+        "uid": titleUid,
+        "item": buildGallery({
+            "uid": titleUid,
+            "title": chapterTitle,
+            "cover": mangapillImageOf(chapterCard.querySelector("img")),
+            "data": {},
+            "subtitle": englishSubtitle,
+            "latestChapter": latestLabel
+        })
+    };
+}
+
+function mangapillCollect(cardDocument, chapterCards) {
+    collectedItems = [];
+    collectedUids = [];
+    cardElements = cardDocument.querySelectorAll("div.grid > div");
+    for (ce = 0; ce < cardElements.length; ce = ce + 1) {
+        builtItem = null;
+        if (chapterCards) {
+            builtItem = mangapillChapterCard(cardElements[ce]);
+        } else {
+            builtItem = mangapillMangaCard(cardElements[ce]);
+        }
+        if (builtItem == null) {
+            continue;
+        }
+        if (collectedUids.contains(builtItem["uid"])) {
+            continue;
+        }
+        collectedUids.push(builtItem["uid"]);
+        collectedItems.push(builtItem["item"]);
+    }
+    return collectedItems;
+}
+
+function mangapillLatest(latestPage) {
+    if (latestPage > 1) {
+        return [];
+    }
+    latestBody = mangapillFetch(mangapillBase() + "/chapters", {}, "latest chapters");
+    return mangapillCollect(createHTMLParser(latestBody), true);
+}
+
+function mangapillTrending(trendingPage) {
+    if (trendingPage > 1) {
+        return [];
+    }
+    homeBody = mangapillFetch(mangapillBase() + "/", {}, "home page");
+    trendingAt = homeBody.indexOf("Trending Mangas");
+    if (trendingAt < 0) {
+        throw "MangaPill home page has no trending section";
+    }
+    return mangapillCollect(createHTMLParser(homeBody.substring(trendingAt)), false);
+}
+
+function mangapillSearchUrl(searchPage, searchText, searchFilters) {
+    typeValue = "";
+    statusValue = "";
+    genreValues = [];
+    if (searchFilters != null) {
+        for (sf = 0; sf < searchFilters.length; sf = sf + 1) {
+            filterEntry = searchFilters[sf];
+            filterParam = filterEntry["filter"]["param"];
+            filterKind = filterEntry["filter"]["type"];
+            if (filterKind == "ONE_OF_MULTIPLE" || filterKind == "ONE_OF_ANY") {
+                chosenValue = filterEntry["selected"];
+                if (chosenValue != null && chosenValue != "") {
+                    if (filterParam == "type") {
+                        typeValue = chosenValue;
+                    }
+                    if (filterParam == "status") {
+                        statusValue = chosenValue;
+                    }
+                }
+                continue;
+            }
+            if (filterKind == "MULTIPLE_OF_MULTIPLE" && filterParam == "genre") {
+                chosenGroups = filterEntry["selected"];
+                if (chosenGroups == null) {
+                    continue;
+                }
+                for (sg = 0; sg < chosenGroups.length; sg = sg + 1) {
+                    for (sv = 0; sv < chosenGroups[sg].length; sv = sv + 1) {
+                        genreValues.push(chosenGroups[sg][sv]);
+                    }
+                }
+            }
+        }
+    }
+    if (searchText == "" && typeValue == "" && statusValue == "" && genreValues.isEmpty) {
+        typeValue = "manga";
+    }
+    queryParts = ["q=" + mangapillEncode(searchText), "type=" + mangapillEncode(typeValue), "status=" + mangapillEncode(statusValue)];
+    for (gv = 0; gv < genreValues.length; gv = gv + 1) {
+        queryParts.push("genre=" + mangapillEncode(genreValues[gv]));
+    }
+    queryParts.push("page=" + parseString(searchPage));
+    return mangapillBase() + "/search?" + queryParts.join("&") + "&_=1";
+}
+
+function mangapillHasSelection(selectionFilters) {
+    if (selectionFilters == null) {
+        return false;
+    }
+    for (hs = 0; hs < selectionFilters.length; hs = hs + 1) {
+        selectedValue = selectionFilters[hs]["selected"];
+        if (selectedValue == null) {
+            continue;
+        }
+        if (selectionFilters[hs]["filter"]["type"] == "MULTIPLE_OF_MULTIPLE") {
+            for (hg = 0; hg < selectedValue.length; hg = hg + 1) {
+                if (selectedValue[hg].isNotEmpty) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        if (selectedValue != "") {
+            return true;
+        }
+    }
+    return false;
+}
+
+function mangapillSearch(resultsPage, resultsQuery, resultsFilters) {
+    searchBody = mangapillFetch(mangapillSearchUrl(resultsPage, resultsQuery, resultsFilters), {"&_=1?": ""}, "search page " + parseString(resultsPage));
+    return mangapillCollect(createHTMLParser(searchBody), false);
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    if (searchText == "" && mangapillHasSelection(filters) == false) {
+        if (feed == "trending") {
+            return mangapillTrending(galleryPage);
+        }
+        if (feed != "browse") {
+            return mangapillLatest(galleryPage);
+        }
+    }
+    return mangapillSearch(galleryPage, searchText, filters);
+}
+
+function mangapillChapterNumber(chapterName) {
+    markerAt = chapterName.indexOf("Chapter ");
+    if (markerAt < 0) {
+        return null;
+    }
+    numberText = chapterName.substring(markerAt + 8).trim().split(" ")[0];
+    parsedNumber = null;
+    try {
+        parsedNumber = parseDouble(numberText);
+    } catch (e) {
+        parsedNumber = null;
+    }
+    return parsedNumber;
+}
+
+function mangapillChapters(chapterDocument) {
+    chapterLinks = chapterDocument.querySelectorAll("#chapters a[href^='/chapters/']");
+    builtChapters = [];
+    seenChapters = [];
+    for (cl = 0; cl < chapterLinks.length; cl = cl + 1) {
+        chapterHref = chapterLinks[cl].attributes["href"];
+        if (chapterHref == null) {
+            continue;
+        }
+        chapterPath = mangapillPathOf(chapterHref);
+        if (chapterPath == "" || seenChapters.contains(chapterPath)) {
+            continue;
+        }
+        seenChapters.push(chapterPath);
+        chapterName = chapterLinks[cl].text.trim();
+        if (chapterName == "") {
+            titleAttribute = chapterLinks[cl].attributes["title"];
+            if (titleAttribute != null) {
+                chapterName = titleAttribute.trim();
+            }
+        }
+        if (chapterName == "") {
+            chapterName = "Chapter";
+        }
+        builtChapters.push(buildChapter({
+            "uid": chapterPath,
+            "title": chapterName,
+            "timestamp": null,
+            "data": {},
+            "number": mangapillChapterNumber(chapterName)
+        }));
+    }
+    return builtChapters;
+}
+
+function mangapillInfoValues(infoDocument) {
+    infoValues = {};
+    infoCells = infoDocument.querySelectorAll("div.grid > div");
+    for (ic = 0; ic < infoCells.length; ic = ic + 1) {
+        infoLabel = infoCells[ic].querySelector("label");
+        infoValue = infoCells[ic].querySelector("div");
+        if (infoLabel == null || infoValue == null) {
+            continue;
+        }
+        infoValues[infoLabel.text.trim().toLowerCase()] = infoValue.text.trim();
+    }
+    return infoValues;
+}
+
+function mangapillAlternativeTitles(headerDocument, mainTitle) {
+    alternativeNames = [];
+    headerBlocks = headerDocument.querySelectorAll("div.mb-3");
+    for (hb = 0; hb < headerBlocks.length; hb = hb + 1) {
+        if (headerBlocks[hb].querySelector("h1") == null) {
+            continue;
+        }
+        alternativeLines = headerBlocks[hb].querySelectorAll("div.text-secondary");
+        for (al = 0; al < alternativeLines.length; al = al + 1) {
+            alternativeName = alternativeLines[al].text.trim();
+            if (alternativeName != "" && alternativeName != mainTitle && alternativeNames.contains(alternativeName) == false) {
+                alternativeNames.push(alternativeName);
+            }
+        }
+    }
+    return alternativeNames;
+}
+
+function mangapillDescription(descriptionDocument) {
+    descriptionText = mangapillTextOf(descriptionDocument.querySelector("p.text--secondary"));
+    if (descriptionText != "") {
+        return descriptionText;
+    }
+    descriptionMeta = descriptionDocument.querySelector("meta[name='description']");
+    if (descriptionMeta == null) {
+        return "";
+    }
+    metaContent = descriptionMeta.attributes["content"];
+    if (metaContent == null) {
+        return "";
+    }
+    return metaContent.replaceAll("<br/>", "").trim();
+}
+
+function mangapillCover(coverDocument) {
+    coverMeta = coverDocument.querySelector("meta[property='og:image']");
+    if (coverMeta != null) {
+        metaImage = coverMeta.attributes["content"];
+        if (metaImage != null && metaImage.trim() != "") {
+            return mangapillAbsolute(metaImage);
+        }
+    }
+    return mangapillImageOf(coverDocument.querySelector("img.lazy"));
+}
+
+function mangapillGenres(genreDocument) {
+    genreNames = [];
+    genreLinks = genreDocument.querySelectorAll("a[href^='/search?genre=']");
+    for (gl = 0; gl < genreLinks.length; gl = gl + 1) {
+        genreName = genreLinks[gl].text.trim();
+        if (genreName != "" && genreNames.contains(genreName) == false) {
+            genreNames.push(genreName);
+        }
+    }
+    return genreNames;
+}
+
+function getConcrete(uid, data) {
+    mangaPath = mangapillPathOf(uid);
+    mangaUrl = mangapillPageUrl(mangaPath);
+    mangaDocument = createHTMLParser(mangapillFetch(mangaUrl, {}, "title " + mangaPath));
+    mangaTitle = mangapillTextOf(mangaDocument.querySelector("h1"));
+    if (mangaTitle == "") {
+        throwSourceError("notFound", "MangaPill has no title at " + mangaPath);
+    }
+    mangaInfo = mangapillInfoValues(mangaDocument);
+    mangaStatus = statusUndefined();
+    if (mangaInfo["status"] != null) {
+        mangaStatus = mangapillStatus(mangaInfo["status"]);
+    }
+    mangaYear = null;
+    if (mangaInfo["year"] != null) {
+        mangaYear = mangapillYear(mangaInfo["year"]);
+    }
+    mangaTags = mangapillGenres(mangaDocument);
+    chapterGroup = buildChapterGroups({
+        "title": "Chapters",
+        "elements": mangapillChapters(mangaDocument)
+    });
+    return buildConcrete({
+        "uid": mangaPath,
+        "title": mangaTitle,
+        "cover": mangapillCover(mangaDocument),
+        "description": mangapillDescription(mangaDocument),
+        "tags": mangaTags,
+        "status": mangaStatus,
+        "alternativeTitles": mangapillAlternativeTitles(mangaDocument, mangaTitle),
+        "year": mangaYear,
+        "url": mangaUrl,
+        "groups": [chapterGroup]
+    });
+}
+
+function getPages(uid, data) {
+    chapterPath = mangapillPathOf(uid);
+    readerDocument = createHTMLParser(mangapillFetch(mangapillPageUrl(chapterPath), {}, "chapter " + chapterPath));
+    pageImages = readerDocument.querySelectorAll("chapter-page img");
+    if (pageImages.isEmpty) {
+        pageImages = readerDocument.querySelectorAll("img.js-page");
+    }
+    pageLinks = [];
+    for (pi = 0; pi < pageImages.length; pi = pi + 1) {
+        pageLink = mangapillImageOf(pageImages[pi]);
+        if (pageLink != "" && pageLinks.contains(pageLink) == false) {
+            pageLinks.push(pageLink);
+        }
+    }
+    if (pageLinks.isEmpty) {
+        throwSourceError("notFound", "MangaPill returned no pages for " + chapterPath);
+    }
+    return buildPages({
+        "uid": chapterPath,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": mangapillUserAgent(),
+        "Referer": "https://mangapill.com/"
+    };
+}
