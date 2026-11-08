@@ -34,6 +34,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | MangaNato | Manga | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |
 | Dynasty Scans | Manga (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
 | Ficbook | Novel | Russian | Fanfiction and originals; direction, rating, status, fandom and genre filters; NC-17/NC-21 hidden unless enabled |
+| Anime365 | Anime (paid) | Russian | Watching needs an Anime365 subscription (sign in through the in-app browser); browsing is free; subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |
 
 ## Structure
 
