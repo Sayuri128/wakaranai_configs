@@ -6,20 +6,44 @@ import 'package:capyscript/modules/abstract/base_module.dart';
 import 'package:capyscript/modules/waka_models/models/config_info/config_info.dart';
 import 'package:capyscript/parser/parser.dart';
 
-const Map<String, int> _categoryTypes = {'manga': 0, 'anime': 1, 'novel': 2};
+const Map<String, int> _categoryTypes = {
+  'manga': 0,
+  'anime': 1,
+  'novel': 2,
+  'audio': 3,
+};
 
 const Map<String, List<String>> _requiredFunctions = {
   'manga': ['getGallery', 'getConcrete', 'getPages'],
   'anime': ['getGallery', 'getConcrete'],
   'novel': ['getGallery', 'getConcrete', 'getChapterText'],
+  'audio': ['getGallery', 'getConcrete', 'getAudioSources'],
 };
 
-const String _novelCategory = 'novel';
-const String _novelModelsModule = 'novel_models';
-const int _novelApiVersion = 2;
-const String _novelMinAppVersion = '0.4.0';
-const Map<String, Set<String>> _categoryModules = {
-  _novelCategory: {_novelModelsModule},
+class _NewerCategory {
+  const _NewerCategory({
+    required this.label,
+    required this.modelsModule,
+    required this.minAppVersion,
+  });
+
+  final String label;
+  final String modelsModule;
+  final String minAppVersion;
+}
+
+const int _newerCategoryApiVersion = 2;
+const Map<String, _NewerCategory> _newerCategories = {
+  'novel': _NewerCategory(
+    label: 'novel',
+    modelsModule: 'novel_models',
+    minAppVersion: '0.4.0',
+  ),
+  'audio': _NewerCategory(
+    label: 'audio',
+    modelsModule: 'audio_models',
+    minAppVersion: '0.4.0',
+  ),
 };
 
 final RegExp _uuid =
@@ -148,10 +172,11 @@ void _validateExtension(Directory dir, String name, String category,
   }
   final functions = <String>{};
   final imports = <String>{};
+  final newer = _newerCategories[category];
   _validateScript(script, functions, imports, <String>{}, features,
-      _categoryModules[category] ?? const <String>{}, fail);
-  if (category == _novelCategory && !imports.contains(_novelModelsModule)) {
-    fail('main.capyscript must import "$_novelModelsModule"');
+      {if (newer != null) newer.modelsModule}, fail);
+  if (newer != null && !imports.contains(newer.modelsModule)) {
+    fail('main.capyscript must import "${newer.modelsModule}"');
   }
   for (final required in _requiredFunctions[category]!) {
     if (!functions.contains(required)) {
@@ -264,8 +289,9 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   if (multiInstance != null && multiInstance is! bool) {
     fail('"multiInstance" must be true or false');
   }
-  if (category == _novelCategory) {
-    _validateNovelConfig(config, fail);
+  final newer = _newerCategories[category];
+  if (newer != null) {
+    _validateNewerCategoryConfig(config, newer, fail);
   }
 
   final filters = config['filters'];
@@ -281,8 +307,8 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     }
   }
 
-  if (category == _novelCategory) {
-    _validateNovelSharedFields(config, fail);
+  if (newer != null) {
+    _validateNewerCategorySharedFields(config, newer, fail);
     return;
   }
   try {
@@ -292,32 +318,36 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   }
 }
 
-void _validateNovelConfig(
-    Map<String, dynamic> config, void Function(String) fail) {
-  if (config['apiVersion'] != _novelApiVersion) {
-    fail('novel extensions must declare "apiVersion": $_novelApiVersion');
+void _validateNewerCategoryConfig(Map<String, dynamic> config,
+    _NewerCategory newer, void Function(String) fail) {
+  if (config['apiVersion'] != _newerCategoryApiVersion) {
+    fail('${newer.label} extensions must declare "apiVersion": '
+        '$_newerCategoryApiVersion');
   }
   final minAppVersion = config['minAppVersion'];
   if (minAppVersion is! String) {
-    fail('novel extensions must declare "minAppVersion" (at least '
-        '$_novelMinAppVersion, the first app release with novel support)');
+    fail('${newer.label} extensions must declare "minAppVersion" (at least '
+        '${newer.minAppVersion}, the first app release with ${newer.label} '
+        'support)');
     return;
   }
   if (_semanticVersion.hasMatch(minAppVersion) &&
-      _compareVersions(minAppVersion, _novelMinAppVersion) < 0) {
-    fail('"minAppVersion" $minAppVersion is older than $_novelMinAppVersion, '
-        'the first app release with novel support');
+      _compareVersions(minAppVersion, newer.minAppVersion) < 0) {
+    fail('"minAppVersion" $minAppVersion is older than '
+        '${newer.minAppVersion}, the first app release with ${newer.label} '
+        'support');
   }
 }
 
-void _validateNovelSharedFields(
-    Map<String, dynamic> config, void Function(String) fail) {
+void _validateNewerCategorySharedFields(Map<String, dynamic> config,
+    _NewerCategory newer, void Function(String) fail) {
   final mangaShaped = Map<String, dynamic>.of(config)
     ..['type'] = _categoryTypes['manga'];
   try {
     ConfigInfo.fromJson(mangaShaped);
   } catch (e) {
-    fail('the fields novel configs share with manga configs do not parse: $e');
+    fail('the fields ${newer.label} configs share with manga configs do not '
+        'parse: $e');
   }
 }
 

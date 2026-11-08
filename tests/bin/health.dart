@@ -5,6 +5,7 @@ import 'package:capyscript/api_clients/anime_api_client.dart';
 import 'package:capyscript/api_clients/api_client.dart';
 import 'package:capyscript/api_clients/host/extension_host.dart';
 import 'package:capyscript/api_clients/manga_api_client.dart';
+import 'package:capyscript/api_clients/audio_api_client.dart';
 import 'package:capyscript/api_clients/novel_api_client.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_video/anime_video.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_video/anime_view_type.dart';
@@ -21,7 +22,7 @@ import '../test/helpers/real_browser_interceptor_controller.dart';
 import '../test/helpers/scraper_helpers.dart';
 import '../test/helpers/script_bundle.dart';
 
-const List<String> categories = ['manga', 'anime', 'novel'];
+const List<String> categories = ['manga', 'anime', 'novel', 'audio'];
 const Map<String, String> sessionAliases = {'lib_social': 'mangalib'};
 const String desktopUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -282,6 +283,8 @@ Future<HealthResult> checkExtension(String directory, HealthOptions options) asy
       await checkAnimeSources(run, client, element as AnimeVideo);
     } else if (client is NovelApiClient) {
       await checkNovelText(run, client, element);
+    } else if (client is AudioApiClient) {
+      await checkAudioSources(run, client, element);
     }
     return run.finish(Outcome.ok, run.notes.join(', '));
   } catch (error) {
@@ -297,6 +300,8 @@ ApiClient clientFor(ConfigInfoType type, String code, ExtensionHost host) {
       return AnimeApiClient(code: code, host: host);
     case ConfigInfoType.NOVEL:
       return NovelApiClient(code: code, host: host);
+    case ConfigInfoType.AUDIO:
+      return AudioApiClient(code: code, host: host);
     case ConfigInfoType.MANGA:
       return MangaApiClient(code: code, host: host);
   }
@@ -374,7 +379,7 @@ Future<ElementOfElementsGroupOfConcrete> firstElement(
         continue;
       }
       final count = concrete.groups.fold<int>(0, (sum, g) => sum + g.elements.length);
-      run.notes.add('$count ${client is AnimeApiClient ? 'ep' : 'ch'}');
+      run.notes.add('$count ${elementUnit(client)}');
       if (index > 0) {
         run.notes.add('item #${index + 1}');
       }
@@ -384,6 +389,33 @@ Future<ElementOfElementsGroupOfConcrete> firstElement(
     }
   }
   throw lastError ?? const StepFailure('no title with chapters');
+}
+
+String elementUnit(ApiClient client) {
+  if (client is AnimeApiClient) {
+    return 'ep';
+  }
+  if (client is AudioApiClient) {
+    return 'tracks';
+  }
+  return 'ch';
+}
+
+Future<void> checkAudioSources(
+  ExtensionRun run,
+  AudioApiClient client,
+  ElementOfElementsGroupOfConcrete track,
+) async {
+  final sources = await run.run(
+    'sources',
+    () => client.getAudioSources(uid: track.uid, data: track.data),
+  );
+  if (sources.isEmpty) {
+    throw const StepFailure('no audio sources');
+  }
+  final first = sources.first;
+  final contentType = await run.run('audio', () => probe(first.url, first.headers));
+  run.notes.add('${sources.length} sources, $contentType');
 }
 
 Future<void> checkMangaPages(
