@@ -259,6 +259,7 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
     }
   }
   _validateContentKinds(config['contentKinds'], fail);
+  _validatePricing(config['pricing'], fail);
   final multiInstance = config['multiInstance'];
   if (multiInstance != null && multiInstance is! bool) {
     fail('"multiInstance" must be true or false');
@@ -669,6 +670,15 @@ void _validateFeeds(Object? feeds, void Function(String) fail) {
 }
 
 final RegExp _contentKind = RegExp(r'^[a-z][a-z0-9-]*$');
+
+void _validatePricing(Object? pricing, void Function(String) fail) {
+  if (pricing == null) {
+    return;
+  }
+  if (pricing != 'free' && pricing != 'partial' && pricing != 'paid') {
+    fail('"pricing" must be "free", "partial" or "paid"');
+  }
+}
 
 void _validateContentKinds(Object? kinds, void Function(String) fail) {
   if (kinds == null) {
