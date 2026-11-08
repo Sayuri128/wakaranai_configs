@@ -1228,7 +1228,7 @@
     {
       "category": "manga",
       "path": "manga/manga_dex",
-      "revision": "bb7f9a8f01a21685",
+      "revision": "edf24b3ab954d016",
       "apiVersion": 2,
       "config": {
         "name": "MangaDex",
@@ -1236,7 +1236,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_dex/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
-        "language": "English",
+        "language": "Multi",
         "version": 1,
         "apiVersion": 2,
         "filters": [
