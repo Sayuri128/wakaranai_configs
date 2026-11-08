@@ -3739,6 +3739,218 @@
     },
     {
       "category": "anime",
+      "path": "anime/jellyfin",
+      "revision": "e0f0d8290ce10f45",
+      "apiVersion": 2,
+      "config": {
+        "name": "Jellyfin",
+        "uid": "edc7e065-948e-457f-9dce-1402c1ba7022",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/jellyfin/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Multi",
+        "version": 1,
+        "apiVersion": 2,
+        "contentKinds": [
+          "anime",
+          "movie",
+          "series",
+          "cartoon"
+        ],
+        "searchAvailable": true,
+        "multiInstance": true,
+        "protectorConfig": null,
+        "filters": [
+          {
+            "type": "ONE_OF_ANY",
+            "paramName": "Type",
+            "param": "itemType",
+            "values": [
+              "Series",
+              "Movie"
+            ],
+            "labels": [
+              "Shows",
+              "Movies"
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_ANY",
+            "paramName": "Genres",
+            "param": "genres",
+            "values": [
+              "Action",
+              "Adventure",
+              "Action & Adventure",
+              "Animation",
+              "Anime",
+              "Comedy",
+              "Crime",
+              "Documentary",
+              "Drama",
+              "Family",
+              "Fantasy",
+              "History",
+              "Horror",
+              "Kids",
+              "Music",
+              "Mystery",
+              "Romance",
+              "Science Fiction",
+              "Sci-Fi & Fantasy",
+              "Thriller",
+              "War",
+              "Western"
+            ]
+          },
+          {
+            "type": "ONE_OF_ANY",
+            "paramName": "Watched",
+            "param": "played",
+            "values": [
+              "false",
+              "true"
+            ],
+            "labels": [
+              "Not watched",
+              "Watched"
+            ]
+          },
+          {
+            "type": "ONE_OF_ANY",
+            "paramName": "Sort",
+            "param": "sort",
+            "values": [
+              "SortName",
+              "DateCreated",
+              "PremiereDate",
+              "CommunityRating"
+            ],
+            "labels": [
+              "Name",
+              "Date added",
+              "Release date",
+              "Rating"
+            ]
+          }
+        ],
+        "feeds": [
+          {
+            "id": "all",
+            "title": "Library"
+          },
+          {
+            "id": "latest",
+            "title": "Recently added"
+          },
+          {
+            "id": "resume",
+            "title": "Continue watching"
+          },
+          {
+            "id": "nextup",
+            "title": "Next up"
+          },
+          {
+            "id": "favorites",
+            "title": "Favorites"
+          }
+        ],
+        "pagination": {
+          "pageSizes": [
+            20,
+            50,
+            100
+          ],
+          "defaultPageSize": 50
+        },
+        "preferences": [
+          {
+            "key": "serverUrl",
+            "type": "text",
+            "title": "Server address",
+            "summary": "Address of your Jellyfin server, for example http://192.168.1.10:8096"
+          },
+          {
+            "key": "username",
+            "type": "text",
+            "title": "Username",
+            "summary": "The Jellyfin user to sign in as. With an API key it picks whose watch history is used; empty means the first administrator"
+          },
+          {
+            "key": "password",
+            "type": "text",
+            "secret": true,
+            "title": "Password"
+          },
+          {
+            "key": "apiKey",
+            "type": "text",
+            "secret": true,
+            "title": "API key",
+            "summary": "Created in Jellyfin under Dashboard, API keys. Used instead of the password when set"
+          },
+          {
+            "key": "library",
+            "type": "text",
+            "title": "Library",
+            "summary": "Name of the Jellyfin library to browse. Leave empty for every movie and show library"
+          },
+          {
+            "key": "playback",
+            "type": "select",
+            "title": "Playback",
+            "summary": "How episodes are streamed",
+            "default": "auto",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Original file when the phone can play it, converted stream otherwise"
+              },
+              {
+                "value": "hls",
+                "label": "Always the converted stream"
+              }
+            ]
+          },
+          {
+            "key": "maxBitrate",
+            "type": "select",
+            "title": "Converted stream quality",
+            "summary": "Highest bitrate the server converts to. Lower values use less data",
+            "default": "0",
+            "options": [
+              {
+                "value": "0",
+                "label": "Original quality"
+              },
+              {
+                "value": "20000000",
+                "label": "20 Mbps"
+              },
+              {
+                "value": "8000000",
+                "label": "8 Mbps"
+              },
+              {
+                "value": "4000000",
+                "label": "4 Mbps"
+              },
+              {
+                "value": "2000000",
+                "label": "2 Mbps"
+              },
+              {
+                "value": "1000000",
+                "label": "1 Mbps"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/uaflix",
       "revision": "eb2748d239a6aecf",
       "apiVersion": 1,
