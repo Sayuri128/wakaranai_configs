@@ -1,61 +1,88 @@
 # Wakaranai Configs
 
-The official extension repository for the [Wakaranai](https://github.com/Sayuri128/wakaranai) manga, anime and light novel reader. Extensions are written in [Capyscript](https://github.com/Sayuri128/capyscript) and loaded by the app at runtime — no app update is needed to add or fix a source.
+The official extensions for [Wakaranai](https://github.com/Sayuri128/wakaranai), an Android app for manga, anime, novels and audiobooks. Each extension is a `config.json` plus a script written in [Capyscript](https://github.com/Sayuri128/capyscript). The app downloads them from this repository and runs them on the device, so adding or fixing a source doesn't need an app update.
+
+Most extensions use extension API 2 (preferences, feeds, pagination, typed errors) and need **Wakaranai 1.0.0 or newer**. Older app builds can't run them; update the app from [its releases](https://github.com/Sayuri128/wakaranai/releases/latest).
 
 ## Extensions
 
-| Extension | Type | Language | Notes |
-|---|---|---|---|
-| MangaLib | Manga | Russian | Requires login; shares the session with HentaiLib |
-| HentaiLib | Manga (NSFW) | Russian | Requires login |
-| RanobeLib | Novel | Russian | Light and web novels; chapters grouped by translation branch; shares the MangaLib login |
-| MangaDex | Manga | English | Status, demographic and content-rating filters |
-| NHentai | Manga (NSFW) | Multi | |
-| Manga/in/UA | Manga | Ukrainian | |
-| MangaRead | Manga | English | Madara engine |
-| Mangasushi | Manga | English | Madara engine |
-| LHTranslation | Manga | English | Madara engine |
-| LilyManga | Manga (NSFW) | English | Madara engine |
-| Anitube.in.ua | Anime | Ukrainian | |
-| UAFlix | Video | Ukrainian | Movies, series, cartoons and anime; section filter |
-| Цікава Ідея | Video | Ukrainian | Dub team catalogue: movies, series, animation |
-| AniLibria | Anime | Russian | AniLibria (AniLiberty) dubs; updates, popular, ongoing and new feeds; genre, type, season, year and status filters; 1080/720/480 HLS with opening and ending skips |
-| AnimeVost | Anime | Russian | AnimeVost dubs; latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
-| YummyAnime | Anime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; works without an application token (an optional one can be set in the extension settings) |
-| ReManga | Manga | Russian | Translation branches; type, status, genre and age filters |
-| Honey Manga | Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
-| Zenko | Manga | Ukrainian | Type, status and genre filters; chapters grouped by team |
-| Komga | Manga | Multi | Your own Komga server; set the address and an API key or email and password in the extension settings |
-| Kavita | Manga | Multi | Your own Kavita server; set the address and API key in the extension settings |
-| OPDS | Manga | Multi | Any OPDS 1.x catalog with page streaming (OPDS-PSE); set the catalog address in the extension settings |
-| Suwayomi | Manga | Multi | Your own Suwayomi (Tachidesk) server: its library, plus browsing and searching one of its installed sources; set the address, an optional login and the source in the extension settings |
-| Jellyfin | Video | Multi | Your own Jellyfin server: movies and shows with seasons, original-file or converted streams, subtitles and audio tracks; set the address and a username and password or an API key in the extension settings |
-| MangaPill | Manga | English | Latest chapters, trending and browse feeds; type, status and genre filters |
-| MangaNato | Manga | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |
-| Dynasty Scans | Manga (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
-| Ficbook | Novel | Russian | Fanfiction and originals; direction, rating, status, fandom and genre filters; NC-17/NC-21 hidden unless enabled |
-| Anime365 | Anime (paid) | Russian | Watching needs an Anime365 subscription (sign in through the in-app browser); browsing is free; subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |
-| LibriVox | Audiobook | Multi | Public domain audiobooks; new releases and catalog feeds; each section is a track streamed from archive.org at 64 or 128 kbps |
+### Manga
+
+| Extension | Language | Notes |
+|---|---|---|
+| MangaDex | Multi | Popular and latest feeds; chapter languages and page size in the extension settings; status, demographic and content-rating filters |
+| MangaLib | Russian | Requires login; shares the session with HentaiLib and RanobeLib |
+| ReManga | Russian | Translation branches; type, status, genre and age filters; paid chapters hidden |
+| Honey Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
+| Zenko | Ukrainian | Type, status and genre filters; chapters grouped by team |
+| Manga/in/UA | Ukrainian | |
+| MangaPill | English | Latest chapters, trending and browse feeds; type, status and genre filters |
+| MangaNato | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |
+| MangaRead | English | Madara engine |
+| Mangasushi | English | Madara engine |
+| LHTranslation | English | Madara engine |
+| Dynasty Scans (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
+| LilyManga (NSFW) | English | Madara engine |
+| HentaiLib (NSFW) | Russian | Requires login |
+| NHentai (NSFW) | Multi | |
+
+### Video
+
+| Extension | Language | Notes |
+|---|---|---|
+| AniLibria | Russian | AniLibria (AniLiberty) dubs; updates, popular, ongoing and new feeds; genre, type, season, year and status filters; 1080/720/480 HLS with opening and ending skips |
+| AnimeVost | Russian | Latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
+| YummyAnime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; an optional application token can be set in the extension settings |
+| Anime365 (paid) | Russian | Browsing is free, watching needs an Anime365 subscription (sign in through the in-app browser); subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |
+| AniHub | Ukrainian | Recently updated, new episodes, popular, top rated and newly added feeds |
+| Anitube.in.ua | Ukrainian | Player and dub preferences; opening and ending skips |
+| UAFlix | Ukrainian | Movies, series, cartoons and anime; section filter |
+| Цікава Ідея | Ukrainian | Dub team catalogue: movies, series, animation |
+
+### Novels
+
+| Extension | Language | Notes |
+|---|---|---|
+| RanobeLib | Russian | Light and web novels; chapters grouped by translation branch; shares the MangaLib login |
+| Ficbook | Russian | Fanfiction and originals; direction, rating, status, fandom and genre filters; NC-17/NC-21 hidden unless enabled |
+
+### Audiobooks
+
+| Extension | Language | Notes |
+|---|---|---|
+| LibriVox | English | Public domain audiobooks; new releases and catalog feeds; each section is a track streamed from archive.org at 64 or 128 kbps |
+
+### Self-hosted servers
+
+Set the server address and credentials in the extension settings.
+
+| Extension | Type | Notes |
+|---|---|---|
+| Komga | Manga | API key or email and password |
+| Kavita | Manga | API key |
+| Suwayomi | Manga | Its library, plus browsing and searching one of its installed sources; optional login |
+| OPDS | Manga | Any OPDS 1.x catalog with page streaming (OPDS-PSE) |
+| Jellyfin | Video | Movies and shows with seasons, original-file or converted streams, subtitles and audio tracks; username and password or an API key |
 
 ## Structure
 
 ```
 manga/<extension>/   config.json, main.capyscript, logo.png
-anime/<extension>/   same layout
+anime/<extension>/   same layout, for video
 novel/<extension>/   same layout, for light novels and web novels
 audio/<extension>/   same layout, for audiobooks
 shared/              Capyscript code imported by several extensions
 index.json           generated list of all configs, read by the app
-tool/                index generator and local dev server
+tool/                index generator, validator and local dev server
 tests/               integration tests for each extension
 ```
 
-- `config.json` — metadata: `uid`, `name`, `logoUrl`, `type` (`0` manga, `1` anime, `2` novel), `nsfw`, `language`, `version`, `searchAvailable`, an optional `protectorConfig` for sites behind challenges or logins, and optional gallery `filters`.
-- `main.capyscript` — implements `getGallery`, `getConcrete`, `getPages` / video lists / `getChapterText`, and optionally `passProtector`. Shared code is pulled in with relative imports such as `import "../../shared/lib_social_api";`.
-- Novel extensions (`novel/`) import `novel_models`, which has the manga builders plus `buildNovelChapter`, and return the chapter body as HTML from `getChapterText(uid, data)` instead of page images. They only run on app releases with novel support, so they must declare `"apiVersion": 2` and a `minAppVersion` of at least `1.0.0`.
-- `shared/madara.capyscript` — a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
+- `config.json`: `uid`, `name`, `logoUrl`, `type` (`0` manga, `1` video, `2` novel, `3` audiobook), `nsfw`, `language`, `version`, `apiVersion`, `minAppVersion`, `searchAvailable`, and optionally `pricing`, `sourceType`, `protectorConfig` (sites behind challenges or logins), `preferences`, `requestPolicy`, `feeds`, `pagination` and gallery `filters`.
+- `main.capyscript`: implements `getGallery`, `getConcrete`, then `getPages` (manga), `getVideoSources` (video), `getChapterText` (novels) or `getAudioSources` (audiobooks), and optionally `passProtector`. Shared code comes in through relative imports such as `import "../../shared/lib_social_api";`.
+- Extensions that use any API 2 feature declare `"apiVersion": 2` and `"minAppVersion": "1.0.0"`. Novel and audiobook extensions always need both, since older apps can't read those types.
+- `shared/madara.capyscript`: a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
 
-The full extension authoring guide lives in the app repo: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).
+The full authoring guide is in the app repository: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).
 
 ## Development
 
@@ -64,15 +91,19 @@ dart tool/build_index.dart                          # regenerate index.json afte
 dart tool/build_index.dart --check                  # fail if index.json is out of date
 (cd tool/validate && dart pub get)                  # once
 dart run tool/validate/bin/validate.dart .          # validate every config and script
-dart tool/serve.dart                                # serve extensions locally on :8080 for the app's LOCAL_REPOSITORY_URL
-cd tests && dart test                               # run integration tests (hits the real sites)
+dart tool/serve.dart                                # serve extensions on :8080 for the app's LOCAL_REPOSITORY_URL
+cd tests && dart test                               # integration tests (hit the real sites)
 cd tests && dart run bin/health.dart                # smoke-test every extension end to end (--only <dir>, --browser)
 ```
 
 Extensions configured through their settings (Komga, Kavita, OPDS, Suwayomi, Jellyfin) need preferences in the health check: pass each one as `--pref <key>=<value>`, for example `dart run bin/health.dart --only komga --pref serverUrl=http://localhost:25600 --pref apiKey=<key>`. The values apply to every extension in the run, so combine them with `--only`.
 
-The validator parses every config with the app's own model classes and every script with the interpreter that current app releases ship (pinned in `tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that existing app builds can't run. That interpreter predates novels, so novel configs and scripts get structural checks instead: type `2`, api version, `minAppVersion`, the `novel_models` import and `getChapterText`. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
+The validator parses every config with the app's own model classes and every script with a pinned interpreter (`tool/validate/pubspec.yaml`), so it rejects syntax, modules or filter types that app builds can't run. That interpreter predates novels and audiobooks, so those get structural checks instead: the type, `apiVersion`, `minAppVersion`, the models import and the required function. It also checks uids, logos, required functions and the `i = i + 1; continue;` bug. Run it and `build_index.dart --check` before pushing.
 
-## Custom repositories
+## Your own repository
 
-Wakaranai can load extensions from any GitHub repository (and branch) with this layout — fork this repo, add your sources, and add the fork as a source in the app.
+Wakaranai can load extensions from any GitHub repository and branch with this layout. Fork this repository, add your sources, and add the fork as a source in the app's Explore tab.
+
+## License
+
+[Apache License 2.0](LICENSE)
