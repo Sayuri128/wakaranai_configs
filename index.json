@@ -5167,7 +5167,7 @@
     {
       "category": "anime",
       "path": "anime/yummyanime",
-      "revision": "288af1e0366406be",
+      "revision": "0cf61590810babab",
       "apiVersion": 2,
       "config": {
         "name": "YummyAnime",
@@ -5539,7 +5539,7 @@
             "key": "applicationToken",
             "type": "text",
             "title": "Application token",
-            "summary": "Required. Create an application at yummyani.me/dev/applications and paste its public token here; it is sent as X-Application",
+            "summary": "Optional. The public API works without one; if YummyAnime starts refusing requests, create an application at yummyani.me/dev/applications and paste its public token here (sent as X-Application)",
             "default": "",
             "secret": true
           }

@@ -21,7 +21,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | Цікава Ідея | Video | Ukrainian | Dub team catalogue: movies, series, animation |
 | AniLibria | Anime | Russian | AniLibria (AniLiberty) dubs; updates, popular, ongoing and new feeds; genre, type, season, year and status filters; 1080/720/480 HLS with opening and ending skips |
 | AnimeVost | Anime | Russian | AnimeVost dubs; latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
-| YummyAnime | Anime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; optional application token |
+| YummyAnime | Anime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; works without an application token (an optional one can be set in the extension settings) |
 | ReManga | Manga | Russian | Translation branches; type, status, genre and age filters |
 | Honey Manga | Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
 | Zenko | Manga | Ukrainian | Type, status and genre filters; chapters grouped by team |
