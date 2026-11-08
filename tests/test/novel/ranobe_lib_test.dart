@@ -40,7 +40,7 @@ void main() {
     test('is a novel extension for the first app release with novels', () {
       expect(config.type, ConfigInfoType.NOVEL);
       expect(config.apiVersion, 2);
-      expect(config.minAppVersion, '0.4.0');
+      expect(config.minAppVersion, '1.0.0');
       expect(config.protectorConfig?.sessionGroup, 'lib_social');
       expect(config.requestPolicy?.defaultHeaders['Site-Id'], '3');
       expect(config.feeds.map((feed) => feed.id), ['popular', 'updates', 'new']);

@@ -53,7 +53,7 @@ void main() {
     test('is a novel extension that hides adult works by default', () {
       expect(config.type, ConfigInfoType.NOVEL);
       expect(config.apiVersion, 2);
-      expect(config.minAppVersion, '0.4.0');
+      expect(config.minAppVersion, '1.0.0');
       expect(config.nsfw, isFalse);
       expect(config.feeds.map((feed) => feed.id), ['popular', 'updates', 'awarded']);
       final showAdult =

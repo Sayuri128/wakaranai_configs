@@ -4,9 +4,9 @@
     {
       "category": "manga",
       "path": "manga/dynasty_scans",
-      "revision": "7af2a2a17c12c061",
+      "revision": "7cd0cbcd61367c08",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Dynasty Scans",
         "uid": "246ad76b-64b3-4c0f-b1d2-9189149dd30e",
@@ -16,7 +16,7 @@
         "language": "English",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhwa",
@@ -408,8 +408,9 @@
     {
       "category": "manga",
       "path": "manga/hentai_lib",
-      "revision": "9623764b35375b70",
+      "revision": "495aea97718b519c",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "HentaiLib",
         "uid": "e8be739a-352c-454b-81ea-68ca2f87ecd6",
@@ -419,6 +420,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "filters": [
           {
             "type": "MULTIPLE_OF_MULTIPLE",
@@ -1107,8 +1109,9 @@
     {
       "category": "manga",
       "path": "manga/honey_manga",
-      "revision": "18e97c030f68c922",
+      "revision": "ecf78cc4fd70b886",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Honey Manga",
         "uid": "2d4ba423-ca46-48d3-9dc1-d38def1a80ee",
@@ -1119,6 +1122,7 @@
         "language": "Українська",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhwa",
@@ -1301,8 +1305,9 @@
     {
       "category": "manga",
       "path": "manga/kavita",
-      "revision": "915d9deaf695ac9f",
+      "revision": "6d0d70f48cadf063",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Kavita",
         "uid": "39ac5954-ef65-457b-b423-2636b94457c7",
@@ -1313,6 +1318,7 @@
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "comic"
@@ -1404,8 +1410,9 @@
     {
       "category": "manga",
       "path": "manga/komga",
-      "revision": "71b946ca43a8c245",
+      "revision": "aba6f3aac7ee0c39",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Komga",
         "uid": "c5d2c5b7-bd3e-4a96-933a-24b2b645fa68",
@@ -1416,6 +1423,7 @@
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "comic"
@@ -1635,8 +1643,9 @@
     {
       "category": "manga",
       "path": "manga/manga_dex",
-      "revision": "edf24b3ab954d016",
+      "revision": "28ed25593c4b930a",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "MangaDex",
         "uid": "23cf3ac5-3c7b-4914-9031-0d2c0e5a84b9",
@@ -1646,6 +1655,7 @@
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "filters": [
           {
             "type": "ONE_OF_MULTIPLE",
@@ -1846,8 +1856,9 @@
     {
       "category": "manga",
       "path": "manga/manga_lib",
-      "revision": "b3db1f5c1b2d19fd",
+      "revision": "7e77c9dfbd5bc559",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "MangaLib",
         "uid": "212933bd-7862-4071-82e7-e15aa09d034f",
@@ -1857,6 +1868,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "filters": [
           {
             "type": "MULTIPLE_OF_MULTIPLE",
@@ -2495,9 +2507,9 @@
     {
       "category": "manga",
       "path": "manga/manganato",
-      "revision": "ba4bbb284fd46171",
+      "revision": "da7d6db50a4178a2",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "MangaNato",
         "uid": "e63a443b-1145-434e-b269-4908d771d88d",
@@ -2507,7 +2519,7 @@
         "language": "English",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhwa",
@@ -2700,9 +2712,9 @@
     {
       "category": "manga",
       "path": "manga/mangapill",
-      "revision": "760bd4e5d1eb2cc3",
+      "revision": "ac395a5bd4e89276",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "MangaPill",
         "uid": "b3600b02-4f4e-499f-8c1b-9fbe988493b9",
@@ -2712,7 +2724,7 @@
         "language": "English",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhua"
@@ -2913,8 +2925,9 @@
     {
       "category": "manga",
       "path": "manga/opds",
-      "revision": "7001b4f26a8226ca",
+      "revision": "ef4b7f06494fba16",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "OPDS",
         "uid": "57e20190-051b-40e4-ae28-c22cf8a29ee5",
@@ -2925,6 +2938,7 @@
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "comic"
@@ -2958,8 +2972,9 @@
     {
       "category": "manga",
       "path": "manga/remanga",
-      "revision": "5431e7ab2fe6b235",
+      "revision": "644fcb2208edaf31",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "ReManga",
         "uid": "1004f7d4-5694-45fe-87dc-0fccf0d3eaf1",
@@ -2970,6 +2985,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhwa",
@@ -3365,8 +3381,9 @@
     {
       "category": "manga",
       "path": "manga/suwayomi",
-      "revision": "361373dc5b5a5cfe",
+      "revision": "1388423a9be27e52",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Suwayomi",
         "uid": "bca2221e-2482-44c8-bace-d3ec5438e5e6",
@@ -3377,6 +3394,7 @@
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhwa",
@@ -3511,8 +3529,9 @@
     {
       "category": "manga",
       "path": "manga/zenko",
-      "revision": "725b5652436c55f6",
+      "revision": "f93fa64c59a50302",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Zenko",
         "uid": "116023de-beed-456a-a365-4b236ce9a620",
@@ -3522,6 +3541,7 @@
         "language": "Українська",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "manga",
           "manhwa",
@@ -3749,8 +3769,9 @@
     {
       "category": "anime",
       "path": "anime/anihub",
-      "revision": "949b600bb8ff104e",
+      "revision": "63f584b32b5b9022",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "AniHub",
         "uid": "2b3cf19f-1c68-4924-b020-bd6251cb4e75",
@@ -3760,6 +3781,7 @@
         "language": "Українська",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "anime"
         ],
@@ -3995,8 +4017,9 @@
     {
       "category": "anime",
       "path": "anime/anilibria",
-      "revision": "7115db287fb0a4b8",
+      "revision": "71450e5d3781ed04",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "AniLibria",
         "uid": "60a00e2e-b734-4458-93cd-ff2a98bc2e70",
@@ -4006,6 +4029,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "anime"
         ],
@@ -4253,9 +4277,9 @@
     {
       "category": "anime",
       "path": "anime/anime365",
-      "revision": "ab399789ab64c42a",
+      "revision": "a150814939050afd",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Anime365",
         "uid": "fede16a2-16a9-4b1e-9248-17ecb80b12fa",
@@ -4266,7 +4290,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "anime"
         ],
@@ -4615,8 +4639,9 @@
     {
       "category": "anime",
       "path": "anime/animevost",
-      "revision": "24132308f94a1e84",
+      "revision": "648878e0d1eb88f8",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "AnimeVost",
         "uid": "6392d511-7799-47ad-8340-6e9771b6b614",
@@ -4626,6 +4651,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "anime"
         ],
@@ -4791,8 +4817,9 @@
     {
       "category": "anime",
       "path": "anime/anitube_in_ua",
-      "revision": "642f0fc2bd1b7249",
+      "revision": "23cf73cf5dbcba45",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Anitube.in.ua",
         "uid": "6ca5a587-28ad-4bc2-8d67-bc038e60e4d2",
@@ -4802,6 +4829,7 @@
         "language": "Українська",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "filters": [],
         "protectorConfig": {
           "pingUrl": "https://anitube.in.ua/anime/",
@@ -4908,8 +4936,9 @@
     {
       "category": "anime",
       "path": "anime/jellyfin",
-      "revision": "7f3c6e8359aad0da",
+      "revision": "b3cfd23e9c6bb4ce",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Jellyfin",
         "uid": "edc7e065-948e-457f-9dce-1402c1ba7022",
@@ -4920,6 +4949,7 @@
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "anime",
           "movie",
@@ -5167,8 +5197,9 @@
     {
       "category": "anime",
       "path": "anime/yummyanime",
-      "revision": "0cf61590810babab",
+      "revision": "8b1f056fa9648207",
       "apiVersion": 2,
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "YummyAnime",
         "uid": "8b628996-40d8-4c72-ac5e-acb6a6fc15c1",
@@ -5178,6 +5209,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "anime"
         ],
@@ -5555,9 +5587,9 @@
     {
       "category": "novel",
       "path": "novel/ficbook",
-      "revision": "94e2e44e06ad7516",
+      "revision": "a3eb7ed94f77de53",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "Ficbook",
         "uid": "852a1d34-baab-4585-90e4-4b3f54b64a8d",
@@ -5567,7 +5599,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "novel"
         ],
@@ -5900,9 +5932,9 @@
     {
       "category": "novel",
       "path": "novel/ranobe_lib",
-      "revision": "261abb66ae5afe85",
+      "revision": "62b9b66f5bbfc670",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "RanobeLib",
         "uid": "fac4584c-b2fa-4c35-9556-03ee5d8df8ae",
@@ -5912,7 +5944,7 @@
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "novel"
         ],
@@ -6434,9 +6466,9 @@
     {
       "category": "audio",
       "path": "audio/librivox",
-      "revision": "ebe03e81877d6c78",
+      "revision": "4bab742649c30a73",
       "apiVersion": 2,
-      "minAppVersion": "0.4.0",
+      "minAppVersion": "1.0.0",
       "config": {
         "name": "LibriVox",
         "uid": "5816c4b9-ead7-40b0-88b5-83b9c491c4b2",
@@ -6446,7 +6478,7 @@
         "language": "English",
         "version": 1,
         "apiVersion": 2,
-        "minAppVersion": "0.4.0",
+        "minAppVersion": "1.0.0",
         "contentKinds": [
           "audiobook"
         ],

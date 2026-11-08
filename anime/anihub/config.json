@@ -7,6 +7,7 @@
   "language": "Українська",
   "version": 1,
   "apiVersion": 2,
+  "minAppVersion": "1.0.0",
   "contentKinds": ["anime"],
   "searchAvailable": true,
   "protectorConfig": {

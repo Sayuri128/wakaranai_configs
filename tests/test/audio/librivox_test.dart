@@ -34,7 +34,7 @@ void main() {
     test('is an audio extension for the first app release with audiobooks', () {
       expect(config.type, ConfigInfoType.AUDIO);
       expect(config.apiVersion, 2);
-      expect(config.minAppVersion, '0.4.0');
+      expect(config.minAppVersion, '1.0.0');
       expect(config.contentKinds, ['audiobook']);
       expect(config.feeds.map((feed) => feed.id), ['latest', 'catalog']);
     });

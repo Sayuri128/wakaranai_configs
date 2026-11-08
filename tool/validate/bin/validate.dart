@@ -37,12 +37,12 @@ const Map<String, _NewerCategory> _newerCategories = {
   'novel': _NewerCategory(
     label: 'novel',
     modelsModule: 'novel_models',
-    minAppVersion: '0.4.0',
+    minAppVersion: '1.0.0',
   ),
   'audio': _NewerCategory(
     label: 'audio',
     modelsModule: 'audio_models',
-    minAppVersion: '0.4.0',
+    minAppVersion: '1.0.0',
   ),
 };
 

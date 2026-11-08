@@ -7,7 +7,7 @@
   "language": "English",
   "version": 1,
   "apiVersion": 2,
-  "minAppVersion": "0.4.0",
+  "minAppVersion": "1.0.0",
   "contentKinds": [
     "audiobook"
   ],

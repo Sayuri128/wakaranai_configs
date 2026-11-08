@@ -8,6 +8,7 @@
   "language": "Русский",
   "version": 1,
   "apiVersion": 2,
+  "minAppVersion": "1.0.0",
   "contentKinds": [
     "manga",
     "manhwa",
