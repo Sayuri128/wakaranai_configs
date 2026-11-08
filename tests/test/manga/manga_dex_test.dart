@@ -1,6 +1,7 @@
 import 'package:capyscript/Interpreter/interpreter.dart';
 import 'package:capyscript/modules/waka_models/models/manga/manga_concrete_view/chapter/pages/pages.dart';
 import 'package:capyscript/modules/waka_models/models/manga/manga_concrete_view/manga_concrete_view.dart';
+import 'package:capyscript/modules/waka_models/models/manga/manga_concrete_view/manga_status.dart';
 import 'package:capyscript/modules/waka_models/models/manga/manga_gallery_view/manga_gallery_view.dart';
 import 'package:test/test.dart';
 import '../helpers/scraper_helpers.dart';
@@ -20,19 +21,19 @@ void main() {
 
     galleryPage1 = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 0, 'query': '', 'filters': []},
+      arguments: {'page': 1, 'query': '', 'filters': [], 'feed': '', 'pageSize': 20},
     )) as List)
         .cast<MangaGalleryView>();
 
     galleryPage2 = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 1, 'query': '', 'filters': []},
+      arguments: {'page': 2, 'query': '', 'filters': [], 'feed': '', 'pageSize': 20},
     )) as List)
         .cast<MangaGalleryView>();
 
     galleryWithQuery = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 0, 'query': 'one piece', 'filters': []},
+      arguments: {'page': 1, 'query': 'one piece', 'filters': [], 'feed': '', 'pageSize': 20},
     )) as List)
         .cast<MangaGalleryView>();
 
@@ -76,6 +77,18 @@ void main() {
     test('query search returns results', () {
       expect(galleryWithQuery, isNotEmpty);
     });
+
+    test('items carry listing metadata', () {
+      expect(galleryPage1.any((item) => item.status != null), isTrue);
+      expect(galleryPage1.any((item) => item.tags.isNotEmpty), isTrue);
+      expect(galleryPage1.any((item) => item.rating != null), isTrue);
+      for (final item in galleryPage1) {
+        final rating = item.rating;
+        if (rating != null) {
+          expect(rating, inInclusiveRange(0, 10));
+        }
+      }
+    });
   });
 
   group('getConcrete', () {
@@ -91,6 +104,16 @@ void main() {
     test('has at least one group with chapters', () {
       expect(concrete.groups, isNotEmpty);
       expect(concrete.groups.first.elements, isNotEmpty);
+    });
+
+    test('has metadata', () {
+      expect(concrete.authors, isNotEmpty);
+      expect(concrete.url, 'https://mangadex.org/title/${concrete.uid}');
+      expect(concrete.status, isNot(MangaStatus.UNDEFINED));
+      final rating = concrete.rating;
+      if (rating != null) {
+        expect(rating, inInclusiveRange(0, 10));
+      }
     });
   });
 

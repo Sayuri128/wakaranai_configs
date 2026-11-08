@@ -1,5 +1,6 @@
 import 'package:capyscript/Interpreter/interpreter.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_concrete_view.dart';
+import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_video/anime_view_type.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_gallery_view/anime_gallery_view.dart';
 import 'package:test/test.dart';
 import '../helpers/auth_session.dart';
@@ -43,19 +44,19 @@ void main() {
 
     galleryPage1 = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 1, 'query': '', 'filters': []},
+      arguments: {'page': 1, 'query': '', 'filters': [], 'feed': ''},
     )) as List)
         .cast<AnimeGalleryView>();
 
     galleryPage2 = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 2, 'query': '', 'filters': []},
+      arguments: {'page': 2, 'query': '', 'filters': [], 'feed': ''},
     )) as List)
         .cast<AnimeGalleryView>();
 
     galleryWithQuery = ((await interpreter.runFunction(
       'getGallery',
-      arguments: {'page': 1, 'query': 'наруто', 'filters': []},
+      arguments: {'page': 1, 'query': 'наруто', 'filters': [], 'feed': ''},
     )) as List)
         .cast<AnimeGalleryView>();
 
@@ -108,6 +109,26 @@ void main() {
 
     test('groups is a list', () {
       expect(concrete.groups, isA<List>());
+    });
+
+    test('groups are one dub and player each, keyed by src', () {
+      for (final group in concrete.groups) {
+        expect(group.title, contains(' · '));
+        expect(group.elements, isNotEmpty);
+        for (final video in group.elements) {
+          expect(video.uid, video.src);
+          expect(video.title.toUpperCase(), isNot(contains('ПЛЕЄР')));
+        }
+      }
+    });
+
+    test('episodes stay iframe embeds for older app builds', () {
+      for (final group in concrete.groups) {
+        for (final video in group.elements) {
+          expect(video.type, AnimeVideoType.IFRAME);
+          expect(video.src, isNotEmpty);
+        }
+      }
     });
   });
 

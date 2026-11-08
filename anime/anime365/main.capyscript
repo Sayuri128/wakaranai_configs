@@ -1,0 +1,867 @@
+import "http";
+import "json";
+import "anime_models";
+import "converter";
+import "errors";
+import "preferences";
+
+function apiBase() {
+    return "https://smotret-anime.com/api";
+}
+
+function siteOrigin() {
+    return "https://smotret-anime.com";
+}
+
+function defaultPageSize() {
+    return 20;
+}
+
+function translationsPageLimit() {
+    return 2000;
+}
+
+function translationsMaxPages() {
+    return 10;
+}
+
+function knownTranslationTypes() {
+    return ["subRu", "voiceRu", "subEn", "voiceEn", "raw"];
+}
+
+function defaultTranslationTypes() {
+    return ["subRu", "voiceRu"];
+}
+
+function galleryFields() {
+    return "id,title,titles,titleLines,posterUrlSmall,posterUrl,isAiring,year,myAnimeListScore,typeTitle";
+}
+
+function concreteFields() {
+    return "id,title,titles,titleLines,posterUrl,posterUrlSmall,isAiring,year,season,myAnimeListScore,typeTitle,url,descriptions,genres,episodes";
+}
+
+function digitsAlphabet() {
+    return "0123456789";
+}
+
+function isDigitsOnly(digitsText) {
+    if (digitsText == null || digitsText == "") {
+        return false;
+    }
+    onlyDigits = digitsAlphabet();
+    for (od = 0; od < digitsText.length; od = od + 1) {
+        if (onlyDigits.indexOf(digitsText.substring(od, od + 1)) < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function ongoingStatus() {
+    ongoingValue = null;
+    try {
+        ongoingValue = statusOngoing();
+    } catch (e) {
+        ongoingValue = null;
+    }
+    if (ongoingValue == null) {
+        ongoingValue = statusUndefined();
+    }
+    return ongoingValue;
+}
+
+function textOrEmpty(rawText) {
+    if (rawText == null) {
+        return "";
+    }
+    return parseString(rawText).trim();
+}
+
+function siteUrl(rawLink) {
+    linkText = textOrEmpty(rawLink);
+    if (linkText == "") {
+        return "";
+    }
+    if (linkText.startsWith("//")) {
+        linkText = "https:" + linkText;
+    }
+    if (linkText.startsWith("/")) {
+        return siteOrigin() + linkText;
+    }
+    schemeAt = linkText.indexOf("://");
+    if (schemeAt < 0) {
+        return linkText;
+    }
+    afterScheme = linkText.substring(schemeAt + 3);
+    pathAt = afterScheme.indexOf("/");
+    if (pathAt < 0) {
+        return siteOrigin();
+    }
+    return siteOrigin() + afterScheme.substring(pathAt);
+}
+
+function apiRequest(requestPath, requestLabel) {
+    requestResponse = null;
+    requestFailed = false;
+    try {
+        requestResponse = httpGet({
+            "url": apiBase() + requestPath,
+            "params": {},
+            "paths": {},
+            "headers": {},
+            "throughWeb": false
+        });
+    } catch (e) {
+        requestFailed = true;
+    }
+    if (requestFailed || requestResponse == null) {
+        throwSourceError("sourceDown", "Anime365 did not answer (" + requestLabel + ")");
+    }
+    requestStatus = requestResponse["statusCode"];
+    if (requestStatus == 404) {
+        return null;
+    }
+    if (requestStatus == 429) {
+        throwSourceError("rateLimited", "Anime365 is rate limiting requests (" + requestLabel + ")");
+    }
+    if (requestStatus == 451) {
+        throwSourceError("regionBlocked", "Anime365 is not available in this region (" + requestLabel + ")");
+    }
+    if (requestStatus != 200) {
+        throwSourceError("sourceDown", "Anime365 answered HTTP " + parseString(requestStatus) + " (" + requestLabel + ")");
+    }
+    decodedBody = null;
+    decodeFailed = false;
+    try {
+        decodedBody = jsonDecode(requestResponse["body"]);
+    } catch (e) {
+        decodeFailed = true;
+    }
+    if (decodeFailed || decodedBody == null) {
+        throwSourceError("sourceDown", "Anime365 returned an unreadable answer (" + requestLabel + ")");
+    }
+    answerError = decodedBody["error"];
+    if (answerError != null) {
+        if (answerError["code"] == 404) {
+            return null;
+        }
+        throwSourceError("sourceDown", "Anime365 refused the request (" + requestLabel + "): " + textOrEmpty(answerError["message"]));
+    }
+    return decodedBody["data"];
+}
+
+function seriesName(seriesEntry) {
+    nameTitles = seriesEntry["titles"];
+    if (nameTitles != null) {
+        russianName = textOrEmpty(nameTitles["ru"]);
+        if (russianName != "") {
+            return russianName;
+        }
+    }
+    nameLines = seriesEntry["titleLines"];
+    if (nameLines != null) {
+        if (nameLines.isEmpty == false) {
+            firstLine = textOrEmpty(nameLines[0]);
+            if (firstLine != "") {
+                return firstLine;
+            }
+        }
+    }
+    fullName = textOrEmpty(seriesEntry["title"]);
+    return fullName.split(" / ")[0].trim();
+}
+
+function seriesOriginal(seriesEntry, shownName) {
+    originalTitles = seriesEntry["titles"];
+    if (originalTitles == null) {
+        return "";
+    }
+    originalKeys = ["romaji", "en"];
+    for (ko = 0; ko < originalKeys.length; ko = ko + 1) {
+        originalName = textOrEmpty(originalTitles[originalKeys[ko]]);
+        if (originalName != "" && originalName != shownName) {
+            return originalName;
+        }
+    }
+    return "";
+}
+
+function seriesCover(seriesEntry, preferLarge) {
+    coverLink = "";
+    if (preferLarge) {
+        coverLink = siteUrl(seriesEntry["posterUrl"]);
+    }
+    if (coverLink == "") {
+        coverLink = siteUrl(seriesEntry["posterUrlSmall"]);
+    }
+    if (coverLink == "") {
+        coverLink = siteUrl(seriesEntry["posterUrl"]);
+    }
+    return coverLink;
+}
+
+function seriesRating(seriesEntry) {
+    rawScore = seriesEntry["myAnimeListScore"];
+    if (rawScore == null) {
+        return null;
+    }
+    scoreValue = null;
+    try {
+        scoreValue = parseDouble(parseString(rawScore));
+    } catch (e) {
+        scoreValue = null;
+    }
+    if (scoreValue == null) {
+        return null;
+    }
+    if (scoreValue <= 0) {
+        return null;
+    }
+    return scoreValue;
+}
+
+function seriesYear(seriesEntry) {
+    rawYear = seriesEntry["year"];
+    if (rawYear == null) {
+        return null;
+    }
+    yearText = parseString(rawYear).trim();
+    if (isDigitsOnly(yearText) == false) {
+        return null;
+    }
+    yearValue = parseInt(yearText);
+    if (yearValue < 1900) {
+        return null;
+    }
+    return yearValue;
+}
+
+function seriesIsAiring(seriesEntry) {
+    return parseString(seriesEntry["isAiring"]) == "1";
+}
+
+function galleryItem(seriesEntry, latestLabel) {
+    itemId = parseString(seriesEntry["id"]);
+    itemName = seriesName(seriesEntry);
+    if (itemName == "") {
+        itemName = itemId;
+    }
+    itemCover = seriesCover(seriesEntry, false);
+    itemOriginal = seriesOriginal(seriesEntry, itemName);
+    if (itemOriginal == "") {
+        itemOriginal = null;
+    }
+    itemStatus = statusUndefined();
+    if (seriesIsAiring(seriesEntry)) {
+        itemStatus = ongoingStatus();
+    }
+    itemTags = [];
+    itemKind = textOrEmpty(seriesEntry["typeTitle"]);
+    if (itemKind != "") {
+        itemTags.push(itemKind);
+    }
+    return buildGallery({
+        "uid": itemId,
+        "title": itemName,
+        "cover": itemCover,
+        "data": {"title": itemName, "cover": itemCover},
+        "status": itemStatus,
+        "subtitle": itemOriginal,
+        "year": seriesYear(seriesEntry),
+        "rating": seriesRating(seriesEntry),
+        "latestChapter": latestLabel,
+        "tags": itemTags
+    });
+}
+
+function galleryItems(seriesEntries) {
+    builtItems = [];
+    if (seriesEntries == null) {
+        return builtItems;
+    }
+    for (gi = 0; gi < seriesEntries.length; gi = gi + 1) {
+        if (seriesEntries[gi] == null) {
+            continue;
+        }
+        builtItems.push(galleryItem(seriesEntries[gi], null));
+    }
+    return builtItems;
+}
+
+function selectedTranslationTypes() {
+    chosenTypes = [];
+    storedTypes = null;
+    try {
+        storedTypes = getPreference("translationTypes");
+    } catch (e) {
+        storedTypes = null;
+    }
+    allowedTypes = knownTranslationTypes();
+    if (storedTypes != null) {
+        for (st = 0; st < storedTypes.length; st = st + 1) {
+            storedType = textOrEmpty(storedTypes[st]);
+            if (allowedTypes.contains(storedType) && chosenTypes.contains(storedType) == false) {
+                chosenTypes.push(storedType);
+            }
+        }
+    }
+    if (chosenTypes.isEmpty) {
+        return defaultTranslationTypes();
+    }
+    return chosenTypes;
+}
+
+function typeQuery(queryTypes) {
+    typeParts = [];
+    for (tq = 0; tq < queryTypes.length; tq = tq + 1) {
+        typeParts.push("type%5B%5D=" + queryTypes[tq]);
+    }
+    return typeParts.join("&");
+}
+
+function selectedGroupValues(filterEntry) {
+    chosenValues = [];
+    chosenGroups = filterEntry["selected"];
+    if (chosenGroups == null) {
+        return chosenValues;
+    }
+    for (cg = 0; cg < chosenGroups.length; cg = cg + 1) {
+        chosenGroup = chosenGroups[cg];
+        if (chosenGroup == null) {
+            continue;
+        }
+        for (cv = 0; cv < chosenGroup.length; cv = cv + 1) {
+            chosenValue = textOrEmpty(chosenGroup[cv]);
+            if (chosenValue != "" && chosenValues.contains(chosenValue) == false) {
+                chosenValues.push(chosenValue);
+            }
+        }
+    }
+    return chosenValues;
+}
+
+function filterQuery(galleryFilters) {
+    queryParts = [];
+    if (galleryFilters == null) {
+        return "";
+    }
+    for (fq = 0; fq < galleryFilters.length; fq = fq + 1) {
+        queryEntry = galleryFilters[fq];
+        if (queryEntry == null) {
+            continue;
+        }
+        queryFilter = queryEntry["filter"];
+        if (queryFilter == null) {
+            continue;
+        }
+        queryParam = queryFilter["param"];
+        if (queryFilter["type"] == "MULTIPLE_OF_MULTIPLE") {
+            genreIds = selectedGroupValues(queryEntry);
+            if (queryParam == "genre" && genreIds.isEmpty == false) {
+                queryParts.push("chips=" + urlEncode("genre@=" + genreIds.join(",")));
+            }
+            continue;
+        }
+        if (queryFilter["type"] == "ONE_OF_MULTIPLE") {
+            singleValue = textOrEmpty(queryEntry["selected"]);
+            if (singleValue == "") {
+                continue;
+            }
+            if (queryParam == "type" || queryParam == "year") {
+                queryParts.push(queryParam + "=" + urlEncode(singleValue));
+            }
+        }
+    }
+    return queryParts.join("&");
+}
+
+function catalogGallery(catalogPage, catalogSize, catalogFilterQuery, catalogFeed, catalogText) {
+    catalogOffset = (catalogPage - 1) * catalogSize;
+    catalogPath = "/series?fields=" + galleryFields() + "&limit=" + parseString(catalogSize) + "&offset=" + parseString(catalogOffset);
+    catalogLabel = "catalog page " + parseString(catalogPage);
+    if (catalogText != "") {
+        catalogPath = catalogPath + "&query=" + urlEncode(catalogText);
+        catalogLabel = "search page " + parseString(catalogPage);
+    } else if (catalogFeed == "ongoing") {
+        catalogPath = catalogPath + "&isAiring=1";
+        catalogLabel = "ongoing page " + parseString(catalogPage);
+    }
+    if (catalogFilterQuery != "") {
+        catalogPath = catalogPath + "&" + catalogFilterQuery;
+    }
+    return galleryItems(apiRequest(catalogPath, catalogLabel));
+}
+
+function latestGallery(latestPage, latestSize) {
+    latestLimit = latestSize * 2;
+    latestOffset = (latestPage - 1) * latestLimit;
+    latestPath = "/translations?fields=seriesId,series,episode&limit=" + parseString(latestLimit) + "&offset=" + parseString(latestOffset) + "&" + typeQuery(selectedTranslationTypes());
+    latestEntries = apiRequest(latestPath, "latest translations page " + parseString(latestPage));
+    latestItems = [];
+    if (latestEntries == null) {
+        return latestItems;
+    }
+    seenSeries = [];
+    for (le = 0; le < latestEntries.length; le = le + 1) {
+        latestEntry = latestEntries[le];
+        if (latestEntry == null) {
+            continue;
+        }
+        latestSeries = latestEntry["series"];
+        if (latestSeries == null) {
+            continue;
+        }
+        latestSeriesId = parseString(latestSeries["id"]);
+        if (seenSeries.contains(latestSeriesId)) {
+            continue;
+        }
+        seenSeries.push(latestSeriesId);
+        latestEpisodeLabel = null;
+        latestEpisode = latestEntry["episode"];
+        if (latestEpisode != null) {
+            latestEpisodeText = textOrEmpty(latestEpisode["episodeFull"]);
+            if (latestEpisodeText != "") {
+                latestEpisodeLabel = latestEpisodeText;
+            }
+        }
+        latestItems.push(galleryItem(latestSeries, latestEpisodeLabel));
+        if (latestItems.length >= latestSize) {
+            return latestItems;
+        }
+    }
+    return latestItems;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    galleryPage = page;
+    if (galleryPage == null || galleryPage < 1) {
+        galleryPage = 1;
+    }
+    gallerySize = pageSize;
+    if (gallerySize == null || gallerySize < 1) {
+        gallerySize = defaultPageSize();
+    }
+    galleryText = textOrEmpty(query);
+    galleryFilterQuery = filterQuery(filters);
+    if (galleryText != "") {
+        return catalogGallery(galleryPage, gallerySize, galleryFilterQuery, "", galleryText);
+    }
+    galleryFeed = textOrEmpty(feed);
+    if (galleryFeed == "" || galleryFeed == "latest") {
+        if (galleryFilterQuery == "") {
+            return latestGallery(galleryPage, gallerySize);
+        }
+        galleryFeed = "top";
+    }
+    return catalogGallery(galleryPage, gallerySize, galleryFilterQuery, galleryFeed, "");
+}
+
+function insertByOrder(orderedList, orderedEntry, entryOrder) {
+    insertAt = orderedList.length;
+    if (entryOrder != null) {
+        insertAt = 0;
+        for (io = 0; io < orderedList.length; io = io + 1) {
+            placedOrder = orderedList[io]["order"];
+            if (placedOrder != null) {
+                if (placedOrder <= entryOrder) {
+                    insertAt = io + 1;
+                }
+            }
+        }
+    }
+    orderedList.insert(insertAt, {"order": entryOrder, "entry": orderedEntry});
+    return orderedList;
+}
+
+function readGroupPreferences() {
+    firstKind = null;
+    try {
+        firstKind = getPreference("firstKind");
+    } catch (e) {
+        firstKind = null;
+    }
+    if (firstKind != "voice") {
+        firstKind = "sub";
+    }
+    teamsText = "";
+    try {
+        teamsText = textOrEmpty(getPreference("preferredTeams"));
+    } catch (e) {
+        teamsText = "";
+    }
+    teamNames = [];
+    teamParts = teamsText.split(",");
+    for (tp = 0; tp < teamParts.length; tp = tp + 1) {
+        teamName = teamParts[tp].trim().toLowerCase();
+        if (teamName != "") {
+            teamNames.push(teamName);
+        }
+    }
+    return {"firstKind": firstKind, "teams": teamNames};
+}
+
+function typeRank(rankedType, rankKind) {
+    rankOrder = ["subRu", "voiceRu", "subEn", "voiceEn", "raw"];
+    if (rankKind == "voice") {
+        rankOrder = ["voiceRu", "subRu", "voiceEn", "subEn", "raw"];
+    }
+    rankIndex = rankOrder.indexOf(rankedType);
+    if (rankIndex < 0) {
+        return rankOrder.length;
+    }
+    return rankIndex;
+}
+
+function preferredTeamRank(rankTeam, rankTeams) {
+    rankTeamLower = rankTeam.toLowerCase();
+    for (rt = 0; rt < rankTeams.length; rt = rt + 1) {
+        if (rankTeamLower.contains(rankTeams[rt])) {
+            return rt;
+        }
+    }
+    return -1;
+}
+
+function kindLabel(labelType) {
+    if (labelType == "subRu") {
+        return "Субтитры";
+    }
+    if (labelType == "voiceRu") {
+        return "Озвучка";
+    }
+    if (labelType == "subEn") {
+        return "Англ. субтитры";
+    }
+    if (labelType == "voiceEn") {
+        return "Англ. озвучка";
+    }
+    if (labelType == "raw") {
+        return "Оригинал";
+    }
+    return labelType;
+}
+
+function teamLabel(rawTeam) {
+    teamText = textOrEmpty(rawTeam);
+    if (teamText == "") {
+        return "Без названия";
+    }
+    return teamText;
+}
+
+function episodeLabel(episodeEntry) {
+    labelText = textOrEmpty(episodeEntry["episodeFull"]);
+    episodeName = textOrEmpty(episodeEntry["episodeTitle"]);
+    if (labelText == "") {
+        labelText = "Серия " + textOrEmpty(episodeEntry["episodeInt"]);
+    }
+    if (episodeName != "" && labelText.contains(episodeName) == false) {
+        labelText = labelText + " — " + episodeName;
+    }
+    return labelText;
+}
+
+function episodeNumber(episodeEntry) {
+    episodeKind = textOrEmpty(episodeEntry["episodeType"]);
+    if (episodeKind == "preview") {
+        return null;
+    }
+    rawNumber = episodeEntry["episodeInt"];
+    if (rawNumber == null) {
+        return null;
+    }
+    numberValue = null;
+    try {
+        numberValue = parseDouble(parseString(rawNumber));
+    } catch (e) {
+        numberValue = null;
+    }
+    return numberValue;
+}
+
+function activeEpisodes(rawEpisodes) {
+    episodeList = [];
+    episodeIndexById = {};
+    hasReleased = false;
+    if (rawEpisodes == null) {
+        return {"list": episodeList, "indexById": episodeIndexById, "released": hasReleased};
+    }
+    for (ae = 0; ae < rawEpisodes.length; ae = ae + 1) {
+        rawEpisode = rawEpisodes[ae];
+        if (rawEpisode == null) {
+            continue;
+        }
+        if (parseString(rawEpisode["isActive"]) != "1") {
+            continue;
+        }
+        rawEpisodeId = parseString(rawEpisode["id"]);
+        if (episodeIndexById.containsKey(rawEpisodeId)) {
+            continue;
+        }
+        episodeIndexById[rawEpisodeId] = episodeList.length;
+        episodeList.push(rawEpisode);
+        if (textOrEmpty(rawEpisode["episodeType"]) != "preview") {
+            hasReleased = true;
+        }
+    }
+    return {"list": episodeList, "indexById": episodeIndexById, "released": hasReleased};
+}
+
+function translationPriority(priorityEntry) {
+    rawPriority = priorityEntry["priority"];
+    if (rawPriority == null) {
+        return 0;
+    }
+    priorityValue = 0;
+    try {
+        priorityValue = parseDouble(parseString(rawPriority));
+    } catch (e) {
+        priorityValue = 0;
+    }
+    return priorityValue;
+}
+
+function collectTranslation(collected, translationEntry, episodeIndexById) {
+    if (translationEntry == null) {
+        return collected;
+    }
+    if (translationEntry["isActive"] != null && parseString(translationEntry["isActive"]) != "1") {
+        return collected;
+    }
+    entryEpisodeId = parseString(translationEntry["episodeId"]);
+    if (episodeIndexById.containsKey(entryEpisodeId) == false) {
+        return collected;
+    }
+    entryIndex = episodeIndexById[entryEpisodeId];
+    entryType = textOrEmpty(translationEntry["type"]);
+    entryTeam = teamLabel(translationEntry["authorsSummary"]);
+    entryKey = entryType + "|" + entryTeam;
+    collectedGroups = collected["groups"];
+    if (collectedGroups.containsKey(entryKey) == false) {
+        collectedGroups[entryKey] = {"type": entryType, "team": entryTeam, "indexes": [], "picked": {}};
+        collectedKeys = collected["keys"];
+        collectedKeys.push(entryKey);
+    }
+    entryGroup = collectedGroups[entryKey];
+    pickedByIndex = entryGroup["picked"];
+    entryIndexKey = parseString(entryIndex);
+    if (pickedByIndex.containsKey(entryIndexKey)) {
+        if (translationPriority(pickedByIndex[entryIndexKey]) < translationPriority(translationEntry)) {
+            pickedByIndex[entryIndexKey] = translationEntry;
+        }
+        return collected;
+    }
+    pickedByIndex[entryIndexKey] = translationEntry;
+    groupIndexes = entryGroup["indexes"];
+    groupIndexes.push(entryIndex);
+    return collected;
+}
+
+function loadTranslations(loadSeriesId, loadTypes, episodeIndexById) {
+    collected = {"keys": [], "groups": {}};
+    pageLimit = translationsPageLimit();
+    loadFinished = false;
+    for (lp = 0; lp < translationsMaxPages(); lp = lp + 1) {
+        if (loadFinished) {
+            continue;
+        }
+        loadPath = "/translations?seriesId=" + loadSeriesId + "&limit=" + parseString(pageLimit) + "&offset=" + parseString(lp * pageLimit) + "&fields=id,type,authorsSummary,episodeId,priority,isActive&" + typeQuery(loadTypes);
+        loadBatch = apiRequest(loadPath, "translations of " + loadSeriesId);
+        if (loadBatch == null) {
+            loadFinished = true;
+            continue;
+        }
+        for (lb = 0; lb < loadBatch.length; lb = lb + 1) {
+            collectTranslation(collected, loadBatch[lb], episodeIndexById);
+        }
+        if (loadBatch.length < pageLimit) {
+            loadFinished = true;
+        }
+    }
+    return collected;
+}
+
+function translationVideo(videoSeriesId, videoEpisode, videoTranslation, videoGroup) {
+    videoEpisodeId = parseString(videoEpisode["id"]);
+    videoTranslationId = parseString(videoTranslation["id"]);
+    return buildAnimeVideo({
+        "uid": videoSeriesId + "/" + videoEpisodeId + "/" + videoTranslationId,
+        "src": siteOrigin() + "/translations/embed/" + videoTranslationId,
+        "title": episodeLabel(videoEpisode),
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {
+            "seriesId": videoSeriesId,
+            "episodeId": videoEpisodeId,
+            "translationId": videoTranslationId,
+            "kind": videoGroup["type"],
+            "team": videoGroup["team"]
+        },
+        "number": episodeNumber(videoEpisode)
+    });
+}
+
+function buildTranslationGroups(groupSeriesId, collected, episodeList) {
+    groupPrefs = readGroupPreferences();
+    collectedKeys = collected["keys"];
+    collectedGroups = collected["groups"];
+    rankedGroups = [];
+    for (ck = 0; ck < collectedKeys.length; ck = ck + 1) {
+        candidateGroup = collectedGroups[collectedKeys[ck]];
+        candidateScore = 0;
+        teamPreference = preferredTeamRank(candidateGroup["team"], groupPrefs["teams"]);
+        if (teamPreference >= 0) {
+            candidateScore = 0 - 1000000000 + teamPreference * 100000 + typeRank(candidateGroup["type"], groupPrefs["firstKind"]);
+        } else {
+            candidateScore = typeRank(candidateGroup["type"], groupPrefs["firstKind"]) * 100000 - candidateGroup["indexes"].length;
+        }
+        insertByOrder(rankedGroups, candidateGroup, candidateScore);
+    }
+    videoGroups = [];
+    for (rg = 0; rg < rankedGroups.length; rg = rg + 1) {
+        rankedGroup = rankedGroups[rg]["entry"];
+        sortedIndexes = rankedGroup["indexes"];
+        sortedIndexes.sort();
+        pickedByIndex = rankedGroup["picked"];
+        groupVideos = [];
+        for (si = 0; si < sortedIndexes.length; si = si + 1) {
+            sortedIndex = sortedIndexes[si];
+            groupVideos.push(translationVideo(groupSeriesId, episodeList[sortedIndex], pickedByIndex[parseString(sortedIndex)], rankedGroup));
+        }
+        if (groupVideos.isEmpty) {
+            continue;
+        }
+        videoGroups.push(buildAnimeVideoGroup({
+            "title": kindLabel(rankedGroup["type"]) + " · " + rankedGroup["team"],
+            "videos": groupVideos
+        }));
+    }
+    return videoGroups;
+}
+
+function seriesDescription(rawDescriptions) {
+    if (rawDescriptions == null) {
+        return "";
+    }
+    for (sd = 0; sd < rawDescriptions.length; sd = sd + 1) {
+        descriptionEntry = rawDescriptions[sd];
+        if (descriptionEntry == null) {
+            continue;
+        }
+        descriptionText = textOrEmpty(descriptionEntry["value"]);
+        if (descriptionText != "") {
+            return descriptionText;
+        }
+    }
+    return "";
+}
+
+function seriesTags(tagSeries) {
+    tagNames = [];
+    rawGenres = tagSeries["genres"];
+    if (rawGenres != null) {
+        for (rg = 0; rg < rawGenres.length; rg = rg + 1) {
+            rawGenre = rawGenres[rg];
+            if (rawGenre == null) {
+                continue;
+            }
+            genreName = textOrEmpty(rawGenre["title"]);
+            if (genreName != "" && tagNames.contains(genreName) == false) {
+                tagNames.push(genreName);
+            }
+        }
+    }
+    kindName = textOrEmpty(tagSeries["typeTitle"]);
+    if (kindName != "" && tagNames.contains(kindName) == false) {
+        tagNames.push(kindName);
+    }
+    seasonName = textOrEmpty(tagSeries["season"]);
+    if (seasonName != "" && tagNames.contains(seasonName) == false) {
+        tagNames.push(seasonName);
+    }
+    return tagNames;
+}
+
+function seriesAlternatives(altSeries, altShownName) {
+    altNames = [];
+    altTitles = altSeries["titles"];
+    if (altTitles == null) {
+        return altNames;
+    }
+    altKeys = ["romaji", "en", "ja", "short"];
+    for (ak = 0; ak < altKeys.length; ak = ak + 1) {
+        altName = textOrEmpty(altTitles[altKeys[ak]]);
+        if (altName != "" && altName != altShownName && altNames.contains(altName) == false) {
+            altNames.push(altName);
+        }
+    }
+    return altNames;
+}
+
+function getConcrete(uid, data) {
+    concreteId = textOrEmpty(uid);
+    concreteData = data;
+    if (concreteData == null) {
+        concreteData = {};
+    }
+    if (isDigitsOnly(concreteId) == false) {
+        throwSourceError("notFound", concreteId + " is not an Anime365 title");
+    }
+    concreteLabel = "title " + concreteId;
+    concreteSeries = apiRequest("/series/" + concreteId + "?fields=" + concreteFields(), concreteLabel);
+    if (concreteSeries == null) {
+        throwSourceError("notFound", concreteLabel + " is no longer on Anime365");
+    }
+    if (concreteSeries["id"] == null) {
+        throwSourceError("notFound", concreteLabel + " is no longer on Anime365");
+    }
+
+    concreteName = seriesName(concreteSeries);
+    if (concreteName == "") {
+        concreteName = textOrEmpty(concreteData["title"]);
+    }
+    if (concreteName == "") {
+        concreteName = concreteId;
+    }
+    concreteCover = seriesCover(concreteSeries, true);
+    if (concreteCover == "") {
+        concreteCover = textOrEmpty(concreteData["cover"]);
+    }
+
+    episodeInfo = activeEpisodes(concreteSeries["episodes"]);
+    concreteGroups = [];
+    if (episodeInfo["list"].isEmpty == false) {
+        collectedTranslations = loadTranslations(concreteId, selectedTranslationTypes(), episodeInfo["indexById"]);
+        concreteGroups = buildTranslationGroups(concreteId, collectedTranslations, episodeInfo["list"]);
+    }
+
+    concreteStatus = statusUndefined();
+    if (seriesIsAiring(concreteSeries)) {
+        concreteStatus = ongoingStatus();
+    } else if (episodeInfo["released"]) {
+        concreteStatus = statusReleased();
+    }
+    concreteUrl = siteUrl(concreteSeries["url"]);
+    if (concreteUrl == "") {
+        concreteUrl = null;
+    }
+
+    return buildConcrete({
+        "uid": concreteId,
+        "cover": concreteCover,
+        "title": concreteName,
+        "alternativeTitles": seriesAlternatives(concreteSeries, concreteName),
+        "description": seriesDescription(concreteSeries["descriptions"]),
+        "tags": seriesTags(concreteSeries),
+        "status": concreteStatus,
+        "groups": concreteGroups,
+        "year": seriesYear(concreteSeries),
+        "rating": seriesRating(concreteSeries),
+        "url": concreteUrl
+    });
+}
+
+function passProtector(body, headers, cookies) {
+    return null;
+}

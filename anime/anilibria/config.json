@@ -1,0 +1,84 @@
+{
+  "name": "AniLibria",
+  "uid": "60a00e2e-b734-4458-93cd-ff2a98bc2e70",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/anilibria/logo.png?raw=true",
+  "type": 1,
+  "nsfw": false,
+  "language": "Русский",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": ["anime"],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {"requests": 5, "perSeconds": 1},
+    "mirrors": [
+      "https://anilibria.top/api/v1",
+      "https://aniliberty.top/api/v1",
+      "https://api.anilibria.app/api/v1"
+    ]
+  },
+  "pagination": {
+    "pageSizes": [15, 25, 50],
+    "defaultPageSize": 25
+  },
+  "feeds": [
+    {"id": "updates", "title": "Обновления"},
+    {"id": "popular", "title": "Популярное"},
+    {"id": "ongoing", "title": "Онгоинги"},
+    {"id": "newest", "title": "Новинки"}
+  ],
+  "filters": [
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Жанры",
+      "param": "genres",
+      "values": [["15", "24", "32", "16", "25", "33", "8", "17", "34", "26", "30", "1", "18", "2", "9", "19", "36", "10", "27", "3", "11", "28", "20", "31", "5", "4", "12", "21", "6", "13", "22", "29", "7", "14", "23"]],
+      "labels": [["Боевые искусства", "Вампиры", "Гарем", "Демоны", "Детектив", "Дзёсей", "Драма", "Игры", "Исекай", "Исторический", "Киберпанк", "Комедия", "Магия", "Меха", "Мистика", "Музыка", "Пародия", "Повседневность", "Приключения", "Психологическое", "Романтика", "Сверхъестественное", "Сёдзе", "Сёдзе-ай", "Сейнен", "Сёнен", "Спорт", "Супер сила", "Триллер", "Ужасы", "Фантастика", "Фэнтези", "Школа", "Экшен", "Этти"]]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Тип",
+      "param": "types",
+      "values": [["TV", "ONA", "WEB", "OVA", "OAD", "MOVIE", "DORAMA", "SPECIAL"]],
+      "labels": [["ТВ", "ONA", "WEB", "OVA", "OAD", "Фильм", "Дорама", "Спешл"]]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Сезон",
+      "param": "seasons",
+      "values": [["winter", "spring", "summer", "autumn"]],
+      "labels": [["Зима", "Весна", "Лето", "Осень"]]
+    },
+    {
+      "type": "RANGE",
+      "paramName": "Год",
+      "param": "years",
+      "paramMin": "from_year",
+      "paramMax": "to_year",
+      "min": 1990
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Статус",
+      "param": "publish_statuses",
+      "values": [["IS_ONGOING", "IS_NOT_ONGOING"]],
+      "labels": [["Онгоинг", "Завершён"]]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Озвучка",
+      "param": "production_statuses",
+      "values": [["IS_IN_PRODUCTION", "IS_NOT_IN_PRODUCTION"]],
+      "labels": [["Сейчас в озвучке", "Озвучка завершена"]]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Возрастной рейтинг",
+      "param": "age_ratings",
+      "values": [["R0_PLUS", "R6_PLUS", "R12_PLUS", "R16_PLUS", "R18_PLUS"]],
+      "labels": [["0+", "6+", "12+", "16+", "18+"]]
+    }
+  ]
+}

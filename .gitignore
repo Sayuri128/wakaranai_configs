@@ -6,3 +6,6 @@ tests/.dart_tool/
 
 # Auth session cookies (sensitive — restore via test setup on first run)
 tests/.auth/
+
+# Validator dependencies
+tool/validate/.dart_tool/

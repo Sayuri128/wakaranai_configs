@@ -4,10 +4,11 @@ import 'package:puppeteer/puppeteer.dart';
 
 class RealBrowserInterceptorController implements HttpInterceptorController {
   final bool headless;
+  final Until? waitUntil;
   Browser? _browser;
   Page? _page;
 
-  RealBrowserInterceptorController({this.headless = true});
+  RealBrowserInterceptorController({this.headless = true, this.waitUntil});
 
   Page get page => _page!;
 
@@ -53,7 +54,7 @@ class RealBrowserInterceptorController implements HttpInterceptorController {
     try {
       final response = await _page!.goto(
         url,
-        wait: Until.networkIdle,
+        wait: waitUntil ?? Until.networkIdle,
         timeout: Duration(seconds: 60),
       );
       try {

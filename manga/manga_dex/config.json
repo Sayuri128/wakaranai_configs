@@ -4,8 +4,10 @@
   "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manga_dex/logo.png?raw=true",
   "type": 0,
   "nsfw": false,
-  "language": "English",
+  "language": "Multi",
   "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
   "filters": [
     {
       "type": "ONE_OF_MULTIPLE",
@@ -30,5 +32,51 @@
     }
   ],
   "protectorConfig": null,
+  "feeds": [
+    {"id": "popular", "title": "Popular"},
+    {"id": "latest", "title": "Latest updates"}
+  ],
+  "pagination": {
+    "pageSizes": [20, 50, 100],
+    "defaultPageSize": 20
+  },
+  "preferences": [
+    {
+      "key": "chapterLanguages",
+      "type": "multiselect",
+      "title": "Chapter languages",
+      "summary": "Chapters in these languages are listed, one group per language. Leave empty for every language",
+      "default": ["en"],
+      "options": [
+        {"value": "en", "label": "English"},
+        {"value": "uk", "label": "Ukrainian"},
+        {"value": "ru", "label": "Russian"},
+        {"value": "ja", "label": "Japanese"},
+        {"value": "ko", "label": "Korean"},
+        {"value": "zh", "label": "Chinese (Simplified)"},
+        {"value": "zh-hk", "label": "Chinese (Traditional)"},
+        {"value": "es", "label": "Spanish"},
+        {"value": "es-la", "label": "Spanish (Latin America)"},
+        {"value": "pt-br", "label": "Portuguese (Brazil)"},
+        {"value": "pt", "label": "Portuguese"},
+        {"value": "fr", "label": "French"},
+        {"value": "de", "label": "German"},
+        {"value": "it", "label": "Italian"},
+        {"value": "pl", "label": "Polish"},
+        {"value": "tr", "label": "Turkish"},
+        {"value": "id", "label": "Indonesian"},
+        {"value": "vi", "label": "Vietnamese"},
+        {"value": "th", "label": "Thai"},
+        {"value": "ar", "label": "Arabic"}
+      ]
+    },
+    {
+      "key": "onlyTranslatedTitles",
+      "type": "toggle",
+      "title": "Only titles in my languages",
+      "summary": "Hide catalogue and search results that have no chapters in the chosen languages",
+      "default": false
+    }
+  ],
   "searchAvailable": true
 }

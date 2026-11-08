@@ -1,0 +1,709 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "preferences";
+import "novel_models";
+
+function ficbookBaseUrl() {
+    return "https://ficbook.net";
+}
+
+function ficbookSafeRatings() {
+    return ["5", "6", "7"];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if(page > 100) {
+        return [];
+    }
+    searchParams = ficbookSearchParams(page, query, filters, feed);
+    body = ficbookRequest("/find-fanfics-846555", searchParams, "ficbook gallery");
+    return ficbookGalleryItems(body);
+}
+
+function ficbookFeedSort(feedId) {
+    if(feedId == "updates") {
+        return "3";
+    }
+    if(feedId == "awarded") {
+        return "8";
+    }
+    return "1";
+}
+
+function ficbookSearchParams(page, query, filters, feed) {
+    selections = ficbookFilterSelections(filters);
+    searchParams = {};
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        searchParams["title"] = trimmedQuery;
+        searchParams["sort"] = "0";
+    } else {
+        searchParams["sort"] = ficbookFeedSort(feed);
+    }
+    searchParams["ratings"] = ficbookAllowedRatings(selections["ratings"], getPreference("showAdult") == true);
+    filterParams = ["directions", "statuses", "work_types", "tags_include"];
+    for(f = 0; f < filterParams.length; f = f + 1) {
+        chosenValues = selections[filterParams[f]];
+        if(chosenValues.length > 0) {
+            searchParams[filterParams[f]] = chosenValues;
+        }
+    }
+    chosenFandoms = selections["fandom_ids"];
+    if(chosenFandoms.length > 0) {
+        searchParams["fandom_ids"] = chosenFandoms;
+        searchParams["fandoms_search_options"] = "2";
+    }
+    searchParams["p"] = parseString(page);
+    return searchParams;
+}
+
+function ficbookFilterSelections(filters) {
+    selections = {
+        "ratings": [],
+        "directions": [],
+        "statuses": [],
+        "work_types": [],
+        "fandom_ids": [],
+        "tags_include": []
+    };
+    if(filters == null) {
+        return selections;
+    }
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filterInfo = filterData["filter"];
+        if(filterInfo == null) {
+            continue;
+        }
+        filterParam = filterInfo["param"];
+        if(selections[filterParam] == null) {
+            continue;
+        }
+        if(filterInfo["type"] != "MULTIPLE_OF_MULTIPLE") {
+            continue;
+        }
+        chosenGroups = filterData["selected"];
+        if(chosenGroups == null) {
+            continue;
+        }
+        chosenValues = selections[filterParam];
+        for(g = 0; g < chosenGroups.length; g = g + 1) {
+            chosenGroup = chosenGroups[g];
+            for(v = 0; v < chosenGroup.length; v = v + 1) {
+                chosenValues.push(parseString(chosenGroup[v]));
+            }
+        }
+    }
+    return selections;
+}
+
+function ficbookAllowedRatings(chosenRatings, adultAllowed) {
+    if(adultAllowed) {
+        return chosenRatings;
+    }
+    safeRatings = ficbookSafeRatings();
+    if(chosenRatings.length == 0) {
+        return safeRatings;
+    }
+    allowed = [];
+    for(r = 0; r < chosenRatings.length; r = r + 1) {
+        if(safeRatings.contains(chosenRatings[r])) {
+            allowed.push(chosenRatings[r]);
+        }
+    }
+    if(allowed.length == 0) {
+        return safeRatings;
+    }
+    return allowed;
+}
+
+function ficbookRequest(path, requestParams, label) {
+    response = httpGet({
+        "url": ficbookBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "the work was removed from Ficbook (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Ficbook asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403) {
+        throwSourceError("sourceDown", "Ficbook refused the request (" + label + ")");
+    }
+    if(statusCode >= 500) {
+        throwSourceError("sourceDown", "Ficbook answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function ficbookGalleryItems(body) {
+    document = createHTMLParser(body);
+    articles = document.querySelectorAll("article.fanfic-inline");
+    items = [];
+    seen = [];
+    for(a = 0; a < articles.length; a = a + 1) {
+        item = ficbookGalleryItem(articles[a], seen);
+        if(item != null) {
+            items.push(item);
+        }
+    }
+    return items;
+}
+
+function ficbookGalleryItem(article, seenIds) {
+    link = article.querySelector("a.visit-link");
+    if(link == null) {
+        return null;
+    }
+    href = ficbookAttribute(link, "href");
+    if(href.contains("premium")) {
+        return null;
+    }
+    workId = ficbookWorkId(href);
+    if(workId == "") {
+        return null;
+    }
+    if(seenIds.contains(workId)) {
+        return null;
+    }
+    seenIds.push(workId);
+    return buildGallery({
+        "uid": workId,
+        "title": ficbookCollapse(link.text),
+        "cover": ficbookGalleryCover(article),
+        "data": {
+            "rating": ficbookRatingLabel(article)
+        }
+    });
+}
+
+function ficbookGalleryCover(article) {
+    image = article.querySelector("picture.fanfic-hat-cover-picture img");
+    if(image == null) {
+        return "";
+    }
+    return ficbookAbsoluteUrl(ficbookAttribute(image, "src"));
+}
+
+function ficbookRatingLabel(container) {
+    labels = container.querySelectorAll(".ds-label");
+    for(l = 0; l < labels.length; l = l + 1) {
+        if(ficbookAttribute(labels[l], "class").contains("ds-label-rating-")) {
+            return ficbookCollapse(labels[l].text);
+        }
+    }
+    return "";
+}
+
+function ficbookAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function ficbookBefore(text, marker) {
+    markerIndex = text.indexOf(marker);
+    if(markerIndex < 0) {
+        return text;
+    }
+    return text.substring(0, markerIndex);
+}
+
+function ficbookReadficPath(href) {
+    path = href.trim();
+    if(path.startsWith(ficbookBaseUrl())) {
+        path = path.substring(ficbookBaseUrl().length);
+    }
+    if(path.startsWith("/readfic/") == false) {
+        return "";
+    }
+    path = path.substring(9);
+    path = ficbookBefore(path, "?");
+    return ficbookBefore(path, "#");
+}
+
+function ficbookWorkId(href) {
+    return ficbookBefore(ficbookReadficPath(href), "/");
+}
+
+function ficbookAbsoluteUrl(link) {
+    if(link == "") {
+        return "";
+    }
+    if(link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    if(link.startsWith("/")) {
+        return ficbookBaseUrl() + link;
+    }
+    return ficbookBaseUrl() + "/" + link;
+}
+
+function ficbookNewline() {
+    lineBreak = `
+`;
+    if(lineBreak.length > 1) {
+        lineBreak = lineBreak.substring(lineBreak.length - 1);
+    }
+    return lineBreak;
+}
+
+function ficbookCollapse(text) {
+    if(text == null) {
+        return "";
+    }
+    words = parseString(text).replaceAll(ficbookNewline(), " ").split(" ");
+    kept = [];
+    for(w = 0; w < words.length; w = w + 1) {
+        word = words[w].trim();
+        if(word != "") {
+            kept.push(word);
+        }
+    }
+    return kept.join(" ");
+}
+
+function getConcrete(uid, data) {
+    body = ficbookRequest("/readfic/" + uid, {}, "ficbook title");
+    document = createHTMLParser(body);
+    heading = document.querySelector("h1[itemprop='name']");
+    if(heading == null) {
+        heading = document.querySelector("h1.heading");
+    }
+    if(heading == null) {
+        ficbookRejectPage(body, "ficbook title");
+    }
+    details = ficbookDetails(document);
+    chapters = ficbookChapters(document, uid);
+    workUrl = ficbookBaseUrl() + "/readfic/" + uid;
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Части",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "cover": ficbookConcreteCover(document),
+        "title": ficbookCollapse(heading.text),
+        "description": details["description"],
+        "tags": ficbookConcreteTags(document, details["fandoms"], details["tags"]),
+        "status": ficbookStatus(document),
+        "alternativeTitles": [],
+        "authors": ficbookAuthors(document),
+        "year": ficbookFirstYear(document),
+        "url": workUrl,
+        "groups": groups
+    });
+}
+
+function ficbookRejectPage(body, label) {
+    if(body.contains("login_check_static")) {
+        throwSourceError("loginRequired", "Ficbook shows this work to signed-in readers only (" + label + ")");
+    }
+    throw "Ficbook returned an unexpected page (" + label + ")";
+}
+
+function ficbookConcreteCover(document) {
+    coverElement = document.querySelector("fanfic-cover");
+    if(coverElement == null) {
+        return "";
+    }
+    coverUrl = ficbookAttribute(coverElement, "src-desktop");
+    if(coverUrl == "") {
+        coverUrl = ficbookAttribute(coverElement, "src-original");
+    }
+    return ficbookAbsoluteUrl(coverUrl);
+}
+
+function ficbookStatus(document) {
+    labels = document.querySelectorAll("section.fanfic-badges .ds-label");
+    for(l = 0; l < labels.length; l = l + 1) {
+        labelClass = ficbookAttribute(labels[l], "class");
+        if(labelClass.contains("ds-label-status-finished")) {
+            return statusReleased();
+        }
+        if(labelClass.contains("ds-label-status-in-progress")) {
+            return statusOngoing();
+        }
+        if(labelClass.contains("ds-label-status-frozen")) {
+            return statusPaused();
+        }
+    }
+    return statusUndefined();
+}
+
+function ficbookConcreteTags(document, fandoms, workTags) {
+    tags = [];
+    badges = document.querySelector("section.fanfic-badges");
+    if(badges != null) {
+        rating = ficbookRatingLabel(badges);
+        if(rating != "") {
+            tags.push(rating);
+        }
+        direction = badges.querySelector(".direction");
+        if(direction != null) {
+            directionName = ficbookCollapse(direction.text);
+            if(directionName != "") {
+                tags.push(directionName);
+            }
+        }
+    }
+    for(f = 0; f < fandoms.length; f = f + 1) {
+        if(tags.contains(fandoms[f]) == false) {
+            tags.push(fandoms[f]);
+        }
+    }
+    for(t = 0; t < workTags.length; t = t + 1) {
+        if(tags.contains(workTags[t]) == false) {
+            tags.push(workTags[t]);
+        }
+    }
+    return tags;
+}
+
+function ficbookAuthors(document) {
+    authorLinks = document.querySelectorAll("a[itemprop='author']");
+    names = [];
+    for(a = 0; a < authorLinks.length; a = a + 1) {
+        authorName = ficbookCollapse(authorLinks[a].text);
+        if(authorName != "") {
+            if(names.contains(authorName) == false) {
+                names.push(authorName);
+            }
+        }
+    }
+    return names;
+}
+
+function ficbookDetails(document) {
+    details = {
+        "description": "",
+        "fandoms": [],
+        "tags": []
+    };
+    summary = "";
+    extras = [];
+    blocks = document.querySelectorAll("div.description div.mb-10");
+    for(b = 0; b < blocks.length; b = b + 1) {
+        block = blocks[b];
+        labelElement = block.querySelector("strong");
+        blockChildren = block.children;
+        if(labelElement == null) {
+            continue;
+        }
+        if(blockChildren.length < 2) {
+            continue;
+        }
+        label = ficbookCollapse(labelElement.text).replaceAll(":", "");
+        valueElement = blockChildren[1];
+        if(label == "Описание") {
+            summary = valueElement.text.trim();
+            continue;
+        }
+        if(label == "Фэндом") {
+            details["fandoms"] = ficbookLinkTexts(valueElement.querySelectorAll("a"));
+            continue;
+        }
+        if(label == "Метки") {
+            details["tags"] = ficbookLinkTexts(valueElement.querySelectorAll("a.tag"));
+            continue;
+        }
+        if(label == "Примечания") {
+            extras.push(label + ":" + ficbookNewline() + valueElement.text.trim());
+            continue;
+        }
+        if(label == "Публикация на других ресурсах") {
+            continue;
+        }
+        extras.push(label + ": " + ficbookCollapse(valueElement.text));
+    }
+    parts = [];
+    if(summary != "") {
+        parts.push(summary);
+    }
+    for(e = 0; e < extras.length; e = e + 1) {
+        parts.push(extras[e]);
+    }
+    details["description"] = parts.join(ficbookNewline() + ficbookNewline());
+    return details;
+}
+
+function ficbookLinkTexts(links) {
+    texts = [];
+    for(l = 0; l < links.length; l = l + 1) {
+        linkText = ficbookCollapse(links[l].text);
+        if(linkText != "") {
+            if(texts.contains(linkText) == false) {
+                texts.push(linkText);
+            }
+        }
+    }
+    return texts;
+}
+
+function ficbookChapters(document, workId) {
+    chapters = [];
+    parts = document.querySelectorAll("ul.list-of-fanfic-parts li.part");
+    for(p = 0; p < parts.length; p = p + 1) {
+        chapter = ficbookPartChapter(parts[p], workId, chapters.length + 1);
+        if(chapter != null) {
+            chapters.push(chapter);
+        }
+    }
+    if(chapters.length > 0) {
+        return chapters;
+    }
+    if(document.querySelector("#content") == null) {
+        return chapters;
+    }
+    chapters.push(ficbookSingleChapter(document, workId));
+    return chapters;
+}
+
+function ficbookPartChapter(part, workId, chapterNumber) {
+    link = part.querySelector("a.part-link");
+    if(link == null) {
+        return null;
+    }
+    chapterPath = ficbookReadficPath(ficbookAttribute(link, "href"));
+    if(chapterPath == "") {
+        return null;
+    }
+    chapterTitle = "";
+    titleElement = part.querySelector(".part-title");
+    if(titleElement != null) {
+        chapterTitle = ficbookCollapse(titleElement.text);
+    }
+    if(chapterTitle == "") {
+        chapterTitle = "Часть " + parseString(chapterNumber);
+    }
+    return buildChapter({
+        "uid": chapterPath,
+        "title": chapterTitle,
+        "timestamp": ficbookTimestamp(ficbookDateText(part.querySelector(".part-info span"))),
+        "number": chapterNumber,
+        "data": {
+            "work": workId
+        }
+    });
+}
+
+function ficbookSingleChapter(document, workId) {
+    chapterPath = workId;
+    commentForm = document.querySelector("form#comment-sort-form");
+    if(commentForm != null) {
+        formPath = ficbookReadficPath(ficbookAttribute(commentForm, "action"));
+        if(formPath.contains("/")) {
+            chapterPath = formPath;
+        }
+    }
+    chapterTitle = "";
+    titleElement = document.querySelector("article#part_content h2");
+    if(titleElement != null) {
+        chapterTitle = ficbookCollapse(titleElement.text);
+    }
+    if(chapterTitle == "") {
+        chapterTitle = "Часть 1";
+    }
+    return buildChapter({
+        "uid": chapterPath,
+        "title": chapterTitle,
+        "timestamp": ficbookTimestamp(ficbookDateText(document.querySelector("article#part_content .part-date span"))),
+        "number": 1,
+        "data": {
+            "work": workId
+        }
+    });
+}
+
+function ficbookDateText(dateElement) {
+    if(dateElement == null) {
+        return "";
+    }
+    dateTitle = ficbookAttribute(dateElement, "title");
+    if(dateTitle != "") {
+        return dateTitle;
+    }
+    return ficbookCollapse(dateElement.text);
+}
+
+function ficbookMonthNumber(monthName) {
+    months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    monthIndex = months.indexOf(monthName.toLowerCase());
+    if(monthIndex < 0) {
+        return "";
+    }
+    return parseString(monthIndex + 1).padLeft(2, "0");
+}
+
+function ficbookTimestamp(rawDate) {
+    words = ficbookCollapse(rawDate).split(" ");
+    if(words.length < 3) {
+        return null;
+    }
+    month = ficbookMonthNumber(words[1]);
+    if(month == "") {
+        return null;
+    }
+    year = words[2];
+    if(year.length != 4) {
+        return null;
+    }
+    clock = "00:00";
+    if(words.length > 4) {
+        if(words[4].contains(":")) {
+            clock = words[4].padLeft(5, "0");
+        }
+    }
+    return year + "-" + month + "-" + words[0].padLeft(2, "0") + "T" + clock + ":00+03:00";
+}
+
+function ficbookFirstYear(document) {
+    dateElement = document.querySelector("ul.list-of-fanfic-parts li.part .part-info span");
+    if(dateElement == null) {
+        dateElement = document.querySelector("article#part_content .part-date span");
+    }
+    firstTimestamp = ficbookTimestamp(ficbookDateText(dateElement));
+    if(firstTimestamp == null) {
+        return null;
+    }
+    return firstTimestamp.substring(0, 4);
+}
+
+function getChapterText(uid, data) {
+    document = ficbookChapterDocument(uid);
+    content = document.querySelector("#content");
+    chapterHtml = ficbookParagraphs(ficbookInnerHtml(content));
+    if(ficbookIsBlank(chapterHtml)) {
+        throw "the chapter has no text (ficbook chapter text)";
+    }
+    if(getPreference("authorNotes") == true) {
+        chapterHtml = ficbookNoteHtml(document.querySelector(".part-comment-top .js-public-beta-comment-before")) + chapterHtml;
+        bottomNote = ficbookNoteHtml(document.querySelector(".part-comment-bottom .js-public-beta-comment-after"));
+        if(bottomNote != "") {
+            chapterHtml = chapterHtml + "<hr>" + bottomNote;
+        }
+    }
+    chapterTitle = "";
+    titleElement = document.querySelector("article#part_content h2");
+    if(titleElement != null) {
+        chapterTitle = ficbookCollapse(titleElement.text);
+    }
+    if(chapterTitle == "") {
+        return buildNovelChapter({"html": chapterHtml});
+    }
+    return buildNovelChapter({"html": chapterHtml, "title": chapterTitle});
+}
+
+function ficbookChapterDocument(uid) {
+    body = ficbookRequest("/readfic/" + uid, {}, "ficbook chapter text");
+    document = createHTMLParser(body);
+    if(document.querySelector("#content") != null) {
+        return document;
+    }
+    firstPart = document.querySelector("ul.list-of-fanfic-parts li.part a.part-link");
+    if(firstPart == null) {
+        ficbookRejectPage(body, "ficbook chapter text");
+    }
+    partPath = ficbookReadficPath(ficbookAttribute(firstPart, "href"));
+    partBody = ficbookRequest("/readfic/" + partPath, {}, "ficbook chapter text");
+    partDocument = createHTMLParser(partBody);
+    if(partDocument.querySelector("#content") == null) {
+        ficbookRejectPage(partBody, "ficbook chapter text");
+    }
+    return partDocument;
+}
+
+function ficbookInnerHtml(element) {
+    if(element == null) {
+        return "";
+    }
+    markup = element.outerHtml;
+    start = markup.indexOf(">") + 1;
+    end = markup.length;
+    if(markup.endsWith("</div>")) {
+        end = end - 6;
+    }
+    if(end < start) {
+        return "";
+    }
+    return markup.substring(start, end);
+}
+
+function ficbookIsBlockLine(line) {
+    blockStarts = ["<p", "<div", "<center", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<hr", "<blockquote", "<ul", "<ol", "<table"];
+    lowered = line.toLowerCase();
+    for(s = 0; s < blockStarts.length; s = s + 1) {
+        if(lowered.startsWith(blockStarts[s])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function ficbookStripIndent(rawLine) {
+    stripped = rawLine.trim();
+    for(k = 0; k < 200; k = k + 1) {
+        if(stripped.startsWith("&nbsp;") == false) {
+            break;
+        }
+        stripped = stripped.substring(6).trim();
+    }
+    return stripped;
+}
+
+function ficbookParagraphs(markup) {
+    lines = markup.split(ficbookNewline());
+    pieces = [];
+    for(l = 0; l < lines.length; l = l + 1) {
+        line = ficbookStripIndent(lines[l]);
+        if(line == "") {
+            continue;
+        }
+        if(ficbookIsBlockLine(line)) {
+            pieces.push(line);
+        } else {
+            pieces.push("<p>" + line + "</p>");
+        }
+    }
+    return pieces.join("");
+}
+
+function ficbookNoteHtml(noteElement) {
+    if(noteElement == null) {
+        return "";
+    }
+    noteParagraphs = ficbookParagraphs(ficbookInnerHtml(noteElement));
+    if(noteParagraphs == "") {
+        return "";
+    }
+    return "<blockquote><p><strong>Примечания:</strong></p>" + noteParagraphs + "</blockquote>";
+}
+
+function ficbookIsBlank(markup) {
+    stripped = markup.replaceAll("<p>", "").replaceAll("</p>", "").replaceAll("&nbsp;", "");
+    return stripped.trim() == "";
+}

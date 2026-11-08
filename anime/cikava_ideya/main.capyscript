@@ -1,0 +1,666 @@
+import "http";
+import "json";
+import "html";
+import "anime_models";
+import "converter";
+
+function ideyaBaseUrl() {
+    return "https://cikava-ideya.top";
+}
+
+function ideyaHeaders() {
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8",
+        "Referer": "https://cikava-ideya.top/"
+    };
+}
+
+function fetchSitePage(pageUrl, pageParams, pageLabel, missingIsEmpty) {
+    pageResponse = httpGet({
+        "url": pageUrl,
+        "params": pageParams,
+        "paths": {},
+        "headers": ideyaHeaders(),
+        "throughWeb": false
+    });
+    pageStatus = pageResponse["statusCode"];
+    if (pageStatus == 404 && missingIsEmpty) {
+        return null;
+    }
+    if (pageStatus != 200) {
+        throw "HTTP " + parseString(pageStatus) + " (cikava-ideya.top " + pageLabel + ")";
+    }
+    pageBody = pageResponse["body"];
+    if (pageBody == null || pageBody.trim() == "") {
+        throw "cikava-ideya.top returned an empty page (" + pageLabel + ")";
+    }
+    return pageBody;
+}
+
+function absoluteUrl(rawLink) {
+    linkText = parseString(rawLink).trim();
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("http://") || linkText.startsWith("https://")) {
+        return linkText;
+    }
+    if (linkText.startsWith("/")) {
+        return ideyaBaseUrl() + linkText;
+    }
+    return ideyaBaseUrl() + "/" + linkText;
+}
+
+function sitePath(rawHref) {
+    hrefText = parseString(rawHref).trim();
+    schemeIndex = hrefText.indexOf("://");
+    if (schemeIndex >= 0) {
+        afterScheme = hrefText.substring(schemeIndex + 3);
+        hostEnd = afterScheme.indexOf("/");
+        if (hostEnd < 0) {
+            return "";
+        }
+        hrefText = afterScheme.substring(hostEnd);
+    }
+    if (hrefText.startsWith("/")) {
+        hrefText = hrefText.substring(1);
+    }
+    return hrefText;
+}
+
+function hostOf(hostedUrl) {
+    if (hostedUrl.contains("://") == false) {
+        return "";
+    }
+    return hostedUrl.split("://")[1].split("/")[0].split("?")[0].toLowerCase();
+}
+
+function textAfter(haystack, marker) {
+    if (haystack == null) {
+        return null;
+    }
+    markerIndex = haystack.indexOf(marker);
+    if (markerIndex < 0) {
+        return null;
+    }
+    return haystack.substring(markerIndex + marker.length);
+}
+
+function readElementText(textRoot, textSelector) {
+    textElement = textRoot.querySelector(textSelector);
+    if (textElement == null) {
+        return null;
+    }
+    elementText = textElement.text.trim();
+    if (elementText == "") {
+        return null;
+    }
+    return elementText;
+}
+
+function selectedSection(galleryFilters) {
+    if (galleryFilters == null) {
+        return "";
+    }
+    for (sf = 0; sf < galleryFilters.length; sf = sf + 1) {
+        sectionFilter = galleryFilters[sf]["filter"];
+        if (sectionFilter == null) {
+            continue;
+        }
+        if (sectionFilter["param"] != "section") {
+            continue;
+        }
+        sectionValue = galleryFilters[sf]["selected"];
+        if (sectionValue != null && sectionValue != "") {
+            return sectionValue;
+        }
+    }
+    return "";
+}
+
+function getGallery(page, query, filters) {
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    if (searchText != "") {
+        searchBody = fetchSitePage(ideyaBaseUrl() + "/index.php", {
+            "do": "search",
+            "subaction": "search",
+            "story": searchText,
+            "search_start": parseString(page),
+            "full_search": "0"
+        }, "search", true);
+        if (searchBody == null) {
+            return [];
+        }
+        return parseListing(createHTMLParser(searchBody));
+    }
+    section = selectedSection(filters);
+    if (section == "") {
+        section = "lastnews";
+    }
+    listUrl = ideyaBaseUrl() + "/" + section + "/";
+    if (page > 1) {
+        listUrl = listUrl + "page/" + parseString(page) + "/";
+    }
+    listBody = fetchSitePage(listUrl, {}, "gallery page " + parseString(page), true);
+    if (listBody == null) {
+        return [];
+    }
+    return parseListing(createHTMLParser(listBody));
+}
+
+function parseListing(listDocument) {
+    listedItems = [];
+    seenPaths = [];
+    listCards = listDocument.querySelectorAll("#dle-content .th-item a.th-in");
+    for (lc = 0; lc < listCards.length; lc = lc + 1) {
+        listCard = listCards[lc];
+        cardHref = listCard.attributes["href"];
+        if (cardHref == null || cardHref == "") {
+            continue;
+        }
+        cardPath = sitePath(cardHref);
+        if (seenPaths.contains(cardPath)) {
+            continue;
+        }
+        seenPaths.push(cardPath);
+        cardTitle = readElementText(listCard, ".th-title");
+        if (cardTitle == null) {
+            continue;
+        }
+        cardCover = "";
+        cardImage = listCard.querySelector("img");
+        if (cardImage != null) {
+            cardImageSource = cardImage.attributes["src"];
+            if (cardImageSource != null) {
+                cardCover = absoluteUrl(cardImageSource);
+            }
+        }
+        listedItems.push(buildGallery({
+            "uid": cardPath,
+            "title": cardTitle,
+            "cover": cardCover,
+            "subtitle": readElementText(listCard, ".th-episode"),
+            "data": {"cover": cardCover, "title": cardTitle},
+            "status": statusUndefined()
+        }));
+    }
+    return listedItems;
+}
+
+function infoValue(infoRoot, infoLabel) {
+    infoItems = infoRoot.querySelectorAll(".flist li");
+    for (ii = 0; ii < infoItems.length; ii = ii + 1) {
+        infoText = infoItems[ii].text.trim();
+        if (infoText.startsWith(infoLabel)) {
+            return infoText.substring(infoLabel.length).trim();
+        }
+    }
+    return null;
+}
+
+function splitList(listText, listSeparator) {
+    listValues = [];
+    if (listText == null) {
+        return listValues;
+    }
+    listParts = listText.split(listSeparator);
+    for (lp = 0; lp < listParts.length; lp = lp + 1) {
+        listValue = listParts[lp].trim();
+        if (listValue != "" && listValue != "та інші" && listValues.contains(listValue) == false) {
+            listValues.push(listValue);
+        }
+    }
+    return listValues;
+}
+
+function readGenres(genreRoot) {
+    genreText = infoValue(genreRoot, "Жанр:");
+    if (genreText == null) {
+        return [];
+    }
+    genreText = genreText.replaceAll(" — ", ",").replaceAll("—", ",");
+    return splitList(genreText, ",");
+}
+
+function getConcrete(uid, data) {
+    titlePath = uid;
+    titleUrl = absoluteUrl(titlePath);
+    titleBody = fetchSitePage(titleUrl, {}, titlePath, false);
+    titleDocument = createHTMLParser(titleBody);
+
+    mainTitle = readElementText(titleDocument, ".fright h1");
+    if (mainTitle == null) {
+        mainTitle = readElementText(titleDocument, "h1");
+    }
+    if (mainTitle == null && data != null) {
+        mainTitle = data["title"];
+    }
+    if (mainTitle == null) {
+        mainTitle = titlePath;
+    }
+    otherTitles = [];
+    originalTitle = readElementText(titleDocument, ".foriginal");
+    if (originalTitle != null) {
+        otherTitles.push(originalTitle);
+    }
+
+    posterUrl = "";
+    posterImage = titleDocument.querySelector(".fposter img");
+    if (posterImage != null) {
+        posterSource = posterImage.attributes["src"];
+        if (posterSource != null) {
+            posterUrl = absoluteUrl(posterSource);
+        }
+    }
+    if (posterUrl == "" && data != null) {
+        if (data["cover"] != null) {
+            posterUrl = data["cover"];
+        }
+    }
+
+    descriptionText = readElementText(titleDocument, ".fdesc");
+    if (descriptionText == null) {
+        descriptionText = "";
+    }
+
+    episodeLayout = buildEpisodeGroups(titleDocument, titleBody, titlePath, mainTitle);
+    titleStatus = statusUndefined();
+    if (episodeLayout["movie"] == true) {
+        titleStatus = statusReleased();
+    }
+
+    return buildConcrete({
+        "uid": titlePath,
+        "cover": posterUrl,
+        "title": mainTitle,
+        "alternativeTitles": otherTitles,
+        "description": descriptionText,
+        "tags": readGenres(titleDocument),
+        "status": titleStatus,
+        "groups": episodeLayout["groups"],
+        "authors": splitList(infoValue(titleDocument, "Режисер:"), ","),
+        "year": infoValue(titleDocument, "Рік:"),
+        "url": titleUrl
+    });
+}
+
+function switchesAsPairs(switchesJson) {
+    pairedJson = switchesJson.replaceAll('":', '"@@V@@');
+    pairedJson = pairedJson.replaceAll(',"', '@@N@@"');
+    pairedJson = pairedJson.replaceAll('{"', '@@O@@"');
+    pairedJson = pairedJson.replaceAll("}", "}]");
+    pairedJson = pairedJson.replaceAll("@@V@@", ',"v":');
+    pairedJson = pairedJson.replaceAll("@@N@@", '},{"k":');
+    pairedJson = pairedJson.replaceAll("@@O@@", '[{"k":');
+    return jsonDecode(pairedJson);
+}
+
+function readSwitches(switchesBody) {
+    switchesText = textAfter(switchesBody, "switches = Object(");
+    if (switchesText == null) {
+        return [];
+    }
+    switchesEnd = switchesText.indexOf(");");
+    if (switchesEnd < 0) {
+        return [];
+    }
+    switchesJson = switchesText.substring(0, switchesEnd).trim();
+    if (switchesJson.startsWith('{"') == false) {
+        return [];
+    }
+    switchPairs = null;
+    try {
+        switchPairs = switchesAsPairs(switchesJson);
+    } catch (e) {
+        switchPairs = null;
+    }
+    if (switchPairs == null) {
+        return [];
+    }
+    return switchPairs;
+}
+
+function isPlayableUrl(candidateUrl) {
+    if (candidateUrl == null) {
+        return false;
+    }
+    lowerUrl = parseString(candidateUrl).toLowerCase();
+    if (lowerUrl.startsWith("http") == false && lowerUrl.startsWith("//") == false) {
+        return false;
+    }
+    if (lowerUrl.contains("youtube.") || lowerUrl.contains("youtu.be")) {
+        return false;
+    }
+    return true;
+}
+
+function isPairList(pairCandidate) {
+    if (pairCandidate == null) {
+        return false;
+    }
+    return parseString(pairCandidate).startsWith("[{");
+}
+
+function leadingNumber(numberLabel) {
+    numberText = parseString(numberLabel).trim().split(" ")[0];
+    parsedNumber = null;
+    try {
+        parsedNumber = parseDouble(numberText.replaceAll(",", "."));
+    } catch (e) {
+        parsedNumber = null;
+    }
+    return parsedNumber;
+}
+
+function episodeVideo(episodeLabel, episodeUrl, seasonLabel, dubLabel) {
+    episodeSrc = absoluteUrl(episodeUrl);
+    episodeTitle = parseString(episodeLabel).trim();
+    episodeSeason = null;
+    if (seasonLabel != "") {
+        seasonValue = leadingNumber(seasonLabel);
+        if (seasonValue != null) {
+            episodeSeason = parseInt(parseString(seasonValue).split(".")[0]);
+        }
+    }
+    return buildAnimeVideo({
+        "uid": episodeSrc,
+        "src": episodeSrc,
+        "title": episodeTitle,
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {"dub": dubLabel},
+        "number": leadingNumber(episodeTitle),
+        "season": episodeSeason
+    });
+}
+
+function playerTabLabels(tabDocument) {
+    tabLabels = [];
+    tabElements = tabDocument.querySelectorAll(".tabs-sel span");
+    for (tl = 0; tl < tabElements.length; tl = tl + 1) {
+        tabLabels.push(tabElements[tl].text.trim());
+    }
+    return tabLabels;
+}
+
+function buildEpisodeGroups(groupDocument, groupBody, groupTitlePath, groupMainTitle) {
+    playerPairs = readSwitches(groupBody);
+    tabLabels = playerTabLabels(groupDocument);
+    moviePlayers = [];
+    episodeGroups = [];
+    listPlayerCount = 0;
+    for (lpc = 0; lpc < playerPairs.length; lpc = lpc + 1) {
+        if (isPairList(playerPairs[lpc]["v"])) {
+            listPlayerCount = listPlayerCount + 1;
+        }
+    }
+    for (pp = 0; pp < playerPairs.length; pp = pp + 1) {
+        playerValue = playerPairs[pp]["v"];
+        playerLabel = "";
+        if (pp < tabLabels.length) {
+            playerLabel = tabLabels[pp];
+        }
+        if (playerValue == null) {
+            continue;
+        }
+        if (isPlayableUrl(playerValue)) {
+            moviePlayers.push({"label": playerLabel, "url": absoluteUrl(playerValue)});
+            continue;
+        }
+        if (isPairList(playerValue) == false) {
+            continue;
+        }
+        groupPrefix = "";
+        if (listPlayerCount > 1) {
+            groupPrefix = playerLabel;
+        }
+        looseVideos = [];
+        for (sp = 0; sp < playerValue.length; sp = sp + 1) {
+            seasonKey = parseString(playerValue[sp]["k"]).trim();
+            seasonValue = playerValue[sp]["v"];
+            if (seasonValue == null) {
+                continue;
+            }
+            if (isPlayableUrl(seasonValue)) {
+                looseVideos.push(episodeVideo(seasonKey, seasonValue, "", groupPrefix));
+                continue;
+            }
+            if (isPairList(seasonValue) == false) {
+                continue;
+            }
+            seasonVideos = [];
+            for (ev = 0; ev < seasonValue.length; ev = ev + 1) {
+                episodeValue = seasonValue[ev]["v"];
+                if (isPlayableUrl(episodeValue)) {
+                    seasonVideos.push(episodeVideo(seasonValue[ev]["k"], episodeValue, seasonKey, groupPrefix));
+                }
+            }
+            if (seasonVideos.isEmpty == false) {
+                episodeGroups.push(buildAnimeVideoGroup({"title": joinLabels(groupPrefix, seasonKey), "videos": seasonVideos}));
+            }
+        }
+        if (looseVideos.isEmpty == false) {
+            episodeGroups.push(buildAnimeVideoGroup({"title": joinLabels(groupPrefix, "Серії"), "videos": looseVideos}));
+        }
+    }
+    if (episodeGroups.isEmpty == false) {
+        return {"movie": false, "groups": episodeGroups};
+    }
+    if (moviePlayers.isEmpty) {
+        return {"movie": false, "groups": []};
+    }
+    movieVideo = buildAnimeVideo({
+        "uid": groupTitlePath,
+        "src": moviePlayers[0]["url"],
+        "title": groupMainTitle,
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {"players": moviePlayers}
+    });
+    return {"movie": true, "groups": [buildAnimeVideoGroup({"title": "Фільм", "videos": [movieVideo]})]};
+}
+
+function joinLabels(outerLabel, innerLabel) {
+    if (outerLabel == "") {
+        return innerLabel;
+    }
+    if (innerLabel == "") {
+        return outerLabel;
+    }
+    return outerLabel + " · " + innerLabel;
+}
+
+function getVideoSources(uid, src, data) {
+    episodePlayers = [];
+    if (data != null) {
+        if (data["players"] != null) {
+            episodePlayers = data["players"];
+        }
+    }
+    if (episodePlayers.isEmpty) {
+        episodePlayers = [{"label": "", "url": src}];
+    }
+    episodeDub = "";
+    if (data != null) {
+        if (data["dub"] != null) {
+            episodeDub = data["dub"];
+        }
+    }
+    resolvedSources = [];
+    for (ep = 0; ep < episodePlayers.length; ep = ep + 1) {
+        playerEntry = episodePlayers[ep];
+        playerSources = [];
+        try {
+            playerSources = resolvePlayerjsSources(playerEntry["url"]);
+        } catch (e) {
+            playerSources = [];
+        }
+        playerAudio = episodeDub;
+        if (playerAudio == "" && episodePlayers.length > 1) {
+            playerAudio = playerEntry["label"];
+            if (playerAudio == null || playerAudio == "") {
+                playerAudio = "Плеєр " + parseString(ep + 1);
+            }
+        }
+        for (ps = 0; ps < playerSources.length; ps = ps + 1) {
+            playerSource = playerSources[ps];
+            if (playerAudio != "") {
+                playerSource["audioLabel"] = playerAudio;
+            }
+            resolvedSources.push(playerSource);
+        }
+    }
+    return resolvedSources;
+}
+
+function fetchPlayerPage(playerPageUrl) {
+    playerResponse = httpGet({
+        "url": playerPageUrl,
+        "params": {},
+        "paths": {},
+        "headers": ideyaHeaders(),
+        "throughWeb": false
+    });
+    if (playerResponse["statusCode"] != 200) {
+        return null;
+    }
+    return playerResponse["body"];
+}
+
+function readQuotedValue(rawText) {
+    if (rawText == null) {
+        return null;
+    }
+    trimmedText = rawText.trimLeft();
+    if (trimmedText.length < 2) {
+        return null;
+    }
+    quoteChar = trimmedText.substring(0, 1);
+    if (quoteChar != '"' && quoteChar != "'") {
+        return null;
+    }
+    quotedRest = trimmedText.substring(1);
+    closingIndex = quotedRest.indexOf(quoteChar);
+    if (closingIndex < 0) {
+        return null;
+    }
+    return quotedRest.substring(0, closingIndex).replaceAll(`\/`, "/").trim();
+}
+
+function guessStreamFormat(streamUrl) {
+    streamPath = streamUrl.toLowerCase().split("?")[0];
+    if (streamPath.endsWith(".mp4")) {
+        return "mp4";
+    }
+    if (streamPath.endsWith(".mpd")) {
+        return "dash";
+    }
+    return "hls";
+}
+
+function splitLabeledLink(labeledEntry) {
+    entryText = labeledEntry.trim();
+    entryLabel = "";
+    if (entryText.startsWith("[")) {
+        closingBracket = entryText.indexOf("]");
+        if (closingBracket > 0) {
+            entryLabel = entryText.substring(1, closingBracket).trim();
+            entryText = entryText.substring(closingBracket + 1).trim();
+        }
+    }
+    entryLink = entryText.split(" or ")[0].trim();
+    if (entryLink.startsWith("//")) {
+        entryLink = "https:" + entryLink;
+    }
+    return {"label": entryLabel, "link": entryLink};
+}
+
+function parsePlayerjsSubtitles(subtitleValue, subtitleHeaders) {
+    parsedSubtitles = [];
+    if (subtitleValue == null) {
+        return parsedSubtitles;
+    }
+    subtitleEntries = subtitleValue.split(",");
+    for (st = 0; st < subtitleEntries.length; st = st + 1) {
+        subtitleEntry = splitLabeledLink(subtitleEntries[st]);
+        subtitleLink = subtitleEntry["link"];
+        if (subtitleLink.startsWith("http") == false) {
+            continue;
+        }
+        subtitleLabel = subtitleEntry["label"];
+        if (subtitleLabel == "") {
+            subtitleLabel = "Субтитри";
+        }
+        subtitleLanguage = null;
+        if (subtitleLabel.toLowerCase().contains("укр")) {
+            subtitleLanguage = "uk";
+        }
+        subtitleFormat = "vtt";
+        if (subtitleLink.toLowerCase().split("?")[0].endsWith(".srt")) {
+            subtitleFormat = "srt";
+        }
+        parsedSubtitles.push({
+            "url": subtitleLink,
+            "label": subtitleLabel,
+            "language": subtitleLanguage,
+            "format": subtitleFormat,
+            "headers": subtitleHeaders
+        });
+    }
+    return parsedSubtitles;
+}
+
+function resolvePlayerjsSources(playerPageUrl) {
+    playerPage = fetchPlayerPage(playerPageUrl);
+    playerConfig = textAfter(playerPage, "new Playerjs(");
+    if (playerConfig == null) {
+        return [];
+    }
+    fileText = textAfter(playerConfig, "file:");
+    if (fileText == null) {
+        fileText = textAfter(playerConfig, '"file":');
+    }
+    playerFile = readQuotedValue(fileText);
+    if (playerFile == null || playerFile == "") {
+        return [];
+    }
+    if (playerFile.startsWith("[{") || playerFile.startsWith("{")) {
+        return [];
+    }
+    playerHeaders = {"Referer": "https://" + hostOf(playerPageUrl) + "/"};
+    subtitleText = textAfter(playerConfig, "subtitle:");
+    playerSubtitles = parsePlayerjsSubtitles(readQuotedValue(subtitleText), playerHeaders);
+    fileEntries = [playerFile];
+    if (playerFile.startsWith("[")) {
+        fileEntries = playerFile.split(",");
+    }
+    builtSources = [];
+    for (fe = 0; fe < fileEntries.length; fe = fe + 1) {
+        fileEntry = splitLabeledLink(fileEntries[fe]);
+        streamLink = fileEntry["link"];
+        if (streamLink.startsWith("http") == false) {
+            continue;
+        }
+        streamQuality = fileEntry["label"];
+        if (streamQuality == "") {
+            streamQuality = "Auto";
+        }
+        builtSources.push({
+            "url": streamLink,
+            "quality": streamQuality,
+            "format": guessStreamFormat(streamLink),
+            "headers": playerHeaders,
+            "subtitles": playerSubtitles
+        });
+    }
+    return builtSources;
+}
+
+function getImageHeaders(uid) {
+    return {"Referer": "https://cikava-ideya.top/"};
+}

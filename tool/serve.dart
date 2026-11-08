@@ -16,7 +16,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-const List<String> _categories = <String>['manga', 'anime'];
+const List<String> _categories = <String>['manga', 'anime', 'novel', 'audio'];
 
 late final Directory _root;
 
@@ -89,10 +89,16 @@ void _serveConfigs(HttpRequest request) {
       final File configFile = File('${ext.path}/config.json');
       if (!configFile.existsSync()) continue;
 
+      final Object? config = jsonDecode(configFile.readAsStringSync());
+      final Object? apiVersion = config is Map ? config['apiVersion'] : null;
+      final Object? minAppVersion =
+          config is Map ? config['minAppVersion'] : null;
       configs.add(<String, dynamic>{
         'category': c,
         'path': '$c/$name/main.capyscript',
-        'config': jsonDecode(configFile.readAsStringSync()),
+        'apiVersion': apiVersion is int ? apiVersion : 1,
+        if (minAppVersion is String) 'minAppVersion': minAppVersion,
+        'config': config,
       });
     }
   }

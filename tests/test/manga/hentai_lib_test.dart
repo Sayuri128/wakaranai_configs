@@ -1,6 +1,7 @@
 import 'package:capyscript/Interpreter/interpreter.dart';
 import 'package:capyscript/modules/waka_models/models/manga/manga_concrete_view/chapter/pages/pages.dart';
 import 'package:capyscript/modules/waka_models/models/manga/manga_concrete_view/manga_concrete_view.dart';
+import 'package:capyscript/modules/waka_models/models/manga/manga_concrete_view/manga_status.dart';
 import 'package:capyscript/modules/waka_models/models/manga/manga_gallery_view/manga_gallery_view.dart';
 import 'package:test/test.dart';
 import '../helpers/auth_session.dart';
@@ -58,10 +59,10 @@ void main() {
       arguments: {'uid': galleryPage1.first.uid},
     ) as MangaConcreteView;
 
-    final chapterUid = concrete.groups.first.elements.first.uid;
+    final chapter = concrete.groups.first.elements.first;
     pages = await interpreter.runFunction(
       'getPages',
-      arguments: {'uid': chapterUid},
+      arguments: {'uid': chapter.uid, 'data': chapter.data},
     ) as Pages;
   });
 
@@ -95,6 +96,17 @@ void main() {
     test('has at least one group with chapters', () {
       expect(concrete.groups, isNotEmpty);
       expect(concrete.groups.first.elements, isNotEmpty);
+    });
+
+    test('has metadata', () {
+      expect(concrete.url, 'https://hentailib.me/ru/manga/${concrete.uid}');
+      expect(concrete.status, isNot(MangaStatus.UNDEFINED));
+      expect(concrete.authors, isNotEmpty);
+      expect(concrete.year, isNotNull);
+      final rating = concrete.rating;
+      if (rating != null) {
+        expect(rating, inInclusiveRange(1, 10));
+      }
     });
   });
 

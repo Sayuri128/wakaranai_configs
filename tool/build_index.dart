@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-const List<String> _categories = <String>['manga', 'anime'];
+const List<String> _categories = <String>['manga', 'anime', 'novel', 'audio'];
 const String _outputPath = 'index.json';
 
 void main(List<String> args) {
@@ -29,9 +29,13 @@ void main(List<String> args) {
       }
 
       final Object? config = jsonDecode(configFile.readAsStringSync());
+      final String? minAppVersion = _minAppVersion(config);
       configs.add(<String, dynamic>{
         'category': category,
         'path': '$category/$name',
+        'revision': _revision(extensionDir),
+        'apiVersion': _apiVersion(config),
+        if (minAppVersion != null) 'minAppVersion': minAppVersion,
         'config': config,
       });
     }
@@ -44,6 +48,69 @@ void main(List<String> args) {
 
   final String output =
       '${const JsonEncoder.withIndent('  ').convert(index)}\n';
-  File('${root.path}/$_outputPath').writeAsStringSync(output);
+  final File outputFile = File('${root.path}/$_outputPath');
+
+  if (args.contains('--check')) {
+    final String current = outputFile.existsSync()
+        ? outputFile.readAsStringSync().replaceAll('\r\n', '\n')
+        : '';
+    if (current != output) {
+      stderr.writeln('$_outputPath is out of date; run dart tool/build_index.dart');
+      exitCode = 1;
+      return;
+    }
+    stdout.writeln('$_outputPath is up to date');
+    return;
+  }
+
+  outputFile.writeAsStringSync(output);
   stdout.writeln('wrote $_outputPath (${configs.length} configs)');
+}
+
+const int _legacyApiVersion = 1;
+
+int _apiVersion(Object? config) {
+  if (config is Map && config['apiVersion'] is int) {
+    return config['apiVersion'] as int;
+  }
+  return _legacyApiVersion;
+}
+
+String? _minAppVersion(Object? config) {
+  if (config is Map && config['minAppVersion'] is String) {
+    return config['minAppVersion'] as String;
+  }
+  return null;
+}
+
+final RegExp _relativeImport =
+    RegExp(r'''^import\s+["'](\.{1,2}/[^"']+)["']\s*;''', multiLine: true);
+
+String _revision(Directory extensionDir) {
+  final List<File> files = <File>[File('${extensionDir.path}/config.json')];
+  final Set<String> seen = <String>{};
+  void collect(File script) {
+    final String path = script.absolute.uri.normalizePath().toFilePath();
+    if (!seen.add(path) || !script.existsSync()) {
+      return;
+    }
+    files.add(script);
+    for (final RegExpMatch match
+        in _relativeImport.allMatches(script.readAsStringSync())) {
+      collect(File('${script.parent.path}/${match.group(1)}.capyscript'));
+    }
+  }
+
+  collect(File('${extensionDir.path}/main.capyscript'));
+
+  int hash = 0xcbf29ce484222325;
+  for (final File file in files) {
+    final List<int> bytes =
+        utf8.encode(file.readAsStringSync().replaceAll('\r\n', '\n'));
+    for (final int byte in <int>[...bytes, 0]) {
+      hash ^= byte;
+      hash *= 0x100000001b3;
+    }
+  }
+  return BigInt.from(hash).toUnsigned(64).toRadixString(16).padLeft(16, '0');
 }

@@ -2,6 +2,81 @@ import "http";
 import "json";
 import "date";
 import "manga_models";
+import "converter";
+import "preferences";
+import "errors";
+import "storage";
+
+function decodeApiResponse(apiResponse, requestLabel) {
+    apiStatusCode = apiResponse["statusCode"];
+    if (apiStatusCode >= 200) {
+        if (apiStatusCode < 300) {
+            return jsonDecode(apiResponse["body"]);
+        }
+    }
+    if (apiStatusCode == 401) {
+        throw "HTTP 401 Unauthorized (" + requestLabel + ")";
+    }
+    if (apiStatusCode == 403) {
+        throw "HTTP 403 Forbidden (" + requestLabel + ")";
+    }
+    if (apiStatusCode == 404) {
+        throwSourceError("notFound", "MangaDex has no such entry (" + requestLabel + ")");
+    }
+    if (apiStatusCode == 429) {
+        throwSourceError("rateLimited", "MangaDex is rate limiting requests (" + requestLabel + ")");
+    }
+    if (apiStatusCode >= 500) {
+        throwSourceError("sourceDown", "MangaDex answered HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")");
+    }
+    throw "HTTP " + parseString(apiStatusCode) + " (" + requestLabel + ")";
+}
+
+function chapterLanguages() {
+    preferredLanguages = getPreference("chapterLanguages");
+    if (preferredLanguages == null) {
+        return ["en"];
+    }
+    return preferredLanguages;
+}
+
+function onlyTranslatedTitles() {
+    onlyTranslated = getPreference("onlyTranslatedTitles");
+    if (onlyTranslated == true) {
+        return true;
+    }
+    return false;
+}
+
+function languageLabel(languageCode) {
+    knownLabels = {
+        "en": "English",
+        "uk": "Ukrainian",
+        "ru": "Russian",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "zh": "Chinese (Simplified)",
+        "zh-hk": "Chinese (Traditional)",
+        "es": "Spanish",
+        "es-la": "Spanish (Latin America)",
+        "pt-br": "Portuguese (Brazil)",
+        "pt": "Portuguese",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pl": "Polish",
+        "tr": "Turkish",
+        "id": "Indonesian",
+        "vi": "Vietnamese",
+        "th": "Thai",
+        "ar": "Arabic"
+    };
+    knownLabel = knownLabels[languageCode];
+    if (knownLabel == null) {
+        return languageCode;
+    }
+    return knownLabel;
+}
 
 function getCoverUrl(mangaId, relationships) {
     for (i = 0; i < relationships.length; i = i + 1) {
@@ -22,19 +97,265 @@ function getMangaTitle(titleMap) {
     return titleMap.values.first;
 }
 
-function getGallery(page, query, filters) {
-    limit = 20;
+function galleryPageSize(requestedPageSize) {
+    if (requestedPageSize == null) {
+        return 20;
+    }
+    if (requestedPageSize < 1) {
+        return 20;
+    }
+    if (requestedPageSize > 100) {
+        return 100;
+    }
+    return requestedPageSize;
+}
+
+function galleryResultCeiling() {
+    return 10000;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if (query == "" && feed == "latest") {
+        return getLatestGallery(page, filters);
+    }
+
+    limit = galleryPageSize(pageSize);
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    offset = limit * (galleryPage - 1);
+    if (offset >= galleryResultCeiling()) {
+        return [];
+    }
+    if (offset + limit > galleryResultCeiling()) {
+        limit = galleryResultCeiling() - offset;
+    }
 
     params = {
         "limit": limit,
-        "offset": limit * page,
+        "offset": offset,
         "includes": ["cover_art"]
     };
 
     if (query != "") {
         params["title"] = query;
+    } else if (feed == "popular") {
+        params["order"] = {"followedCount": "desc"};
     }
 
+    params = applyGalleryFilters(params, filters);
+    params = applyTranslatedFilter(params);
+
+    result = httpGet({
+        "url": "https://api.mangadex.org/manga",
+        "params": params,
+        "paths": {},
+        "throughWeb": false,
+        "headers": {}
+    });
+
+    decoded = decodeApiResponse(result, "mangadex gallery");
+    return buildGalleryItems(decoded["data"], {});
+}
+
+function applyTranslatedFilter(translatedParams) {
+    if (onlyTranslatedTitles() == false) {
+        return translatedParams;
+    }
+    translatedLanguages = chapterLanguages();
+    if (translatedLanguages.isNotEmpty) {
+        translatedParams["availableTranslatedLanguage"] = translatedLanguages;
+    }
+    return translatedParams;
+}
+
+function latestSessionKey() {
+    return "latestFeedSession";
+}
+
+function latestSessionTtlSeconds() {
+    return 1800;
+}
+
+function latestWindowSize() {
+    return 100;
+}
+
+function latestWindowsPerPage() {
+    return 3;
+}
+
+function latestLastWindow() {
+    return 100;
+}
+
+function getLatestGallery(page, filters) {
+    latestSignature = jsonEncode({"languages": chapterLanguages(), "filters": filters});
+    latestPlan = planLatestPage(page, readLatestSession(latestSignature));
+    latestScan = scanLatestWindows(latestPlan["startWindow"], latestPlan["shownIds"], filters);
+    saveLatestPage(latestSignature, latestPlan, page, latestScan);
+    return latestScan["items"];
+}
+
+function readLatestSession(sessionSignature) {
+    storedSession = storageGet(latestSessionKey());
+    if (storedSession == null) {
+        return null;
+    }
+    if (storedSession["signature"] != sessionSignature) {
+        return null;
+    }
+    return storedSession;
+}
+
+function planLatestPage(planPage, planSession) {
+    standalonePlan = {"startWindow": planPage, "shownIds": {}, "pages": []};
+    if (planPage <= 1 || planSession == null) {
+        return standalonePlan;
+    }
+    keptPages = [];
+    sessionPages = planSession["pages"];
+    for (sp = 0; sp < sessionPages.length; sp = sp + 1) {
+        if (sessionPages[sp]["page"] < planPage) {
+            keptPages.push(sessionPages[sp]);
+        }
+    }
+    if (keptPages.isEmpty) {
+        return standalonePlan;
+    }
+    if (keptPages.last["page"] != planPage - 1) {
+        return standalonePlan;
+    }
+    keptIds = {};
+    for (kp = 0; kp < keptPages.length; kp = kp + 1) {
+        pageIds = keptPages[kp]["ids"];
+        for (ki = 0; ki < pageIds.length; ki = ki + 1) {
+            keptIds[pageIds[ki]] = true;
+        }
+    }
+    return {"startWindow": keptPages.last["nextWindow"], "shownIds": keptIds, "pages": keptPages};
+}
+
+function saveLatestPage(savedSignature, savedPlan, savedPage, savedScan) {
+    savedPages = savedPlan["pages"];
+    savedPages.push({
+        "page": savedPage,
+        "startWindow": savedPlan["startWindow"],
+        "nextWindow": savedScan["nextWindow"],
+        "ids": savedScan["ids"]
+    });
+    storageSet(latestSessionKey(), {"signature": savedSignature, "pages": savedPages}, latestSessionTtlSeconds());
+}
+
+function scanLatestWindows(scanStart, scanShownIds, scanFilters) {
+    for (sw = 0; sw < latestWindowsPerPage(); sw = sw + 1) {
+        scanWindow = scanStart + sw;
+        windowResult = latestWindowItems(scanWindow, scanShownIds, scanFilters);
+        if (windowResult["items"].isNotEmpty || windowResult["exhausted"]) {
+            return {"items": windowResult["items"], "ids": windowResult["ids"], "nextWindow": scanWindow + 1};
+        }
+    }
+    return {"items": [], "ids": [], "nextWindow": scanStart + latestWindowsPerPage()};
+}
+
+function latestWindowItems(itemsWindow, itemsShownIds, itemsFilters) {
+    emptyWindow = {"items": [], "ids": [], "exhausted": false};
+    if (itemsWindow > latestLastWindow()) {
+        return {"items": [], "ids": [], "exhausted": true};
+    }
+    latestResult = httpGet({
+        "url": "https://api.mangadex.org/chapter",
+        "params": {
+            "limit": latestWindowSize(),
+            "offset": latestWindowSize() * (itemsWindow - 1),
+            "translatedLanguage": chapterLanguages(),
+            "order": {"readableAt": "desc"}
+        },
+        "paths": {},
+        "throughWeb": false,
+        "headers": {}
+    });
+    latestChapters = decodeApiResponse(latestResult, "mangadex latest chapters")["data"];
+    if (latestChapters.isEmpty) {
+        return {"items": [], "ids": [], "exhausted": true};
+    }
+
+    latestMangaIds = [];
+    latestChapterLabels = {};
+    for (lc = 0; lc < latestChapters.length; lc = lc + 1) {
+        latestChapter = latestChapters[lc];
+        latestMangaId = relatedMangaId(latestChapter["relationships"]);
+        if (latestMangaId == null) {
+            continue;
+        }
+        if (itemsShownIds.containsKey(latestMangaId)) {
+            continue;
+        }
+        if (latestChapterLabels.containsKey(latestMangaId)) {
+            continue;
+        }
+        latestMangaIds.push(latestMangaId);
+        latestChapterLabels[latestMangaId] = chapterLabel(latestChapter["attributes"]);
+    }
+    if (latestMangaIds.isEmpty) {
+        return emptyWindow;
+    }
+
+    mangaParams = {
+        "ids": latestMangaIds,
+        "limit": 100,
+        "includes": ["cover_art"]
+    };
+    mangaParams = applyGalleryFilters(mangaParams, itemsFilters);
+    mangaResult = httpGet({
+        "url": "https://api.mangadex.org/manga",
+        "params": mangaParams,
+        "paths": {},
+        "throughWeb": false,
+        "headers": {}
+    });
+    mangaById = {};
+    latestMangaData = decodeApiResponse(mangaResult, "mangadex latest titles")["data"];
+    for (lm = 0; lm < latestMangaData.length; lm = lm + 1) {
+        mangaById[latestMangaData[lm]["id"]] = latestMangaData[lm];
+    }
+
+    orderedManga = [];
+    orderedIds = [];
+    for (om = 0; om < latestMangaIds.length; om = om + 1) {
+        if (mangaById.containsKey(latestMangaIds[om])) {
+            orderedManga.push(mangaById[latestMangaIds[om]]);
+            orderedIds.push(latestMangaIds[om]);
+        }
+    }
+    if (orderedManga.isEmpty) {
+        return emptyWindow;
+    }
+    return {"items": buildGalleryItems(orderedManga, latestChapterLabels), "ids": orderedIds, "exhausted": false};
+}
+
+function relatedMangaId(chapterRelationships) {
+    if (chapterRelationships == null) {
+        return null;
+    }
+    for (cr = 0; cr < chapterRelationships.length; cr = cr + 1) {
+        if (chapterRelationships[cr]["type"] == "manga") {
+            return chapterRelationships[cr]["id"];
+        }
+    }
+    return null;
+}
+
+function chapterLabel(chapterAttributes) {
+    labelNumber = chapterAttributes["chapter"];
+    if (labelNumber == null || labelNumber == "") {
+        return null;
+    }
+    return "Ch. " + labelNumber;
+}
+
+function applyGalleryFilters(params, filters) {
     for (i = 0; i < filters.length; i = i + 1) {
         filterData = filters[i];
         filter = filterData["filter"];
@@ -57,35 +378,132 @@ function getGallery(page, query, filters) {
             }
         }
     }
+    return params;
+}
 
-    result = httpGet({
-        "url": "https://api.mangadex.org/manga",
-        "params": params,
-        "paths": {},
-        "throughWeb": false,
-        "headers": {}
-    });
-
-    decoded = jsonDecode(result["body"]);
-    data = decoded["data"];
+function buildGalleryItems(data, latestLabels) {
+    mangaIds = [];
+    for (i = 0; i < data.length; i = i + 1) {
+        mangaIds.push(data[i]["id"]);
+    }
+    ratings = getRatings(mangaIds);
 
     mangas = [];
 
     for (i = 0; i < data.length; i = i + 1) {
         manga = data[i];
         uid = manga["id"];
-        title = getMangaTitle(manga["attributes"]["title"]);
+        attributes = manga["attributes"];
+        title = getMangaTitle(attributes["title"]);
         cover = getCoverUrl(uid, manga["relationships"]);
+        galleryStatus = getStatus(attributes["status"]);
+        gallerySubtitle = getSubtitle(attributes, title);
+        galleryTags = getTags(attributes["tags"]);
+        galleryYear = attributes["year"];
+        galleryRating = null;
+        if (ratings.containsKey(uid)) {
+            galleryRating = ratings[uid];
+        }
+        galleryLatest = null;
+        lastChapter = attributes["lastChapter"];
+        if (lastChapter != null) {
+            if (lastChapter != "") {
+                galleryLatest = "Ch. " + lastChapter;
+            }
+        }
+        if (latestLabels.containsKey(uid)) {
+            if (latestLabels[uid] != null) {
+                galleryLatest = latestLabels[uid];
+            }
+        }
 
         mangas.push(buildGallery({
             "uid": uid,
             "title": title,
             "cover": cover,
-            "data": {}
+            "data": {},
+            "status": galleryStatus,
+            "subtitle": gallerySubtitle,
+            "tags": galleryTags,
+            "year": galleryYear,
+            "rating": galleryRating,
+            "latestChapter": galleryLatest
         }));
     }
 
     return mangas;
+}
+
+function getTags(rawTags) {
+    tagNames = [];
+    if (rawTags == null) {
+        return tagNames;
+    }
+    for (t = 0; t < rawTags.length; t = t + 1) {
+        tagName = rawTags[t]["attributes"]["name"]["en"];
+        if (tagName != null) {
+            tagNames.push(tagName);
+        }
+    }
+    return tagNames;
+}
+
+function getSubtitle(attributes, mainTitle) {
+    altTitles = attributes["altTitles"];
+    if (altTitles == null) {
+        return null;
+    }
+    languages = ["ja-ro", "ko-ro", "zh-ro"];
+    originalLanguage = attributes["originalLanguage"];
+    if (originalLanguage != null) {
+        languages = [originalLanguage + "-ro", originalLanguage, "ja-ro", "ko-ro", "zh-ro"];
+    }
+    for (l = 0; l < languages.length; l = l + 1) {
+        for (j = 0; j < altTitles.length; j = j + 1) {
+            candidate = altTitles[j][languages[l]];
+            if (candidate != null) {
+                if (candidate != mainTitle) {
+                    return candidate;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function getRatings(mangaIds) {
+    ratings = {};
+    if (mangaIds.isEmpty) {
+        return ratings;
+    }
+    try {
+        result = httpGet({
+            "url": "https://api.mangadex.org/statistics/manga",
+            "params": {
+                "manga": mangaIds
+            },
+            "paths": {},
+            "throughWeb": false,
+            "headers": {}
+        });
+        statistics = decodeApiResponse(result, "mangadex ratings")["statistics"];
+        if (statistics == null) {
+            return ratings;
+        }
+        for (r = 0; r < mangaIds.length; r = r + 1) {
+            mangaId = mangaIds[r];
+            entry = statistics[mangaId];
+            if (entry != null) {
+                rating = entry["rating"];
+                if (rating != null) {
+                    ratings[mangaId] = rating["bayesian"];
+                }
+            }
+        }
+    } catch (e) {
+        return ratings;
+    }
+    return ratings;
 }
 
 function handleChapterItem(chapter) {
@@ -130,13 +548,13 @@ function handleChapterItem(chapter) {
     });
 }
 
-function fetchChaptersPage(mangaId, offset) {
+function fetchChaptersPage(mangaId, offset, feedLanguages) {
     return httpGet({
         "url": "https://api.mangadex.org/manga/:mangaId/feed",
         "params": {
             "limit": 100,
             "offset": offset,
-            "translatedLanguage": ["en"],
+            "translatedLanguage": feedLanguages,
             "order": {
                 "volume": "asc",
                 "chapter": "asc"
@@ -150,33 +568,124 @@ function fetchChaptersPage(mangaId, offset) {
     });
 }
 
-function getChapters(uid) {
-    chapters = [];
+function fetchReadableChapters(mangaId, readableLanguages) {
+    readableChapters = [];
     limit = 100;
     total = 1;
 
     for (offset = 0; offset < total; offset = offset + limit) {
-        response = fetchChaptersPage(uid, offset);
-        decoded = jsonDecode(response["body"]);
+        response = fetchChaptersPage(mangaId, offset, readableLanguages);
+        decoded = decodeApiResponse(response, "mangadex chapter list");
         total = decoded["total"];
         data = decoded["data"];
 
         for (i = 0; i < data.length; i = i + 1) {
             chapter = data[i];
             if (chapter["attributes"]["externalUrl"] == null) {
-                chapters.push(handleChapterItem(chapter));
+                readableChapters.push(chapter);
             }
         }
     }
 
+    return readableChapters;
+}
+
+function getChapters(uid) {
+    chapters = [];
+    rawChapters = fetchReadableChapters(uid, chapterLanguages());
+    for (rc = 0; rc < rawChapters.length; rc = rc + 1) {
+        chapters.push(handleChapterItem(rawChapters[rc]));
+    }
     return chapters;
+}
+
+function buildLanguageGroups(mangaId) {
+    groupLanguages = chapterLanguages();
+    groupChapters = fetchReadableChapters(mangaId, groupLanguages);
+    if (groupLanguages.length < 2) {
+        defaultElements = [];
+        for (dc = 0; dc < groupChapters.length; dc = dc + 1) {
+            defaultElements.push(handleChapterItem(groupChapters[dc]));
+        }
+        return [buildChapterGroups({"title": "Default", "elements": defaultElements})];
+    }
+    languageGroups = [];
+    for (gl = 0; gl < groupLanguages.length; gl = gl + 1) {
+        languageElements = [];
+        for (gc = 0; gc < groupChapters.length; gc = gc + 1) {
+            if (groupChapters[gc]["attributes"]["translatedLanguage"] == groupLanguages[gl]) {
+                languageElements.push(handleChapterItem(groupChapters[gc]));
+            }
+        }
+        if (languageElements.isNotEmpty) {
+            languageGroups.push(buildChapterGroups({"title": languageLabel(groupLanguages[gl]), "elements": languageElements}));
+        }
+    }
+    return languageGroups;
+}
+
+function getPeople(relationships, kind) {
+    names = [];
+    for (i = 0; i < relationships.length; i = i + 1) {
+        relation = relationships[i];
+        if (relation["type"] == kind) {
+            relationAttributes = relation["attributes"];
+            if (relationAttributes != null) {
+                if (relationAttributes["name"] != null) {
+                    names.push(relationAttributes["name"]);
+                }
+            }
+        }
+    }
+    return names;
+}
+
+function getStatus(value) {
+    if (value == "ongoing") {
+        return statusOngoing();
+    }
+    if (value == "completed") {
+        return statusReleased();
+    }
+    if (value == "hiatus") {
+        return statusPaused();
+    }
+    if (value == "cancelled") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function getRating(mangaId) {
+    try {
+        result = httpGet({
+            "url": "https://api.mangadex.org/statistics/manga/:uid",
+            "params": {},
+            "paths": {
+                ":uid": mangaId
+            },
+            "throughWeb": false,
+            "headers": {}
+        });
+        statistics = decodeApiResponse(result, "mangadex rating")["statistics"][mangaId];
+        if (statistics == null) {
+            return null;
+        }
+        rating = statistics["rating"];
+        if (rating == null) {
+            return null;
+        }
+        return rating["bayesian"];
+    } catch (e) {
+        return null;
+    }
 }
 
 function getConcrete(uid) {
     result = httpGet({
         "url": "https://api.mangadex.org/manga/:uid",
         "params": {
-            "includes": ["cover_art"]
+            "includes": ["cover_art", "author", "artist"]
         },
         "paths": {
             ":uid": uid
@@ -185,7 +694,7 @@ function getConcrete(uid) {
         "headers": {}
     });
 
-    body = jsonDecode(result["body"]);
+    body = decodeApiResponse(result, "mangadex title details");
     data = body["data"];
     attr = data["attributes"];
 
@@ -204,14 +713,9 @@ function getConcrete(uid) {
 
     cover = getCoverUrl(uid, data["relationships"]);
 
-    rawTags = attr["tags"];
-    tags = [];
-    for (i = 0; i < rawTags.length; i = i + 1) {
-        tagName = rawTags[i]["attributes"]["name"]["en"];
-        if (tagName != null) {
-            tags.push(tagName);
-        }
-    }
+    tags = getTags(attr["tags"]);
+
+    concreteGroups = buildLanguageGroups(uid);
 
     return buildConcrete({
         "uid": uid,
@@ -219,14 +723,14 @@ function getConcrete(uid) {
         "description": description,
         "cover": cover,
         "tags": tags,
-        "status": null,
+        "status": getStatus(attr["status"]),
         "alternativeTitles": [],
-        "groups": [
-            buildChapterGroups({
-                "title": "Default",
-                "elements": getChapters(uid)
-            })
-        ]
+        "authors": getPeople(data["relationships"], "author"),
+        "artists": getPeople(data["relationships"], "artist"),
+        "year": attr["year"],
+        "rating": getRating(uid),
+        "url": "https://mangadex.org/title/" + uid,
+        "groups": concreteGroups
     });
 }
 
@@ -241,7 +745,7 @@ function getPages(uid) {
         "headers": {}
     });
 
-    body = jsonDecode(result["body"]);
+    body = decodeApiResponse(result, "mangadex chapter pages");
 
     if (body["result"] != "ok") {
         return buildPages({

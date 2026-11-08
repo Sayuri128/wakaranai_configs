@@ -1,0 +1,1558 @@
+import "http";
+import "json";
+import "anime_models";
+import "converter";
+import "preferences";
+import "errors";
+
+function siteOrigin() {
+    return "https://anihub.in.ua";
+}
+
+function cataloguePageSize() {
+    return 24;
+}
+
+function loadSitePage(sitePageUrl) {
+    return httpGet({
+        "url": sitePageUrl,
+        "params": {},
+        "paths": {},
+        "headers": {},
+        "throughWeb": true
+    });
+}
+
+function isMissingPage(missingBody) {
+    if (missingBody == null) {
+        return false;
+    }
+    titleStart = missingBody.indexOf("<title>");
+    if (titleStart < 0) {
+        return false;
+    }
+    pageTitle = missingBody.substring(titleStart, missingBody.length).split("</title>")[0];
+    return pageTitle.contains("не знайдено");
+}
+
+function checkPageStatus(pageResponse, pageLabel, missingIsError) {
+    pageStatus = pageResponse["statusCode"];
+    pageBody = pageResponse["body"];
+    if (pageStatus == 403) {
+        throw "HTTP 403 Forbidden (anihub.in.ua " + pageLabel + ")";
+    }
+    if (pageStatus == 0 || pageStatus == 408) {
+        throwSourceError("sourceDown", "anihub.in.ua did not load (" + pageLabel + ")");
+    }
+    if (pageStatus == 429) {
+        throwSourceError("rateLimited", "anihub.in.ua is rate limiting requests (" + pageLabel + ")");
+    }
+    if (pageStatus != null) {
+        if (pageStatus >= 500) {
+            throwSourceError("sourceDown", "anihub.in.ua answered HTTP " + parseString(pageStatus) + " (" + pageLabel + ")");
+        }
+    }
+    if (pageStatus == 404 || isMissingPage(pageBody)) {
+        if (missingIsError) {
+            throwSourceError("notFound", pageLabel + " is no longer on anihub.in.ua");
+        }
+        return false;
+    }
+    if (pageBody == null || pageBody.trim() == "") {
+        throwSourceError("sourceDown", "anihub.in.ua returned an empty page (" + pageLabel + ")");
+    }
+    return true;
+}
+
+function feedOrdering(feedId) {
+    if (feedId == "episodes") {
+        return "-last_episode";
+    }
+    if (feedId == "popular") {
+        return "-library_count";
+    }
+    if (feedId == "rating") {
+        return "-site_rating";
+    }
+    if (feedId == "added") {
+        return "-id";
+    }
+    return "";
+}
+
+function selectedFilterValues(filterEntry) {
+    chosenValues = [];
+    if (filterEntry == null) {
+        return chosenValues;
+    }
+    chosenFilter = filterEntry["filter"];
+    if (chosenFilter == null) {
+        return chosenValues;
+    }
+    if (chosenFilter["type"] != "MULTIPLE_OF_MULTIPLE") {
+        return chosenValues;
+    }
+    chosenGroups = filterEntry["selected"];
+    if (chosenGroups == null) {
+        return chosenValues;
+    }
+    for (fg = 0; fg < chosenGroups.length; fg = fg + 1) {
+        chosenGroup = chosenGroups[fg];
+        if (chosenGroup == null) {
+            continue;
+        }
+        for (fv = 0; fv < chosenGroup.length; fv = fv + 1) {
+            chosenValue = parseString(chosenGroup[fv]).trim();
+            if (chosenValue != "" && chosenValues.contains(chosenValue) == false) {
+                chosenValues.push(chosenValue);
+            }
+        }
+    }
+    return chosenValues;
+}
+
+function buildCatalogueUrl(searchQuery, galleryFilters, galleryFeed) {
+    queryParts = [];
+    searchText = "";
+    if (searchQuery != null) {
+        searchText = parseString(searchQuery).trim();
+    }
+    if (searchText != "") {
+        queryParts.push("search=" + urlEncode(searchText));
+    }
+    if (galleryFilters != null) {
+        for (cf = 0; cf < galleryFilters.length; cf = cf + 1) {
+            filterValues = selectedFilterValues(galleryFilters[cf]);
+            if (filterValues.isEmpty) {
+                continue;
+            }
+            encodedValues = [];
+            for (ev = 0; ev < filterValues.length; ev = ev + 1) {
+                encodedValues.push(urlEncode(filterValues[ev]));
+            }
+            queryParts.push(galleryFilters[cf]["filter"]["param"] + "=" + encodedValues.join(","));
+        }
+    }
+    if (searchText == "") {
+        feedOrder = feedOrdering(galleryFeed);
+        if (feedOrder != "") {
+            queryParts.push("ordering=" + feedOrder);
+        }
+    }
+    catalogueUrl = siteOrigin() + "/anime";
+    if (queryParts.isEmpty == false) {
+        catalogueUrl = catalogueUrl + "?" + queryParts.join("&");
+    }
+    return catalogueUrl;
+}
+
+function catalogueScript() {
+    return `
+        const deadline = Date.now() + 6000;
+        const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        if (adopt) {
+            window.__wakaranaiCatalogue = expectedUrl;
+        } else if (window.__wakaranaiCatalogue !== expectedUrl) {
+            return {attached: false, done: false, cards: []};
+        }
+        const origin = location.origin;
+        const fiberOf = (element) => {
+            const key = Object.keys(element).find((name) => name.indexOf("__reactFiber$") === 0);
+            return key ? element[key] : null;
+        };
+        const cardAnime = (cell) => {
+            const fiber = fiberOf(cell);
+            const stack = fiber && fiber.child ? [fiber.child] : [];
+            let visited = 0;
+            while (stack.length > 0 && visited < 400) {
+                const node = stack.pop();
+                visited++;
+                const props = node.memoizedProps;
+                if (props && typeof props === "object" && props.anime && typeof props.anime === "object") {
+                    return props.anime;
+                }
+                if (node.sibling) {
+                    stack.push(node.sibling);
+                }
+                if (node.child) {
+                    stack.push(node.child);
+                }
+            }
+            return null;
+        };
+        const absolute = (value) => {
+            const text = String(value || "").trim();
+            if (text.indexOf("//") === 0) {
+                return "https:" + text;
+            }
+            if (text.indexOf("/") === 0) {
+                return origin + text;
+            }
+            return text;
+        };
+        const uidOf = (href) => {
+            const path = String(href || "").replace(origin, "").split("?")[0].split("#")[0];
+            const marker = "/anime/";
+            const index = path.indexOf(marker);
+            if (index < 0) {
+                return "";
+            }
+            return path.substring(index + marker.length).replace(/\/+$/, "");
+        };
+        const finite = (value) => {
+            const parsed = Number(value);
+            return isFinite(parsed) && parsed > 0 ? parsed : null;
+        };
+        const readCard = (cell) => {
+            const link = cell.querySelector("a[href*='/anime/']");
+            const image = cell.querySelector("img");
+            const anime = cardAnime(cell) || {};
+            let uid = uidOf(link ? link.getAttribute("href") : "");
+            if (!uid && anime.slug && anime.id) {
+                uid = anime.slug + "-" + anime.id;
+            }
+            let title = anime.title_ukrainian || anime.title_english || anime.title_original || "";
+            if (!title && link) {
+                title = (link.getAttribute("aria-label") || link.textContent || "").trim();
+            }
+            const cover = absolute(anime.poster_url || (image ? image.getAttribute("src") : ""));
+            const original = anime.title_original || anime.title_english || "";
+            return {
+                uid: uid,
+                title: title,
+                cover: cover,
+                original: original === title ? "" : original,
+                year: finite(anime.year),
+                rating: finite(anime.rating),
+                status: anime.status || ""
+            };
+        };
+        const cells = () => Array.from(document.querySelectorAll("[data-catalog-anime-id]"));
+        const readCards = () => {
+            const seen = new Set();
+            const cards = [];
+            for (const cell of cells()) {
+                const card = readCard(cell);
+                if (!card.uid || seen.has(card.uid)) {
+                    continue;
+                }
+                seen.add(card.uid);
+                cards.push(card);
+            }
+            return cards;
+        };
+        const sentinel = () => Array.from(document.querySelectorAll("div.h-4[aria-hidden='true']")).find((node) => node.childElementCount === 0) || null;
+        const isEmpty = () => {
+            const main = document.querySelector("main") || document.body;
+            return main.textContent.indexOf("Нічого не знайдено") >= 0;
+        };
+        let lastCount = -1;
+        let lastChange = Date.now();
+        for (;;) {
+            const count = cells().length;
+            if (count !== lastCount) {
+                lastCount = count;
+                lastChange = Date.now();
+            }
+            const quietFor = Date.now() - lastChange;
+            if (count >= wanted) {
+                return {attached: true, done: false, cards: readCards()};
+            }
+            if (count === 0 && isEmpty() && quietFor > 300) {
+                return {attached: true, done: true, cards: []};
+            }
+            const more = sentinel();
+            if (count > 0 && !more && quietFor > 900) {
+                return {attached: true, done: true, cards: readCards()};
+            }
+            if (count > 0 && quietFor > 5000) {
+                return {attached: true, done: true, cards: readCards()};
+            }
+            if (Date.now() >= deadline) {
+                return {attached: true, done: false, cards: readCards()};
+            }
+            if (count > 0) {
+                if (more) {
+                    more.scrollIntoView({block: "end"});
+                }
+                window.scrollTo(0, document.documentElement.scrollHeight);
+            }
+            await pause(200);
+        }
+    `;
+}
+
+function runCatalogueScript(expectedUrl, wantedCount, adoptPage) {
+    catalogueState = executeJsScript({
+        "code": "const expectedUrl = " + jsonEncode(expectedUrl) + "; const wanted = " + parseString(wantedCount) + "; const adopt = " + jsonEncode(adoptPage) + ";" + catalogueScript()
+    });
+    if (catalogueState == null) {
+        return null;
+    }
+    if (catalogueState["cards"] == null) {
+        return null;
+    }
+    return catalogueState;
+}
+
+function catalogueComplete(completeState, completeWanted) {
+    if (completeState == null) {
+        return false;
+    }
+    if (completeState["attached"] != true) {
+        return false;
+    }
+    if (completeState["done"] == true) {
+        return true;
+    }
+    return completeState["cards"].length >= completeWanted;
+}
+
+function readCatalogue(listUrl, listWanted, listPage) {
+    listState = null;
+    if (listPage > 1) {
+        listState = runCatalogueScript(listUrl, listWanted, false);
+    }
+    if (listState == null || listState["attached"] != true) {
+        listResponse = loadSitePage(listUrl);
+        if (checkPageStatus(listResponse, "catalogue page " + parseString(listPage), false) == false) {
+            return [];
+        }
+        listState = runCatalogueScript(listUrl, listWanted, true);
+    }
+    scrollRounds = 3 + listPage / 4;
+    for (round = 0; round < scrollRounds; round = round + 1) {
+        if (catalogueComplete(listState, listWanted)) {
+            continue;
+        }
+        nextState = runCatalogueScript(listUrl, listWanted, false);
+        if (nextState != null) {
+            listState = nextState;
+        }
+    }
+    if (listState == null) {
+        throwSourceError("sourceDown", "anihub.in.ua did not render the catalogue");
+    }
+    listCards = listState["cards"];
+    if (listCards.isEmpty && listState["done"] != true && listPage == 1) {
+        throwSourceError("sourceDown", "anihub.in.ua did not render the catalogue");
+    }
+    return listCards;
+}
+
+function ongoingStatus() {
+    ongoing = null;
+    try {
+        ongoing = statusOngoing();
+    } catch (e) {
+        ongoing = null;
+    }
+    if (ongoing == null) {
+        ongoing = statusUndefined();
+    }
+    return ongoing;
+}
+
+function titleStatusOf(siteStatus) {
+    if (siteStatus == "ongoing") {
+        return ongoingStatus();
+    }
+    if (siteStatus == "completed") {
+        return statusReleased();
+    }
+    if (siteStatus == "announced") {
+        return statusAnnounce();
+    }
+    if (siteStatus == "dropped") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    pageNumber = page;
+    if (pageNumber == null || pageNumber < 1) {
+        pageNumber = 1;
+    }
+    galleryUrl = buildCatalogueUrl(query, filters, feed);
+    wantedCount = pageNumber * cataloguePageSize();
+    firstIndex = wantedCount - cataloguePageSize();
+    cards = readCatalogue(galleryUrl, wantedCount, pageNumber);
+    items = [];
+    for (ci = firstIndex; ci < cards.length; ci = ci + 1) {
+        if (ci >= wantedCount) {
+            continue;
+        }
+        card = cards[ci];
+        cardUid = card["uid"];
+        cardTitle = card["title"];
+        cardCover = card["cover"];
+        cardSubtitle = card["original"];
+        if (cardSubtitle == "") {
+            cardSubtitle = null;
+        }
+        items.push(buildGallery({
+            "uid": cardUid,
+            "title": cardTitle,
+            "cover": cardCover,
+            "data": {"cover": cardCover, "title": cardTitle},
+            "status": titleStatusOf(card["status"]),
+            "subtitle": cardSubtitle,
+            "year": card["year"],
+            "rating": card["rating"]
+        }));
+    }
+    return items;
+}
+
+function readGroupPreferences() {
+    preferredPlayer = getPreference("preferredPlayer");
+    if (preferredPlayer == null || preferredPlayer == "") {
+        preferredPlayer = "auto";
+    }
+    preferredDubsText = getPreference("preferredDubs");
+    if (preferredDubsText == null) {
+        preferredDubsText = "";
+    }
+    dubNames = [];
+    dubParts = parseString(preferredDubsText).split(",");
+    for (d = 0; d < dubParts.length; d = d + 1) {
+        dubName = dubParts[d].trim().toLowerCase();
+        if (dubName != "") {
+            dubNames.push(dubName);
+        }
+    }
+    return {"player": preferredPlayer, "dubs": dubNames};
+}
+
+function titleStateScript() {
+    return `
+        const deadline = Date.now() + 6000;
+        const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const players = [
+            {key: "fenix", label: "Fenix"},
+            {key: "ashdi", label: "Ashdi"},
+            {key: "moonanime", label: "MoonAnime"}
+        ];
+        const playerOrder = players.map((player) => player.key);
+        const kindOrder = ["dub", "sub", "original"];
+        const clean = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+        const finite = (value) => {
+            if (value === null || value === undefined || value === "") {
+                return null;
+            }
+            const parsed = Number(value);
+            return isFinite(parsed) ? parsed : null;
+        };
+        const absolute = (value) => {
+            const text = clean(value);
+            if (text.indexOf("//") === 0) {
+                return "https:" + text;
+            }
+            if (text.indexOf("/") === 0) {
+                return location.origin + text;
+            }
+            return text;
+        };
+        const rootFiber = () => {
+            const host = document.body;
+            if (!host) {
+                return null;
+            }
+            const key = Object.keys(host).find((name) => name.indexOf("__reactFiber$") === 0);
+            let fiber = key ? host[key] : null;
+            while (fiber && fiber.return) {
+                fiber = fiber.return;
+            }
+            return fiber;
+        };
+        const scan = () => {
+            const found = {anime: null, player: null};
+            const root = rootFiber();
+            const stack = root ? [root] : [];
+            let visited = 0;
+            while (stack.length > 0 && visited < 20000) {
+                const node = stack.pop();
+                visited++;
+                const props = node.memoizedProps;
+                if (props && typeof props === "object" && !Array.isArray(props)) {
+                    if (!found.player && Object.prototype.hasOwnProperty.call(props, "episodeSources") && props.episodeSources) {
+                        found.player = props;
+                    }
+                    if (!found.anime && props.anime && typeof props.anime === "object" && props.anime.id && "title_ukrainian" in props.anime) {
+                        found.anime = props.anime;
+                    }
+                }
+                if (found.player && found.anime) {
+                    break;
+                }
+                if (node.sibling) {
+                    stack.push(node.sibling);
+                }
+                if (node.child) {
+                    stack.push(node.child);
+                }
+            }
+            return found;
+        };
+        const nameOf = (value) => {
+            if (typeof value === "string") {
+                return clean(value);
+            }
+            if (value && typeof value === "object") {
+                return clean(value.name_ukrainian || value.title || value.name || "");
+            }
+            return "";
+        };
+        const decodeEntities = (value) => {
+            const box = document.createElement("textarea");
+            box.innerHTML = value;
+            return box.value;
+        };
+        const describeText = (value) => decodeEntities(String(value || "")
+            .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<\/p>/gi, "\n")
+            .replace(/<[^>]+>/g, ""))
+            .replace(/~!|!~/g, "")
+            .replace(/\r/g, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+        const describe = (anime) => {
+            const title = clean(anime.title_ukrainian || anime.title_english || anime.title_original || "");
+            const alternatives = [];
+            const addAlternative = (value) => {
+                const text = nameOf(value);
+                if (text && text !== title && alternatives.indexOf(text) < 0) {
+                    alternatives.push(text);
+                }
+            };
+            addAlternative(anime.title_original);
+            addAlternative(anime.title_english);
+            for (const alternative of Array.isArray(anime.alternative_titles) ? anime.alternative_titles : []) {
+                addAlternative(alternative);
+            }
+            const tags = [];
+            for (const genre of Array.isArray(anime.genres) ? anime.genres : []) {
+                const name = nameOf(genre);
+                if (name && tags.indexOf(name) < 0) {
+                    tags.push(name);
+                }
+            }
+            const studios = [];
+            for (const studio of Array.isArray(anime.animation_studios) ? anime.animation_studios : []) {
+                const name = nameOf(studio);
+                if (name && studios.indexOf(name) < 0) {
+                    studios.push(name);
+                }
+            }
+            return {
+                title: title,
+                alternatives: alternatives,
+                description: describeText(anime.description),
+                tags: tags,
+                studios: studios,
+                status: anime.status || "",
+                year: finite(anime.year),
+                rating: finite(anime.site_rating) || finite(anime.rating),
+                poster: absolute(anime.poster_url || "")
+            };
+        };
+        const kindOf = (entry) => {
+            const voice = String(entry.track_kind || entry.voice_type || "").toLowerCase();
+            const name = clean(entry.display_name || entry.studio_name || "");
+            if (voice === "original") {
+                return "original";
+            }
+            if (voice.indexOf("sub") === 0 || /^субтитр/i.test(name)) {
+                return "sub";
+            }
+            return "dub";
+        };
+        const dubOf = (entry, kind, playerLabel) => {
+            const name = clean(entry.display_name || entry.studio_name || "");
+            if (kind === "original") {
+                return name && name !== "Оригінал" ? "Оригінал · " + name : "Оригінал";
+            }
+            if (kind === "sub" && name && !/субтитр/i.test(name)) {
+                return "Субтитри · " + name;
+            }
+            return name || playerLabel;
+        };
+        const sourceOf = (playerKey, episode, entry) => {
+            if (playerKey === "fenix") {
+                return absolute(episode.vod_url || episode.embed_url || "");
+            }
+            if (playerKey === "ashdi") {
+                return absolute(episode.url || episode.embed_url || "");
+            }
+            return absolute(episode.embed_url || episode.iframe_url || episode.url || "");
+        };
+        const formatNumber = (value) => String(value).replace(".", ",");
+        const episodeTitle = (number, title) => {
+            const text = clean(title);
+            const generic = !text || /^(серія|епізод|episode)\s*[\d.,]*$/i.test(text);
+            if (number === null) {
+                return text || "Серія";
+            }
+            const base = "Серія " + formatNumber(number);
+            return generic ? base : base + ": " + text;
+        };
+        const sortVideos = (videos) => videos
+            .map((video, index) => ({video, index}))
+            .sort((left, right) => {
+                const leftNumbered = left.video.number !== null;
+                const rightNumbered = right.video.number !== null;
+                if (leftNumbered !== rightNumbered) {
+                    return leftNumbered ? -1 : 1;
+                }
+                if (leftNumbered && left.video.number !== right.video.number) {
+                    return left.video.number - right.video.number;
+                }
+                return left.index - right.index;
+            })
+            .map((entry) => entry.video);
+        const dubRank = (dub) => {
+            const lower = dub.toLowerCase();
+            for (let index = 0; index < preferences.dubs.length; index++) {
+                if (lower.indexOf(preferences.dubs[index]) >= 0) {
+                    return index;
+                }
+            }
+            return preferences.dubs.length;
+        };
+        const playerRank = (playerKey) => {
+            if (preferences.player !== "auto" && preferences.player === playerKey) {
+                return 0;
+            }
+            return 1;
+        };
+        const buildGroups = (sources) => {
+            const groups = [];
+            for (const player of players) {
+                const entries = Array.isArray(sources[player.key]) ? sources[player.key] : [];
+                for (const entry of entries) {
+                    if (!entry || typeof entry !== "object") {
+                        continue;
+                    }
+                    const kind = kindOf(entry);
+                    const dub = dubOf(entry, kind, player.label);
+                    const season = finite(entry.season_number);
+                    const seen = new Set();
+                    const videos = [];
+                    for (const episode of Array.isArray(entry.episodes) ? entry.episodes : []) {
+                        if (!episode || typeof episode !== "object") {
+                            continue;
+                        }
+                        const src = sourceOf(player.key, episode, entry);
+                        if (!src || src.indexOf("http") !== 0 || seen.has(src)) {
+                            continue;
+                        }
+                        seen.add(src);
+                        let number = finite(episode.display_episode_number);
+                        if (number === null) {
+                            number = finite(episode.episode_number);
+                        }
+                        videos.push({
+                            src: src,
+                            title: episodeTitle(number, episode.title),
+                            number: number,
+                            season: season,
+                            dub: dub,
+                            player: player.key
+                        });
+                    }
+                    if (videos.length === 0) {
+                        continue;
+                    }
+                    groups.push({
+                        title: dub + " · " + player.label,
+                        dub: dub,
+                        player: player.key,
+                        kind: kind,
+                        index: groups.length,
+                        videos: sortVideos(videos)
+                    });
+                }
+            }
+            groups.sort((left, right) => {
+                const dubDelta = dubRank(left.dub) - dubRank(right.dub);
+                if (dubDelta !== 0) {
+                    return dubDelta;
+                }
+                const kindDelta = kindOrder.indexOf(left.kind) - kindOrder.indexOf(right.kind);
+                if (kindDelta !== 0) {
+                    return kindDelta;
+                }
+                const playerDelta = playerRank(left.player) - playerRank(right.player);
+                if (playerDelta !== 0) {
+                    return playerDelta;
+                }
+                return left.index - right.index;
+            });
+            const titleCounts = {};
+            for (const group of groups) {
+                titleCounts[group.title] = (titleCounts[group.title] || 0) + 1;
+            }
+            const titleSeen = {};
+            return groups.map((group) => {
+                let title = group.title;
+                if (titleCounts[title] > 1) {
+                    titleSeen[title] = (titleSeen[title] || 0) + 1;
+                    title = title + " (" + titleSeen[title] + ")";
+                }
+                return {title: title, dub: group.dub, player: group.player, videos: group.videos};
+            });
+        };
+        const stopPlayers = () => {
+            for (const frame of Array.from(document.querySelectorAll("iframe"))) {
+                try {
+                    frame.setAttribute("src", "about:blank");
+                } catch (e) {}
+            }
+            for (const media of Array.from(document.querySelectorAll("video, audio"))) {
+                try {
+                    media.pause();
+                } catch (e) {}
+            }
+        };
+        const missing = () => /не знайдено/i.test(document.title || "");
+        let found = {anime: null, player: null};
+        for (;;) {
+            try {
+                found = scan();
+            } catch (e) {
+                found = {anime: null, player: null};
+            }
+            const player = found.player;
+            if (found.anime && player && !player.episodeSourcesLoading) {
+                const result = {
+                    ready: true,
+                    missing: false,
+                    error: player.episodeSourcesError ? String(player.episodeSourcesError) : "",
+                    details: describe(found.anime),
+                    groups: buildGroups(player.episodeSources)
+                };
+                stopPlayers();
+                return result;
+            }
+            if (!found.anime && missing()) {
+                return {ready: true, missing: true, error: "", details: null, groups: []};
+            }
+            if (Date.now() >= deadline) {
+                return {
+                    ready: false,
+                    missing: false,
+                    error: "",
+                    details: found.anime ? describe(found.anime) : null,
+                    groups: []
+                };
+            }
+            await pause(150);
+        }
+    `;
+}
+
+function readTitleState() {
+    titlePreferences = readGroupPreferences();
+    titleCode = "const preferences = " + jsonEncode(titlePreferences) + ";" + titleStateScript();
+    stateResult = null;
+    for (titleAttempt = 0; titleAttempt < 3; titleAttempt = titleAttempt + 1) {
+        if (stateResult != null) {
+            if (stateResult["ready"] == true) {
+                continue;
+            }
+        }
+        attemptState = executeJsScript({"code": titleCode});
+        if (attemptState != null) {
+            stateResult = attemptState;
+        }
+    }
+    return stateResult;
+}
+
+function getConcrete(uid, data) {
+    titleUid = uid;
+    titleData = data;
+    if (titleData == null) {
+        titleData = {};
+    }
+    titlePageUrl = siteOrigin() + "/anime/" + titleUid;
+    titleResponse = loadSitePage(titlePageUrl);
+    checkPageStatus(titleResponse, titleUid, true);
+    titleState = readTitleState();
+    if (titleState == null) {
+        throwSourceError("sourceDown", "anihub.in.ua did not render the title page (" + titleUid + ")");
+    }
+    if (titleState["missing"] == true) {
+        throwSourceError("notFound", titleUid + " is no longer on anihub.in.ua");
+    }
+    titleDetails = titleState["details"];
+    if (titleDetails == null) {
+        throwSourceError("sourceDown", "anihub.in.ua did not render the title page (" + titleUid + ")");
+    }
+
+    episodeGroups = [];
+    rawGroups = titleState["groups"];
+    if (rawGroups == null) {
+        rawGroups = [];
+    }
+    for (gi = 0; gi < rawGroups.length; gi = gi + 1) {
+        rawGroup = rawGroups[gi];
+        rawVideos = rawGroup["videos"];
+        if (rawVideos == null) {
+            continue;
+        }
+        groupVideos = [];
+        for (vi = 0; vi < rawVideos.length; vi = vi + 1) {
+            rawVideo = rawVideos[vi];
+            episodeSrc = rawVideo["src"];
+            groupVideos.push(buildAnimeVideo({
+                "uid": episodeSrc,
+                "src": episodeSrc,
+                "title": rawVideo["title"],
+                "timestamp": null,
+                "type": typeIframe(),
+                "data": rawVideo,
+                "number": rawVideo["number"],
+                "season": rawVideo["season"]
+            }));
+        }
+        if (groupVideos.isEmpty) {
+            continue;
+        }
+        episodeGroups.push(buildAnimeVideoGroup({
+            "title": rawGroup["title"],
+            "videos": groupVideos
+        }));
+    }
+
+    concreteTitle = titleDetails["title"];
+    if (concreteTitle == null || concreteTitle == "") {
+        concreteTitle = titleData["title"];
+    }
+    if (concreteTitle == null) {
+        concreteTitle = titleUid;
+    }
+    concreteCover = titleDetails["poster"];
+    if (concreteCover == null || concreteCover == "") {
+        concreteCover = titleData["cover"];
+    }
+    if (concreteCover == null) {
+        concreteCover = "";
+    }
+    concreteDescription = titleDetails["description"];
+    if (concreteDescription == null) {
+        concreteDescription = "";
+    }
+    concreteTags = titleDetails["tags"];
+    if (concreteTags == null) {
+        concreteTags = [];
+    }
+    concreteAlternatives = titleDetails["alternatives"];
+    if (concreteAlternatives == null) {
+        concreteAlternatives = [];
+    }
+    concreteStudios = titleDetails["studios"];
+    if (concreteStudios == null) {
+        concreteStudios = [];
+    }
+
+    return buildConcrete({
+        "uid": titleUid,
+        "cover": concreteCover,
+        "title": concreteTitle,
+        "alternativeTitles": concreteAlternatives,
+        "status": titleStatusOf(titleDetails["status"]),
+        "groups": episodeGroups,
+        "tags": concreteTags,
+        "description": concreteDescription,
+        "authors": concreteStudios,
+        "year": titleDetails["year"],
+        "rating": titleDetails["rating"],
+        "url": titlePageUrl
+    });
+}
+
+function getVideoSources(uid, src, data) {
+    sources = [];
+    try {
+        embedUrl = normalizeEmbedUrl(src);
+        host = embedHost(embedUrl);
+        if (host == "") {
+            sources = [];
+        } else if (host.contains("fenixplay.")) {
+            sources = resolveFenixSources(embedUrl);
+        } else if (host.contains("moonanime.")) {
+            sources = resolveMoonanimeSources(embedUrl);
+        } else if (host.contains("ashdi.")) {
+            sources = resolvePlayerjsSources(embedUrl);
+        } else {
+            sources = [];
+        }
+    } catch (e) {
+        sources = [];
+    }
+    if (sources == null) {
+        sources = [];
+    }
+    return labelSourcesWithDub(sources, data);
+}
+
+function labelSourcesWithDub(unlabeledSources, episodeData) {
+    episodeDub = null;
+    if (episodeData != null) {
+        episodeDub = episodeData["dub"];
+    }
+    if (episodeDub == null || episodeDub == "") {
+        return unlabeledSources;
+    }
+    for (ls = 0; ls < unlabeledSources.length; ls = ls + 1) {
+        unlabeledSources[ls]["audioLabel"] = episodeDub;
+    }
+    return unlabeledSources;
+}
+
+function normalizeEmbedUrl(rawSrc) {
+    if (rawSrc == null) {
+        return "";
+    }
+    cleanedSrc = parseString(rawSrc).trim();
+    if (cleanedSrc.startsWith("//")) {
+        cleanedSrc = "https:" + cleanedSrc;
+    }
+    if (cleanedSrc.startsWith("https://http://")) {
+        cleanedSrc = cleanedSrc.substring(8);
+    }
+    if (cleanedSrc.startsWith("https://https://")) {
+        cleanedSrc = cleanedSrc.substring(8);
+    }
+    return cleanedSrc;
+}
+
+function embedHost(pageUrl) {
+    if (pageUrl.contains("://") == false) {
+        return "";
+    }
+    afterScheme = pageUrl.split("://")[1];
+    return afterScheme.split("/")[0].split("?")[0].toLowerCase();
+}
+
+function fetchEmbedPage(pageUrl) {
+    pageResponse = httpGet({
+        "url": pageUrl,
+        "params": {},
+        "paths": {},
+        "headers": {"Referer": siteOrigin() + "/"},
+        "throughWeb": false
+    });
+    if (pageResponse["statusCode"] != 200) {
+        return null;
+    }
+    return pageResponse["body"];
+}
+
+function textAfter(haystack, marker) {
+    if (haystack == null) {
+        return null;
+    }
+    markerIndex = haystack.indexOf(marker);
+    if (markerIndex < 0) {
+        return null;
+    }
+    return haystack.substring(markerIndex + marker.length);
+}
+
+function readQuotedValue(rawText) {
+    if (rawText == null) {
+        return null;
+    }
+    trimmedText = rawText.trimLeft();
+    if (trimmedText.length < 2) {
+        return null;
+    }
+    quoteChar = trimmedText.substring(0, 1);
+    if (quoteChar != '"' && quoteChar != "'" && quoteChar != "`") {
+        return null;
+    }
+    quotedRest = trimmedText.substring(1);
+    closingIndex = quotedRest.indexOf(quoteChar);
+    if (closingIndex < 0) {
+        return null;
+    }
+    return quotedRest.substring(0, closingIndex).replaceAll(`\/`, "/").trim();
+}
+
+function guessStreamFormat(streamUrl) {
+    streamPath = streamUrl.toLowerCase().split("?")[0];
+    if (streamPath.endsWith(".m3u8")) {
+        return "hls";
+    }
+    if (streamPath.endsWith(".mpd")) {
+        return "dash";
+    }
+    if (streamPath.endsWith(".mp4")) {
+        return "mp4";
+    }
+    if (streamPath.contains("m3u8")) {
+        return "hls";
+    }
+    return null;
+}
+
+function guessSubtitleFormat(subtitleUrl) {
+    subtitlePath = subtitleUrl.toLowerCase().split("?")[0];
+    if (subtitlePath.endsWith(".srt")) {
+        return "srt";
+    }
+    return "vtt";
+}
+
+function guessSubtitleLanguage(subtitleLabel) {
+    lowerLabel = subtitleLabel.toLowerCase();
+    if (lowerLabel.contains("укр") || lowerLabel.contains("ukr")) {
+        return "uk";
+    }
+    if (lowerLabel.contains("англ") || lowerLabel.contains("eng")) {
+        return "en";
+    }
+    if (lowerLabel.contains("япон") || lowerLabel.contains("jap")) {
+        return "ja";
+    }
+    return null;
+}
+
+function splitLabeledLink(labeledEntry) {
+    entryText = labeledEntry.trim();
+    entryLabel = "";
+    if (entryText.startsWith("[")) {
+        closingBracket = entryText.indexOf("]");
+        if (closingBracket > 0) {
+            entryLabel = entryText.substring(1, closingBracket).trim();
+            entryText = entryText.substring(closingBracket + 1).trim();
+        }
+    }
+    entryLink = entryText.split(" or ")[0].trim();
+    if (entryLink.startsWith("//")) {
+        entryLink = "https:" + entryLink;
+    }
+    return {"label": entryLabel, "link": entryLink};
+}
+
+function parsePlayerjsSubtitles(subtitleValue, subtitleHeaders) {
+    parsedSubtitles = [];
+    if (subtitleValue == null) {
+        return parsedSubtitles;
+    }
+    subtitleEntries = subtitleValue.split(",");
+    for (s = 0; s < subtitleEntries.length; s = s + 1) {
+        subtitleEntry = splitLabeledLink(subtitleEntries[s]);
+        subtitleLink = subtitleEntry["link"];
+        if (subtitleLink.startsWith("http") == false) {
+            continue;
+        }
+        subtitleLabel = subtitleEntry["label"];
+        if (subtitleLabel == "") {
+            subtitleLabel = "Subtitles";
+        }
+        parsedSubtitles.push({
+            "url": subtitleLink,
+            "label": subtitleLabel,
+            "language": guessSubtitleLanguage(subtitleLabel),
+            "format": guessSubtitleFormat(subtitleLink),
+            "headers": subtitleHeaders
+        });
+    }
+    return parsedSubtitles;
+}
+
+function buildPlayerjsSources(fileValue, streamHeaders, streamSubtitles) {
+    playerjsSources = [];
+    fileEntries = [fileValue];
+    if (fileValue.startsWith("[")) {
+        fileEntries = fileValue.split(",");
+    }
+    for (f = 0; f < fileEntries.length; f = f + 1) {
+        fileEntry = splitLabeledLink(fileEntries[f]);
+        streamLink = fileEntry["link"];
+        if (streamLink.startsWith("http") == false) {
+            continue;
+        }
+        streamLabel = fileEntry["label"];
+        if (streamLabel == "") {
+            streamLabel = "Auto";
+        }
+        playerjsSources.push({
+            "url": streamLink,
+            "quality": streamLabel,
+            "format": guessStreamFormat(streamLink),
+            "headers": streamHeaders,
+            "subtitles": streamSubtitles
+        });
+    }
+    return playerjsSources;
+}
+
+function resolvePlayerjsSources(playerPageUrl) {
+    playerPage = fetchEmbedPage(playerPageUrl);
+    playerConfig = textAfter(playerPage, "new Playerjs(");
+    if (playerConfig == null) {
+        return [];
+    }
+    fileText = textAfter(playerConfig, "file:");
+    if (fileText == null) {
+        fileText = textAfter(playerConfig, '"file":');
+    }
+    playerFile = readQuotedValue(fileText);
+    if (playerFile == null || playerFile == "") {
+        return [];
+    }
+    if (playerFile.startsWith("[{") || playerFile.startsWith("{")) {
+        return [];
+    }
+    playerHeaders = {"Referer": "https://" + embedHost(playerPageUrl) + "/"};
+    subtitleText = textAfter(playerConfig, "subtitle:");
+    if (subtitleText == null) {
+        subtitleText = textAfter(playerConfig, '"subtitle":');
+    }
+    playerSubtitles = parsePlayerjsSubtitles(readQuotedValue(subtitleText), playerHeaders);
+    return buildPlayerjsSources(playerFile, playerHeaders, playerSubtitles);
+}
+
+function decodeInlineJson(pageText, marker, terminator) {
+    markedText = textAfter(pageText, marker);
+    if (markedText == null) {
+        return null;
+    }
+    braceIndex = markedText.indexOf("{");
+    if (braceIndex < 0) {
+        return null;
+    }
+    jsonText = markedText.substring(braceIndex).split(terminator)[0].trim();
+    if (jsonText.endsWith(";")) {
+        jsonText = jsonText.substring(0, jsonText.length - 1);
+    }
+    return jsonDecode(jsonText);
+}
+
+function authorizeFenixUrl(mediaUrl, mediaAccess) {
+    if (mediaUrl == null) {
+        return null;
+    }
+    if (mediaAccess == null) {
+        return mediaUrl;
+    }
+    accessOrigin = mediaAccess["origin"];
+    accessToken = mediaAccess["token"];
+    if (accessOrigin == null || accessToken == null) {
+        return mediaUrl;
+    }
+    authorizedUrl = mediaUrl;
+    if (authorizedUrl.startsWith("/")) {
+        authorizedUrl = accessOrigin + authorizedUrl;
+    }
+    if (authorizedUrl.startsWith(accessOrigin + "/") == false) {
+        return authorizedUrl;
+    }
+    separator = "?";
+    if (authorizedUrl.contains("?")) {
+        separator = "&";
+    }
+    return authorizedUrl + separator + "token=" + accessToken;
+}
+
+function readFenixSubtitles(fenixEpisode, fenixAccess, fenixHeaders) {
+    fenixSubtitles = [];
+    rawSubtitles = fenixEpisode["subtitles"];
+    if (rawSubtitles == null) {
+        return fenixSubtitles;
+    }
+    for (t = 0; t < rawSubtitles.length; t = t + 1) {
+        rawSubtitle = rawSubtitles[t];
+        rawSubtitleUrl = rawSubtitle["url"];
+        if (rawSubtitleUrl == null) {
+            continue;
+        }
+        subtitleOffset = rawSubtitle["offset_ms"];
+        if (subtitleOffset != null) {
+            if (subtitleOffset != 0) {
+                continue;
+            }
+        }
+        fenixLabel = rawSubtitle["label"];
+        if (fenixLabel == null) {
+            fenixLabel = "Subtitles";
+        }
+        fenixSubtitles.push({
+            "url": authorizeFenixUrl(rawSubtitleUrl, fenixAccess),
+            "label": fenixLabel,
+            "language": rawSubtitle["language"],
+            "format": guessSubtitleFormat(rawSubtitleUrl),
+            "headers": fenixHeaders
+        });
+    }
+    return fenixSubtitles;
+}
+
+function findFenixTrack(trackedEpisode, trackPageUrl) {
+    episodeTracks = trackedEpisode["tracks"];
+    if (episodeTracks == null) {
+        return null;
+    }
+    for (ft = 0; ft < episodeTracks.length; ft = ft + 1) {
+        trackVodUrl = episodeTracks[ft]["vod_url"];
+        if (trackVodUrl != null && trackVodUrl != "") {
+            if (trackPageUrl.contains(trackVodUrl)) {
+                return episodeTracks[ft];
+            }
+        }
+    }
+    return null;
+}
+
+function validSkipInterval(intervalStart, intervalEnd) {
+    if (intervalStart == null || intervalEnd == null) {
+        return false;
+    }
+    if (intervalStart < 0) {
+        return false;
+    }
+    return intervalEnd > intervalStart;
+}
+
+function readFenixSkipSegment(markedEpisode, markedTrack, fenixKind) {
+    segmentStart = markedEpisode[fenixKind + "_start"];
+    segmentEnd = markedEpisode[fenixKind + "_end"];
+    segmentTrusted = true;
+    if (markedEpisode[fenixKind + "_disputed"] == true || markedEpisode[fenixKind + "_unverified"] == true) {
+        segmentTrusted = false;
+    }
+    if (markedEpisode[fenixKind + "_source"] == "conflict") {
+        segmentTrusted = false;
+    }
+    if (markedTrack != null) {
+        trackSkipMarkers = markedTrack["skip_markers"];
+        if (trackSkipMarkers != null) {
+            trackInterval = trackSkipMarkers[fenixKind];
+            if (trackInterval != null) {
+                if (trackInterval["start"] == null && trackInterval["end"] == null) {
+                    segmentStart = null;
+                    segmentEnd = null;
+                } else if (validSkipInterval(trackInterval["start"], trackInterval["end"])) {
+                    segmentStart = trackInterval["start"];
+                    segmentEnd = trackInterval["end"];
+                    segmentTrusted = trackInterval["source"] != "track_review_pending";
+                }
+            }
+        }
+    }
+    if (segmentTrusted == false) {
+        return null;
+    }
+    if (validSkipInterval(segmentStart, segmentEnd) == false) {
+        return null;
+    }
+    return {"start": segmentStart, "end": segmentEnd};
+}
+
+function readFenixSkipMarkers(skipEpisode, skipTrack) {
+    fenixSkip = [];
+    fenixIntro = readFenixSkipSegment(skipEpisode, skipTrack, "intro");
+    if (fenixIntro != null) {
+        fenixSkip.push({"type": "intro", "start": fenixIntro["start"], "end": fenixIntro["end"]});
+    }
+    fenixOutro = readFenixSkipSegment(skipEpisode, skipTrack, "ending");
+    if (fenixOutro != null) {
+        fenixSkip.push({"type": "outro", "start": fenixOutro["start"], "end": fenixOutro["end"]});
+    }
+    return fenixSkip;
+}
+
+function resolveFenixSources(fenixPageUrl) {
+    fenixPage = fetchEmbedPage(fenixPageUrl);
+    if (fenixPage == null) {
+        return [];
+    }
+    fenixOrigin = "https://" + embedHost(fenixPageUrl);
+    mediaAccessInfo = decodeInlineJson(fenixPage, "window.FENIX_MEDIA_ACCESS", "</script>");
+    inlinePlaylist = decodeInlineJson(fenixPage, "window.FENIX_PLAYLIST", "(function");
+    if (inlinePlaylist == null) {
+        return [];
+    }
+    playbackInfo = inlinePlaylist["playback"];
+    if (playbackInfo == null) {
+        return [];
+    }
+    playbackToken = playbackInfo["token"];
+    playlistEpisodes = inlinePlaylist["episodes"];
+    if (playlistEpisodes == null || playlistEpisodes.isEmpty) {
+        playlistEpisodes = inlinePlaylist["mini_episodes"];
+    }
+    if (playbackToken == null || playlistEpisodes == null || playlistEpisodes.isEmpty) {
+        return [];
+    }
+    playlistEpisode = playlistEpisodes[0];
+    episodeEdition = playlistEpisode["edition"];
+    if (episodeEdition == null) {
+        episodeEdition = "tv";
+    }
+    detailResponse = httpGet({
+        "url": fenixOrigin + "/api/playback/" + inlinePlaylist["slug"] + "/episodes/" + parseString(episodeEdition) + "/" + parseString(playlistEpisode["number"]),
+        "params": {},
+        "paths": {},
+        "headers": {"X-Fenix-Playback": playbackToken, "Referer": fenixPageUrl},
+        "throughWeb": false
+    });
+    if (detailResponse["statusCode"] != 200) {
+        return [];
+    }
+    detailEpisode = jsonDecode(detailResponse["body"])["episode"];
+    if (detailEpisode == null) {
+        return [];
+    }
+    fenixStreamHeaders = {"Referer": fenixOrigin + "/"};
+    episodeSubtitles = readFenixSubtitles(detailEpisode, mediaAccessInfo, fenixStreamHeaders);
+    fenixTrack = findFenixTrack(detailEpisode, fenixPageUrl);
+    episodeSkip = readFenixSkipMarkers(detailEpisode, fenixTrack);
+    fenixAudioLabel = null;
+    if (fenixTrack != null) {
+        fenixAudioLabel = fenixTrack["label"];
+    }
+    fenixSources = [];
+    masterUrl = authorizeFenixUrl(detailEpisode["hls_master_url"], mediaAccessInfo);
+    if (masterUrl != null) {
+        fenixSources.push({
+            "url": masterUrl,
+            "quality": "Auto",
+            "format": "hls",
+            "headers": fenixStreamHeaders,
+            "subtitles": episodeSubtitles,
+            "skip": episodeSkip,
+            "audioLabel": fenixAudioLabel
+        });
+    }
+    rawAvcUrl = detailEpisode["cast_avc_url"];
+    episodeTracks = detailEpisode["tracks"];
+    if (rawAvcUrl == null && episodeTracks != null) {
+        if (episodeTracks.isEmpty == false) {
+            rawAvcUrl = episodeTracks[0]["cast_avc_url"];
+        }
+    }
+    avcUrl = authorizeFenixUrl(rawAvcUrl, mediaAccessInfo);
+    if (avcUrl != null) {
+        if (avcUrl != masterUrl) {
+            fenixSources.push({
+                "url": avcUrl,
+                "quality": "Auto (H.264)",
+                "format": "hls",
+                "headers": fenixStreamHeaders,
+                "subtitles": episodeSubtitles,
+                "skip": episodeSkip,
+                "audioLabel": fenixAudioLabel
+            });
+        }
+    }
+    return fenixSources;
+}
+
+function moonanimeSlug(moonEmbedUrl) {
+    if (moonEmbedUrl.contains("/iframe/") == false) {
+        return "";
+    }
+    return moonEmbedUrl.split("/iframe/")[1].split("/")[0].split("?")[0];
+}
+
+function moonanimeStateScript() {
+    return `
+        const onEmbedPage = () => location.hostname.indexOf("moonanime.") >= 0 && location.pathname.indexOf(expectedSlug) >= 0;
+        const deadline = Date.now() + 5000;
+        const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const isLink = (value) => typeof value === "string" && value.indexOf("http") === 0;
+        const requested = () => {
+            try {
+                return performance.getEntriesByType("resource").map((entry) => entry.name).filter(isLink);
+            } catch (e) {
+                return [];
+            }
+        };
+        const readStreams = () => {
+            const streams = [];
+            const listed = Array.isArray(window.videoSources) ? window.videoSources : [];
+            for (const entry of listed) {
+                if (entry && isLink(entry.u)) {
+                    streams.push({url: entry.u, quality: typeof entry.q === "string" ? entry.q : ""});
+                }
+            }
+            if (streams.length === 0 && isLink(window.rawVideo)) {
+                streams.push({url: window.rawVideo, quality: ""});
+            }
+            if (streams.length > 0) {
+                return streams;
+            }
+            const playlists = requested().filter((name) => name.split("?")[0].toLowerCase().endsWith(".m3u8"));
+            const master = playlists.find((name) => name.indexOf("/quality/") < 0) || playlists[0];
+            if (master) {
+                streams.push({url: master, quality: ""});
+            }
+            return streams;
+        };
+        const readSubtitles = () => {
+            const subtitles = [];
+            const tracks = Array.isArray(window.subtitleTracks) ? window.subtitleTracks : [];
+            for (const track of tracks) {
+                if (track && isLink(track.u)) {
+                    subtitles.push({url: track.u, label: typeof track.l === "string" ? track.l : ""});
+                }
+            }
+            return subtitles;
+        };
+        const skipKinds = {opening: "intro", mixed_opening: "intro", ending: "outro", mixed_ending: "outro", recap: "recap"};
+        const readSkip = () => {
+            const segments = Array.isArray(window.__skipSegments) ? window.__skipSegments : [];
+            const skip = [];
+            for (const segment of segments) {
+                const kind = segment ? skipKinds[segment.t] : null;
+                if (kind && isFinite(segment.s) && isFinite(segment.e) && segment.s >= 0 && segment.e > segment.s) {
+                    skip.push({type: kind, start: Number(segment.s), end: Number(segment.e)});
+                }
+            }
+            return skip;
+        };
+        const stopPlayer = () => {
+            try {
+                if (window.player && typeof window.player.api === "function") {
+                    window.player.api("stop");
+                }
+            } catch (e) {}
+            try {
+                if (window.player && typeof window.player.dispose === "function") {
+                    window.player.dispose();
+                }
+            } catch (e) {}
+            for (const media of Array.from(document.querySelectorAll("video, audio"))) {
+                try {
+                    media.pause();
+                } catch (e) {}
+            }
+        };
+        if (onEmbedPage() == false) {
+            return {ready: false, streams: [], subtitles: [], skip: []};
+        }
+        while (Date.now() < deadline) {
+            const streams = readStreams();
+            if (streams.length > 0) {
+                const subtitles = readSubtitles();
+                const skip = readSkip();
+                stopPlayer();
+                return {ready: true, streams: streams, subtitles: subtitles, skip: skip};
+            }
+            await pause(150);
+        }
+        return {ready: false, streams: [], subtitles: [], skip: []};
+    `;
+}
+
+function readMoonanimePlayerState(moonExpectedSlug) {
+    moonState = executeJsScript({"code": "const expectedSlug = " + jsonEncode(moonExpectedSlug) + ";" + moonanimeStateScript()});
+    if (moonState == null) {
+        return null;
+    }
+    if (moonState["ready"] != true) {
+        return null;
+    }
+    return moonState;
+}
+
+function readMoonanimeSubtitles(moonTracks, moonSubtitleHeaders) {
+    moonSubtitles = [];
+    if (moonTracks == null) {
+        return moonSubtitles;
+    }
+    for (m = 0; m < moonTracks.length; m = m + 1) {
+        moonTrack = moonTracks[m];
+        moonTrackUrl = moonTrack["url"];
+        moonTrackPath = moonTrackUrl.toLowerCase().split("?")[0];
+        if (moonTrackPath.endsWith(".ass") || moonTrackPath.endsWith(".ssa")) {
+            continue;
+        }
+        moonTrackLabel = moonTrack["label"];
+        if (moonTrackLabel == null || moonTrackLabel == "") {
+            moonTrackLabel = "Subtitles";
+        }
+        moonTrackLanguage = guessSubtitleLanguage(moonTrackLabel);
+        if (moonTrackLanguage == null && m == 0) {
+            moonTrackLanguage = "uk";
+        }
+        moonSubtitles.push({
+            "url": moonTrackUrl,
+            "label": moonTrackLabel,
+            "language": moonTrackLanguage,
+            "format": guessSubtitleFormat(moonTrackUrl),
+            "headers": moonSubtitleHeaders
+        });
+    }
+    return moonSubtitles;
+}
+
+function resolveMoonanimeSources(moonPageUrl) {
+    moonPageResponse = httpGet({
+        "url": moonPageUrl,
+        "params": {},
+        "paths": {},
+        "headers": {"Referer": siteOrigin() + "/"},
+        "throughWeb": true
+    });
+    if (moonPageResponse["statusCode"] != 200) {
+        return [];
+    }
+    moonExpectedSlug = moonanimeSlug(moonPageUrl);
+    moonPlayerState = null;
+    for (moonPoll = 0; moonPoll < 2; moonPoll = moonPoll + 1) {
+        if (moonPlayerState == null) {
+            moonPlayerState = readMoonanimePlayerState(moonExpectedSlug);
+        }
+    }
+    if (moonPlayerState == null) {
+        return [];
+    }
+    moonStreamHeaders = {
+        "Referer": "https://" + embedHost(moonPageUrl) + "/",
+        "Accept": "*/*",
+        "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8"
+    };
+    moonStreamSubtitles = readMoonanimeSubtitles(moonPlayerState["subtitles"], moonStreamHeaders);
+    moonSkip = moonPlayerState["skip"];
+    if (moonSkip == null) {
+        moonSkip = [];
+    }
+    moonStreams = moonPlayerState["streams"];
+    moonSources = [];
+    for (n = 0; n < moonStreams.length; n = n + 1) {
+        moonStream = moonStreams[n];
+        moonQuality = moonStream["quality"];
+        if (moonQuality == null || moonQuality == "") {
+            moonQuality = "Auto";
+        }
+        moonSources.push({
+            "url": moonStream["url"],
+            "quality": moonQuality,
+            "format": guessStreamFormat(moonStream["url"]),
+            "headers": moonStreamHeaders,
+            "subtitles": moonStreamSubtitles,
+            "skip": moonSkip
+        });
+    }
+    return moonSources;
+}
+
+function getImageHeaders(uid) {
+    return {};
+}
+
+function passProtector(body, headers, cookies) {
+    return null;
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}

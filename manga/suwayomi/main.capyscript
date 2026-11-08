@@ -1,0 +1,847 @@
+import "http";
+import "json";
+import "converter";
+import "manga_models";
+import "preferences";
+import "errors";
+import "storage";
+
+function preferenceText(preferenceKey) {
+    preferenceValue = getPreference(preferenceKey);
+    if (preferenceValue == null) {
+        return "";
+    }
+    return parseString(preferenceValue).trim();
+}
+
+function suwayomiServerUrl() {
+    serverUrl = preferenceText("serverUrl");
+    if (serverUrl == "") {
+        throwSourceError("loginRequired", "Enter your Suwayomi server address in the extension settings");
+    }
+    if (serverUrl.startsWith("http://") == false && serverUrl.startsWith("https://") == false) {
+        serverUrl = "http://" + serverUrl;
+    }
+    for (slashIndex = 0; slashIndex < 8; slashIndex = slashIndex + 1) {
+        if (serverUrl.endsWith("/")) {
+            serverUrl = serverUrl.substring(0, serverUrl.length - 1);
+        }
+    }
+    return serverUrl;
+}
+
+function sessionStorageKey(sessionServer, sessionUser) {
+    return "session|" + sessionServer + "|" + sessionUser;
+}
+
+function hasCredentials() {
+    return preferenceText("username") != "" && preferenceText("password") != "";
+}
+
+function authModeStorageKey(modeServer, modeUser) {
+    return "authmode|" + modeServer + "|" + modeUser;
+}
+
+function basicAuthHeaders() {
+    return {"Authorization": "Basic " + base64Encode(preferenceText("username") + ":" + preferenceText("password"))};
+}
+
+function suwayomiAuthHeaders() {
+    if (hasCredentials() == false) {
+        return {};
+    }
+    serverUrl = suwayomiServerUrl();
+    username = preferenceText("username");
+    storedToken = storageGet(sessionStorageKey(serverUrl, username));
+    if (storedToken != null && storedToken != "") {
+        return {"Authorization": "Bearer " + storedToken};
+    }
+    return basicAuthHeaders();
+}
+
+function rememberBasicAuth(rememberServer) {
+    rememberKey = authModeStorageKey(rememberServer, preferenceText("username"));
+    if (storageGet(rememberKey) == null) {
+        storageSet(rememberKey, "basic");
+    }
+    return null;
+}
+
+function probedAuthHeaders(probeServer) {
+    probeBody = jsonEncode({"query": "query { categories { nodes { id } } }", "variables": {}});
+    probeResponse = postToSuwayomi(probeServer, probeBody, graphqlHeaders(basicAuthHeaders()));
+    if (isUnauthorizedResponse(probeResponse) == false) {
+        rememberBasicAuth(probeServer);
+        return basicAuthHeaders();
+    }
+    if (asksForBasicAuth(probeResponse)) {
+        throwSourceError("loginRequired", "Suwayomi rejected the username or password; check them in the extension settings");
+    }
+    return {"Authorization": "Bearer " + signInWithUiLogin(probeServer)};
+}
+
+function postToSuwayomi(postServer, postBody, postHeaders) {
+    postResponse = null;
+    try {
+        postResponse = httpPost({
+            "url": postServer + "/api/graphql",
+            "params": {},
+            "paths": {},
+            "body": postBody,
+            "headers": postHeaders,
+            "throughWeb": false
+        });
+    } catch (postError) {
+        throwSourceError("sourceDown", "Can't reach Suwayomi at " + postServer + ": " + postError);
+    }
+    return postResponse;
+}
+
+function graphqlHeaders(authHeaders) {
+    requestHeaders = {"Accept": "application/json", "Content-Type": "application/json"};
+    authorizationValue = authHeaders["Authorization"];
+    if (authorizationValue != null) {
+        requestHeaders["Authorization"] = authorizationValue;
+    }
+    return requestHeaders;
+}
+
+function isUnauthorizedResponse(checkedResponse) {
+    if (checkedResponse["statusCode"] == 401 || checkedResponse["statusCode"] == 403) {
+        return true;
+    }
+    if (checkedResponse["statusCode"] != 200) {
+        return false;
+    }
+    checkedBody = checkedResponse["body"];
+    if (checkedBody.contains('"errors"') == false) {
+        return false;
+    }
+    return checkedBody.contains("UnauthorizedException") || checkedBody.contains(") : Unauthorized");
+}
+
+function asksForBasicAuth(challengeResponse) {
+    challengeHeaders = challengeResponse["headers"];
+    if (challengeHeaders == null) {
+        return false;
+    }
+    challengeValue = challengeHeaders["www-authenticate"];
+    if (challengeValue == null) {
+        return false;
+    }
+    return challengeValue.toLowerCase().contains("basic");
+}
+
+function signInWithUiLogin(loginServer) {
+    username = preferenceText("username");
+    loginBody = jsonEncode({
+        "query": "mutation ($input: LoginInput!) { login(input: $input) { accessToken } }",
+        "variables": {"input": {"username": username, "password": preferenceText("password")}}
+    });
+    loginResponse = postToSuwayomi(loginServer, loginBody, graphqlHeaders({}));
+    if (loginResponse["statusCode"] != 200) {
+        throwSourceError("loginRequired", "Suwayomi rejected the username or password; check them in the extension settings");
+    }
+    loginJson = jsonDecode(loginResponse["body"]);
+    loginData = loginJson["data"];
+    if (loginData == null || loginData["login"] == null) {
+        throwSourceError("loginRequired", "Suwayomi rejected the username or password; check them in the extension settings");
+    }
+    accessToken = loginData["login"]["accessToken"];
+    storageSet(sessionStorageKey(loginServer, username), accessToken, 270);
+    storageSet(authModeStorageKey(loginServer, username), "ui");
+    return accessToken;
+}
+
+function requestGraphql(queryText, queryVariables) {
+    serverUrl = suwayomiServerUrl();
+    requestBody = jsonEncode({"query": queryText, "variables": queryVariables});
+    sentHeaders = suwayomiAuthHeaders();
+    graphqlResponse = postToSuwayomi(serverUrl, requestBody, graphqlHeaders(sentHeaders));
+    if (isUnauthorizedResponse(graphqlResponse) == false && hasCredentials()) {
+        if (sentHeaders["Authorization"].startsWith("Basic ")) {
+            rememberBasicAuth(serverUrl);
+        }
+    }
+    if (isUnauthorizedResponse(graphqlResponse)) {
+        if (hasCredentials() == false) {
+            throwSourceError("loginRequired", "Suwayomi asks for a sign-in; enter the username and password in the extension settings");
+        }
+        storageRemove(sessionStorageKey(serverUrl, preferenceText("username")));
+        if (asksForBasicAuth(graphqlResponse)) {
+            throwSourceError("loginRequired", "Suwayomi rejected the username or password; check them in the extension settings");
+        }
+        freshToken = signInWithUiLogin(serverUrl);
+        graphqlResponse = postToSuwayomi(serverUrl, requestBody, graphqlHeaders({"Authorization": "Bearer " + freshToken}));
+        if (isUnauthorizedResponse(graphqlResponse)) {
+            throwSourceError("loginRequired", "Suwayomi rejected the username or password; check them in the extension settings");
+        }
+    }
+    responseStatus = graphqlResponse["statusCode"];
+    if (responseStatus == 404) {
+        throwSourceError("sourceDown", "No Suwayomi server answers at " + serverUrl + "; check the server address");
+    }
+    if (responseStatus == 429) {
+        throwSourceError("rateLimited", "Suwayomi is rate limiting requests");
+    }
+    if (responseStatus >= 500) {
+        throwSourceError("sourceDown", "Suwayomi answered HTTP " + parseString(responseStatus));
+    }
+    responseJson = null;
+    try {
+        responseJson = jsonDecode(graphqlResponse["body"]);
+    } catch (decodeError) {
+        throwSourceError("sourceDown", "The server at " + serverUrl + " did not answer like Suwayomi (HTTP " + parseString(responseStatus) + ")");
+    }
+    return responseJson;
+}
+
+function firstErrorMessage(errorJson) {
+    graphqlErrors = errorJson["errors"];
+    if (graphqlErrors == null || graphqlErrors.isEmpty) {
+        return null;
+    }
+    fullMessage = parseString(graphqlErrors[0]["message"]);
+    traceMarkers = ["java.", "kotlin.", "suwayomi.", "eu.kanade.", "graphql."];
+    for (tm = 0; tm < traceMarkers.length; tm = tm + 1) {
+        fullMessage = fullMessage.split(traceMarkers[tm])[0];
+    }
+    if (fullMessage.contains(") : ")) {
+        fullMessage = fullMessage.split(") : ").last;
+    }
+    fullMessage = fullMessage.trim();
+    if (fullMessage.length > 300) {
+        fullMessage = fullMessage.substring(0, 300);
+    }
+    return fullMessage;
+}
+
+function failWithGraphqlError(failedJson, failedLabel) {
+    errorMessage = firstErrorMessage(failedJson);
+    if (errorMessage == null) {
+        errorMessage = "empty answer";
+    }
+    if (errorMessage.contains("wrongly returned a null value") || errorMessage.contains("Collection is empty") || errorMessage.contains("NoSuchElementException")) {
+        throwSourceError("notFound", "Suwayomi has no such entry (" + failedLabel + ")");
+    }
+    if (errorMessage.contains("HTTP error") || errorMessage.contains("IOException") || errorMessage.contains("timeout") || errorMessage.contains("Timeout")) {
+        throwSourceError("sourceDown", "The source behind Suwayomi failed (" + failedLabel + "): " + errorMessage);
+    }
+    throw "Suwayomi could not load " + failedLabel + ": " + errorMessage;
+}
+
+function graphqlData(dataQuery, dataVariables, dataLabel) {
+    dataJson = requestGraphql(dataQuery, dataVariables);
+    if (dataJson["data"] == null || firstErrorMessage(dataJson) != null) {
+        failWithGraphqlError(dataJson, dataLabel);
+    }
+    return dataJson["data"];
+}
+
+function isUnknownArgumentError(argumentJson, argumentName) {
+    argumentMessage = firstErrorMessage(argumentJson);
+    if (argumentMessage == null) {
+        return false;
+    }
+    return argumentMessage.contains("Unknown") && argumentMessage.contains(argumentName);
+}
+
+function absoluteServerUrl(urlServer, rawPath) {
+    if (rawPath == null || rawPath == "") {
+        return "";
+    }
+    if (rawPath.startsWith("http://") || rawPath.startsWith("https://")) {
+        return rawPath;
+    }
+    if (rawPath.startsWith("/")) {
+        return urlServer + rawPath;
+    }
+    return urlServer + "/" + rawPath;
+}
+
+function mangaStatusOf(statusName) {
+    if (statusName == "ONGOING") {
+        return statusOngoing();
+    }
+    if (statusName == "COMPLETED" || statusName == "PUBLISHING_FINISHED") {
+        return statusReleased();
+    }
+    if (statusName == "ON_HIATUS") {
+        return statusPaused();
+    }
+    if (statusName == "CANCELLED") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function mangaGenres(genreManga) {
+    genreNames = [];
+    rawGenres = genreManga["genre"];
+    if (rawGenres == null) {
+        return genreNames;
+    }
+    for (gi = 0; gi < rawGenres.length; gi = gi + 1) {
+        genreName = parseString(rawGenres[gi]).trim();
+        if (genreName != "" && genreNames.contains(genreName) == false) {
+            genreNames.push(genreName);
+        }
+    }
+    return genreNames;
+}
+
+function sourceNameOf(namedManga) {
+    namedSource = namedManga["source"];
+    if (namedSource == null) {
+        return null;
+    }
+    return namedSource["displayName"];
+}
+
+function mangaGalleryItem(itemServer, itemManga) {
+    itemUid = parseString(itemManga["id"]);
+    itemTitle = itemManga["title"];
+    itemCover = absoluteServerUrl(itemServer, itemManga["thumbnailUrl"]);
+    itemStatus = mangaStatusOf(itemManga["status"]);
+    itemTags = mangaGenres(itemManga);
+    itemSource = sourceNameOf(itemManga);
+    return buildGallery({
+        "uid": itemUid,
+        "title": itemTitle,
+        "cover": itemCover,
+        "data": {},
+        "status": itemStatus,
+        "tags": itemTags,
+        "subtitle": itemSource
+    });
+}
+
+function galleryItemsFrom(itemsServer, itemsList) {
+    galleryItems = [];
+    for (gm = 0; gm < itemsList.length; gm = gm + 1) {
+        galleryItems.push(mangaGalleryItem(itemsServer, itemsList[gm]));
+    }
+    return galleryItems;
+}
+
+function mangaListFields() {
+    return "id title thumbnailUrl status genre source { displayName }";
+}
+
+function galleryPageSize(requestedPageSize) {
+    if (requestedPageSize == null) {
+        return 50;
+    }
+    if (requestedPageSize < 1) {
+        return 50;
+    }
+    if (requestedPageSize > 500) {
+        return 500;
+    }
+    return requestedPageSize;
+}
+
+function selectedFilterValue(selectionFilters, selectionParam) {
+    if (selectionFilters == null) {
+        return null;
+    }
+    for (sf = 0; sf < selectionFilters.length; sf = sf + 1) {
+        selectionData = selectionFilters[sf];
+        if (selectionData["filter"]["param"] == selectionParam) {
+            selectedValue = selectionData["selected"];
+            if (selectedValue != null && selectedValue != "") {
+                return selectedValue;
+            }
+        }
+    }
+    return null;
+}
+
+function fetchCategories() {
+    categoryData = graphqlData("query { categories { nodes { id name } } }", {}, "categories");
+    return categoryData["categories"]["nodes"];
+}
+
+function selectedCategoryIds() {
+    wantedText = preferenceText("categories");
+    if (wantedText == "") {
+        return [];
+    }
+    knownCategories = fetchCategories();
+    wantedIds = [];
+    wantedNames = wantedText.split(",");
+    for (wn = 0; wn < wantedNames.length; wn = wn + 1) {
+        wantedName = wantedNames[wn].trim().toLowerCase();
+        if (wantedName == "") {
+            continue;
+        }
+        matchedId = null;
+        for (kc = 0; kc < knownCategories.length; kc = kc + 1) {
+            knownCategory = knownCategories[kc];
+            if (knownCategory["name"].toLowerCase() == wantedName) {
+                matchedId = knownCategory["id"];
+            }
+        }
+        if (matchedId == null) {
+            knownNames = [];
+            for (kn = 0; kn < knownCategories.length; kn = kn + 1) {
+                knownNames.push(knownCategories[kn]["name"]);
+            }
+            throw "Suwayomi has no category named " + wantedNames[wn].trim() + "; its categories are " + knownNames.join(", ");
+        }
+        wantedIds.push(matchedId);
+    }
+    return wantedIds;
+}
+
+function categoryFilter(filterCategoryIds) {
+    realIds = [];
+    includesDefault = false;
+    for (fc = 0; fc < filterCategoryIds.length; fc = fc + 1) {
+        if (filterCategoryIds[fc] == 0) {
+            includesDefault = true;
+        } else {
+            realIds.push(filterCategoryIds[fc]);
+        }
+    }
+    alternatives = [];
+    if (realIds.isNotEmpty) {
+        alternatives.push({"categoryId": {"in": realIds}});
+    }
+    if (includesDefault) {
+        alternatives.push({"categoryId": {"isNull": true}});
+    }
+    return {"or": alternatives};
+}
+
+function libraryFilter(filterQuery, filterFilters) {
+    filterParts = [];
+    if (filterQuery != "") {
+        filterParts.push({"title": {"includesInsensitive": filterQuery}});
+    }
+    statusValue = selectedFilterValue(filterFilters, "status");
+    if (statusValue != null) {
+        filterParts.push({"status": {"equalTo": statusValue}});
+    }
+    categoryIds = selectedCategoryIds();
+    if (categoryIds.isNotEmpty) {
+        filterParts.push(categoryFilter(categoryIds));
+    }
+    if (filterParts.isEmpty) {
+        return null;
+    }
+    return {"and": filterParts};
+}
+
+function librarySortField(sortFilters) {
+    sortValue = selectedFilterValue(sortFilters, "sort");
+    if (sortValue == null) {
+        return "TITLE";
+    }
+    return sortValue;
+}
+
+function librarySortDirection(sortField) {
+    if (sortField == "TITLE") {
+        return "ASC";
+    }
+    return "DESC";
+}
+
+function libraryQueryText(useLegacyOrder) {
+    orderArgument = "order: [{by: $sortBy, byType: $sortType}]";
+    if (useLegacyOrder) {
+        orderArgument = "orderBy: $sortBy, orderByType: $sortType";
+    }
+    return "query ($first: Int, $offset: Int, $filter: MangaFilterInput, $sortBy: MangaOrderBy!, $sortType: SortOrder) { mangas(condition: {inLibrary: true}, filter: $filter, " + orderArgument + ", first: $first, offset: $offset) { nodes { " + mangaListFields() + " } } }";
+}
+
+function libraryPage(libraryQuery, libraryFilters, libraryPageNumber, librarySize) {
+    sortField = librarySortField(libraryFilters);
+    libraryVariables = {
+        "first": librarySize,
+        "offset": librarySize * (libraryPageNumber - 1),
+        "filter": libraryFilter(libraryQuery, libraryFilters),
+        "sortBy": sortField,
+        "sortType": librarySortDirection(sortField)
+    };
+    libraryJson = requestGraphql(libraryQueryText(false), libraryVariables);
+    if (isUnknownArgumentError(libraryJson, "order")) {
+        libraryJson = requestGraphql(libraryQueryText(true), libraryVariables);
+    }
+    if (libraryJson["data"] == null || firstErrorMessage(libraryJson) != null) {
+        failWithGraphqlError(libraryJson, "library");
+    }
+    return galleryItemsFrom(suwayomiServerUrl(), libraryJson["data"]["mangas"]["nodes"]);
+}
+
+function fetchInstalledSources() {
+    sourcesData = graphqlData("query { sources { nodes { id name lang displayName supportsLatest } } }", {}, "installed sources");
+    return sourcesData["sources"]["nodes"];
+}
+
+function sourceListText(listedSources) {
+    listedNames = [];
+    for (ls = 0; ls < listedSources.length; ls = ls + 1) {
+        if (listedNames.length < 30) {
+            listedNames.push(listedSources[ls]["displayName"]);
+        }
+    }
+    listedText = listedNames.join(", ");
+    if (listedSources.length > listedNames.length) {
+        listedText = listedText + " and " + parseString(listedSources.length - listedNames.length) + " more";
+    }
+    return listedText;
+}
+
+function matchingSources(candidateSources, wantedSource) {
+    wantedLower = wantedSource.toLowerCase();
+    exactMatches = [];
+    nameMatches = [];
+    for (cs = 0; cs < candidateSources.length; cs = cs + 1) {
+        candidate = candidateSources[cs];
+        candidateId = parseString(candidate["id"]);
+        candidateDisplay = parseString(candidate["displayName"]).toLowerCase();
+        candidateLabel = parseString(candidate["name"]) + " (" + parseString(candidate["lang"]) + ")";
+        candidateLabel = candidateLabel.toLowerCase();
+        if (candidateId == wantedSource || candidateDisplay == wantedLower || candidateLabel == wantedLower) {
+            exactMatches.push(candidate);
+        } else if (parseString(candidate["name"]).toLowerCase() == wantedLower) {
+            nameMatches.push(candidate);
+        }
+    }
+    if (exactMatches.isNotEmpty) {
+        return exactMatches;
+    }
+    return nameMatches;
+}
+
+function sourceCacheKey(cacheServer, cacheSource) {
+    return "source|" + cacheServer + "|" + cacheSource;
+}
+
+function chosenSource() {
+    wantedSource = preferenceText("source");
+    serverUrl = suwayomiServerUrl();
+    if (wantedSource != "") {
+        cachedSource = storageGet(sourceCacheKey(serverUrl, wantedSource));
+        if (cachedSource != null) {
+            return cachedSource;
+        }
+    }
+    installedSources = fetchInstalledSources();
+    if (installedSources.isEmpty) {
+        throwSourceError("unsupported", "Suwayomi has no sources installed; install an extension in Suwayomi first");
+    }
+    if (wantedSource == "") {
+        throwSourceError("unsupported", "Choose a source in the extension settings. Installed sources: " + sourceListText(installedSources));
+    }
+    foundSources = matchingSources(installedSources, wantedSource);
+    if (foundSources.isEmpty) {
+        throwSourceError("unsupported", "Suwayomi has no source named " + wantedSource + ". Installed sources: " + sourceListText(installedSources));
+    }
+    if (foundSources.length > 1) {
+        throwSourceError("unsupported", wantedSource + " matches several sources; enter one of: " + sourceListText(foundSources));
+    }
+    pickedSource = {
+        "id": parseString(foundSources[0]["id"]),
+        "displayName": foundSources[0]["displayName"],
+        "supportsLatest": foundSources[0]["supportsLatest"] == true
+    };
+    storageSet(sourceCacheKey(serverUrl, wantedSource), pickedSource, 3600);
+    return pickedSource;
+}
+
+function exhaustedPageKey(exhaustedSource, exhaustedType, exhaustedQuery, exhaustedPage) {
+    return "lastpage|" + exhaustedSource + "|" + exhaustedType + "|" + exhaustedQuery + "|" + parseString(exhaustedPage);
+}
+
+function sourcePage(browseType, browseQuery, browsePage) {
+    browseSource = chosenSource();
+    if (browseType == "LATEST" && browseSource["supportsLatest"] == false) {
+        throwSourceError("unsupported", browseSource["displayName"] + " has no latest list");
+    }
+    if (browsePage > 1) {
+        previousWasLast = storageGet(exhaustedPageKey(browseSource["id"], browseType, browseQuery, browsePage - 1));
+        if (previousWasLast == true) {
+            return [];
+        }
+    }
+    browseInput = {"source": browseSource["id"], "type": browseType, "page": browsePage};
+    if (browseQuery != "") {
+        browseInput["query"] = browseQuery;
+    }
+    browseData = graphqlData("mutation ($input: FetchSourceMangaInput!) { fetchSourceManga(input: $input) { hasNextPage mangas { " + mangaListFields() + " } } }", {"input": browseInput}, browseSource["displayName"]);
+    browseResult = browseData["fetchSourceManga"];
+    if (browseResult["hasNextPage"] == false) {
+        storageSet(exhaustedPageKey(browseSource["id"], browseType, browseQuery, browsePage), true, 1800);
+    }
+    return galleryItemsFrom(suwayomiServerUrl(), browseResult["mangas"]);
+}
+
+function searchTarget() {
+    searchMode = preferenceText("searchIn");
+    if (searchMode == "library" || searchMode == "source") {
+        return searchMode;
+    }
+    if (preferenceText("source") == "") {
+        return "library";
+    }
+    return "source";
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    if (searchText != "") {
+        if (searchTarget() == "source") {
+            return sourcePage("SEARCH", searchText, galleryPage);
+        }
+        return libraryPage(searchText, filters, galleryPage, galleryPageSize(pageSize));
+    }
+    if (feed == "popular") {
+        return sourcePage("POPULAR", "", galleryPage);
+    }
+    if (feed == "latest") {
+        return sourcePage("LATEST", "", galleryPage);
+    }
+    return libraryPage("", filters, galleryPage, galleryPageSize(pageSize));
+}
+
+function mangaDetailFields() {
+    return "id title description author artist genre status thumbnailUrl realUrl initialized source { displayName }";
+}
+
+function fetchStoredManga(storedMangaId) {
+    storedData = graphqlData("query ($id: Int!) { manga(id: $id) { " + mangaDetailFields() + " } }", {"id": storedMangaId}, "title details");
+    return storedData["manga"];
+}
+
+function refreshMangaFromSource(refreshMangaId) {
+    refreshData = graphqlData("mutation ($input: FetchMangaInput!) { fetchManga(input: $input) { manga { " + mangaDetailFields() + " } } }", {"input": {"id": refreshMangaId}}, "title details from the source");
+    return refreshData["fetchManga"]["manga"];
+}
+
+function refreshChaptersFromSource(chaptersMangaId) {
+    refreshJson = requestGraphql("mutation ($input: FetchChaptersInput!) { fetchChapters(input: $input) { chapters { id } } }", {"input": {"mangaId": chaptersMangaId}});
+    refreshMessage = firstErrorMessage(refreshJson);
+    if (refreshMessage == null) {
+        return null;
+    }
+    if (refreshMessage.contains("No chapters found")) {
+        return null;
+    }
+    failWithGraphqlError(refreshJson, "chapters from the source");
+    return null;
+}
+
+function chapterFields() {
+    return "id name chapterNumber scanlator uploadDate sourceOrder";
+}
+
+function storedChaptersQueryText(useLegacyOrder) {
+    orderArgument = "order: [{by: SOURCE_ORDER, byType: ASC}]";
+    if (useLegacyOrder) {
+        orderArgument = "orderBy: SOURCE_ORDER, orderByType: ASC";
+    }
+    return "query ($mangaId: Int!) { chapters(condition: {mangaId: $mangaId}, " + orderArgument + ") { nodes { " + chapterFields() + " } } }";
+}
+
+function fetchStoredChapters(storedChaptersMangaId) {
+    chapterVariables = {"mangaId": storedChaptersMangaId};
+    chaptersJson = requestGraphql(storedChaptersQueryText(false), chapterVariables);
+    if (isUnknownArgumentError(chaptersJson, "order")) {
+        chaptersJson = requestGraphql(storedChaptersQueryText(true), chapterVariables);
+    }
+    if (chaptersJson["data"] == null || firstErrorMessage(chaptersJson) != null) {
+        failWithGraphqlError(chaptersJson, "chapters");
+    }
+    return chaptersJson["data"]["chapters"]["nodes"];
+}
+
+function floorDivide(dividend, divisor) {
+    return (dividend - dividend % divisor) / divisor;
+}
+
+function wholeNumberText(wholeValue) {
+    return parseString(wholeValue).split(".")[0];
+}
+
+function dateFromEpochMillis(rawMillis) {
+    if (rawMillis == null) {
+        return null;
+    }
+    millisText = parseString(rawMillis).trim();
+    if (millisText == "" || millisText == "0") {
+        return null;
+    }
+    epochMillis = parseInt(millisText);
+    if (epochMillis <= 0) {
+        return null;
+    }
+    epochDays = floorDivide(floorDivide(epochMillis, 1000), 86400) + 719468;
+    era = floorDivide(epochDays, 146097);
+    dayOfEra = epochDays - era * 146097;
+    yearOfEra = floorDivide(dayOfEra - floorDivide(dayOfEra, 1460) + floorDivide(dayOfEra, 36524) - floorDivide(dayOfEra, 146096), 365);
+    civilYear = yearOfEra + era * 400;
+    dayOfYear = dayOfEra - (365 * yearOfEra + floorDivide(yearOfEra, 4) - floorDivide(yearOfEra, 100));
+    monthIndex = floorDivide(5 * dayOfYear + 2, 153);
+    civilDay = dayOfYear - floorDivide(153 * monthIndex + 2, 5) + 1;
+    civilMonth = monthIndex + 3;
+    if (monthIndex >= 10) {
+        civilMonth = monthIndex - 9;
+    }
+    if (civilMonth <= 2) {
+        civilYear = civilYear + 1;
+    }
+    return wholeNumberText(civilYear) + "-" + wholeNumberText(civilMonth).padLeft(2, "0") + "-" + wholeNumberText(civilDay).padLeft(2, "0");
+}
+
+function chapterTitleOf(titledChapter) {
+    chapterName = parseString(titledChapter["name"]).trim();
+    if (chapterName == "") {
+        chapterName = "Chapter " + parseString(titledChapter["chapterNumber"]);
+    }
+    scanlatorName = titledChapter["scanlator"];
+    if (scanlatorName == null || parseString(scanlatorName).trim() == "") {
+        return chapterName;
+    }
+    return chapterName + " · " + parseString(scanlatorName).trim();
+}
+
+function chapterElement(elementChapter) {
+    elementNumber = elementChapter["chapterNumber"];
+    if (elementNumber != null && elementNumber < 0) {
+        elementNumber = null;
+    }
+    return buildChapter({
+        "uid": parseString(elementChapter["id"]),
+        "title": chapterTitleOf(elementChapter),
+        "timestamp": dateFromEpochMillis(elementChapter["uploadDate"]),
+        "data": {},
+        "number": elementNumber
+    });
+}
+
+function peopleList(peopleText) {
+    peopleNames = [];
+    if (peopleText == null) {
+        return peopleNames;
+    }
+    rawPeople = parseString(peopleText).split(",");
+    for (rp = 0; rp < rawPeople.length; rp = rp + 1) {
+        personName = rawPeople[rp].trim();
+        if (personName != "" && peopleNames.contains(personName) == false) {
+            peopleNames.push(personName);
+        }
+    }
+    return peopleNames;
+}
+
+function parseMangaId(rawUid) {
+    try {
+        return parseInt(parseString(rawUid).trim());
+    } catch (parseError) {
+        throwSourceError("notFound", "Suwayomi has no title with id " + rawUid);
+    }
+    return null;
+}
+
+function loadChapters(chaptersMangaId, refreshFirst) {
+    if (refreshFirst) {
+        try {
+            refreshChaptersFromSource(chaptersMangaId);
+        } catch (refreshError) {
+            fallbackChapters = fetchStoredChapters(chaptersMangaId);
+            if (fallbackChapters.isEmpty) {
+                throwSourceError("sourceDown", "Suwayomi could not get the chapters from the source: " + refreshError);
+            }
+            return fallbackChapters;
+        }
+        return fetchStoredChapters(chaptersMangaId);
+    }
+    storedChapters = fetchStoredChapters(chaptersMangaId);
+    if (storedChapters.isNotEmpty) {
+        return storedChapters;
+    }
+    refreshChaptersFromSource(chaptersMangaId);
+    return fetchStoredChapters(chaptersMangaId);
+}
+
+function getConcrete(uid) {
+    serverUrl = suwayomiServerUrl();
+    mangaId = parseMangaId(uid);
+    concreteManga = fetchStoredManga(mangaId);
+    if (concreteManga["initialized"] != true) {
+        concreteManga = refreshMangaFromSource(mangaId);
+    }
+    refreshChapters = getPreference("refreshChapters") == true;
+    mangaChapters = loadChapters(mangaId, refreshChapters);
+    chapterElements = [];
+    for (mc = 0; mc < mangaChapters.length; mc = mc + 1) {
+        chapterElements.push(chapterElement(mangaChapters[mc]));
+    }
+    concreteTitle = concreteManga["title"];
+    concreteDescription = concreteManga["description"];
+    if (concreteDescription == null) {
+        concreteDescription = "";
+    }
+    concreteUrl = concreteManga["realUrl"];
+    if (concreteUrl == null || concreteUrl == "") {
+        concreteUrl = serverUrl + "/manga/" + parseString(mangaId);
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": concreteTitle,
+        "cover": absoluteServerUrl(serverUrl, concreteManga["thumbnailUrl"]),
+        "description": concreteDescription,
+        "tags": mangaGenres(concreteManga),
+        "status": mangaStatusOf(concreteManga["status"]),
+        "alternativeTitles": [],
+        "authors": peopleList(concreteManga["author"]),
+        "artists": peopleList(concreteManga["artist"]),
+        "url": concreteUrl,
+        "groups": [buildChapterGroups({"title": "Chapters", "elements": chapterElements})]
+    });
+}
+
+function getPages(uid) {
+    serverUrl = suwayomiServerUrl();
+    chapterId = parseMangaId(uid);
+    pagesData = graphqlData("mutation ($input: FetchChapterPagesInput!) { fetchChapterPages(input: $input) { pages } }", {"input": {"chapterId": chapterId}}, "chapter pages");
+    rawPages = pagesData["fetchChapterPages"]["pages"];
+    pageUrls = [];
+    for (rp = 0; rp < rawPages.length; rp = rp + 1) {
+        pageUrls.push(absoluteServerUrl(serverUrl, rawPages[rp]));
+    }
+    if (pageUrls.isEmpty) {
+        throwSourceError("notFound", "Suwayomi found no pages in this chapter");
+    }
+    return buildPages({"uid": uid, "value": pageUrls});
+}
+
+function getImageHeaders(uid) {
+    if (hasCredentials() == false) {
+        return {};
+    }
+    serverUrl = suwayomiServerUrl();
+    username = preferenceText("username");
+    storedToken = storageGet(sessionStorageKey(serverUrl, username));
+    if (storedToken != null && storedToken != "") {
+        return {"Authorization": "Bearer " + storedToken};
+    }
+    authMode = storageGet(authModeStorageKey(serverUrl, username));
+    if (authMode == "basic") {
+        return basicAuthHeaders();
+    }
+    if (authMode == "ui") {
+        return {"Authorization": "Bearer " + signInWithUiLogin(serverUrl)};
+    }
+    return probedAuthHeaders(serverUrl);
+}

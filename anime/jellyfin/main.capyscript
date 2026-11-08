@@ -1,0 +1,991 @@
+import "http";
+import "json";
+import "converter";
+import "anime_models";
+import "preferences";
+import "errors";
+import "storage";
+
+function preferenceText(preferenceKey) {
+    preferenceValue = getPreference(preferenceKey);
+    if (preferenceValue == null) {
+        return "";
+    }
+    return parseString(preferenceValue).trim();
+}
+
+function jellyfinServerUrl() {
+    serverUrl = preferenceText("serverUrl");
+    if (serverUrl == "") {
+        throwSourceError("loginRequired", "Enter your Jellyfin server address in the extension settings");
+    }
+    if (serverUrl.startsWith("http://") == false && serverUrl.startsWith("https://") == false) {
+        serverUrl = "http://" + serverUrl;
+    }
+    for (slashIndex = 0; slashIndex < 8; slashIndex = slashIndex + 1) {
+        if (serverUrl.endsWith("/")) {
+            serverUrl = serverUrl.substring(0, serverUrl.length - 1);
+        }
+    }
+    return serverUrl;
+}
+
+function sendToJellyfin(sendMethod, sendUrl, sendParams, sendBody, sendHeaders, sendServer) {
+    sendResponse = null;
+    try {
+        if (sendMethod == "POST") {
+            sendResponse = httpPost({
+                "url": sendUrl,
+                "params": sendParams,
+                "paths": {},
+                "body": sendBody,
+                "headers": sendHeaders,
+                "throughWeb": false
+            });
+        } else {
+            sendResponse = httpGet({
+                "url": sendUrl,
+                "params": sendParams,
+                "paths": {},
+                "headers": sendHeaders,
+                "throughWeb": false
+            });
+        }
+    } catch (sendError) {
+        throwSourceError("sourceDown", "Can't reach Jellyfin at " + sendServer + ": " + sendError);
+    }
+    return sendResponse;
+}
+
+function lettersAndDigits(rawText) {
+    allowedCharacters = "abcdefghijklmnopqrstuvwxyz0123456789";
+    loweredText = parseString(rawText).toLowerCase();
+    keptCharacters = [];
+    for (ci = 0; ci < loweredText.length; ci = ci + 1) {
+        oneCharacter = loweredText.substring(ci, ci + 1);
+        if (allowedCharacters.contains(oneCharacter)) {
+            keptCharacters.push(oneCharacter);
+        }
+    }
+    return keptCharacters.join("");
+}
+
+function jellyfinDeviceId(deviceServer) {
+    storedDeviceId = storageGet("deviceId");
+    if (storedDeviceId != null && storedDeviceId != "") {
+        return storedDeviceId;
+    }
+    infoResponse = sendToJellyfin("GET", deviceServer + "/System/Info/Public", {}, null, {"Accept": "application/json"}, deviceServer);
+    if (infoResponse["statusCode"] != 200) {
+        throwSourceError("sourceDown", "No Jellyfin server answers at " + deviceServer + "; check the server address");
+    }
+    seedText = "";
+    infoHeaders = infoResponse["headers"];
+    if (infoHeaders != null && infoHeaders["date"] != null) {
+        seedText = infoHeaders["date"];
+    }
+    newDeviceId = "wakaranai" + lettersAndDigits(seedText);
+    storageSet("deviceId", newDeviceId);
+    return newDeviceId;
+}
+
+function authorizationValue(headerDeviceId, headerToken) {
+    headerValue = 'MediaBrowser Client="Wakaranai", Device="Wakaranai", DeviceId="' + headerDeviceId + '", Version="1.0"';
+    if (headerToken != null && headerToken != "") {
+        headerValue = headerValue + ', Token="' + headerToken + '"';
+    }
+    return headerValue;
+}
+
+function sessionStorageKey(sessionServer, sessionUser) {
+    return "session|" + sessionServer + "|" + sessionUser;
+}
+
+function apiUserStorageKey(apiServer, apiUser) {
+    return "apiuser|" + apiServer + "|" + apiUser;
+}
+
+function signIn(signInServer, signInDeviceId) {
+    username = preferenceText("username");
+    if (username == "") {
+        throwSourceError("loginRequired", "Enter your Jellyfin username and password, or an API key, in the extension settings");
+    }
+    signInHeaders = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": authorizationValue(signInDeviceId, null)
+    };
+    signInBody = jsonEncode({"Username": username, "Pw": preferenceText("password")});
+    signInResponse = sendToJellyfin("POST", signInServer + "/Users/AuthenticateByName", {}, signInBody, signInHeaders, signInServer);
+    signInStatus = signInResponse["statusCode"];
+    if (signInStatus == 401 || signInStatus == 403) {
+        throwSourceError("loginRequired", "Jellyfin rejected the username or password; check them in the extension settings");
+    }
+    if (signInStatus != 200) {
+        throwSourceError("sourceDown", "Jellyfin sign-in answered HTTP " + parseString(signInStatus));
+    }
+    signInJson = jsonDecode(signInResponse["body"]);
+    signedSession = {"token": signInJson["AccessToken"], "userId": signInJson["User"]["Id"]};
+    storageSet(sessionStorageKey(signInServer, username), signedSession);
+    return signedSession;
+}
+
+function apiKeyUserId(keyServer, keyDeviceId, keyToken) {
+    username = preferenceText("username");
+    cachedUserId = storageGet(apiUserStorageKey(keyServer, username));
+    if (cachedUserId != null && cachedUserId != "") {
+        return cachedUserId;
+    }
+    usersHeaders = {"Accept": "application/json", "Authorization": authorizationValue(keyDeviceId, keyToken)};
+    usersResponse = sendToJellyfin("GET", keyServer + "/Users", {}, null, usersHeaders, keyServer);
+    if (usersResponse["statusCode"] == 401 || usersResponse["statusCode"] == 403) {
+        throwSourceError("loginRequired", "Jellyfin rejected the API key; check it in the extension settings");
+    }
+    if (usersResponse["statusCode"] != 200) {
+        throwSourceError("sourceDown", "Jellyfin answered HTTP " + parseString(usersResponse["statusCode"]) + " for the user list");
+    }
+    serverUsers = jsonDecode(usersResponse["body"]);
+    pickedUserId = null;
+    for (su = 0; su < serverUsers.length; su = su + 1) {
+        serverUser = serverUsers[su];
+        if (username != "" && serverUser["Name"].toLowerCase() == username.toLowerCase()) {
+            pickedUserId = serverUser["Id"];
+        }
+    }
+    if (pickedUserId == null && username != "") {
+        throwSourceError("loginRequired", "Jellyfin has no user named " + username + "; check the username in the extension settings");
+    }
+    for (au = 0; au < serverUsers.length; au = au + 1) {
+        adminPolicy = serverUsers[au]["Policy"];
+        if (pickedUserId == null && adminPolicy != null && adminPolicy["IsAdministrator"] == true) {
+            pickedUserId = serverUsers[au]["Id"];
+        }
+    }
+    if (pickedUserId == null && serverUsers.isNotEmpty) {
+        pickedUserId = serverUsers[0]["Id"];
+    }
+    if (pickedUserId == null) {
+        throwSourceError("loginRequired", "Jellyfin has no users for this API key");
+    }
+    storageSet(apiUserStorageKey(keyServer, username), pickedUserId, 86400);
+    return pickedUserId;
+}
+
+function jellyfinSession() {
+    serverUrl = jellyfinServerUrl();
+    deviceId = jellyfinDeviceId(serverUrl);
+    apiKey = preferenceText("apiKey");
+    if (apiKey != "") {
+        return {"server": serverUrl, "deviceId": deviceId, "token": apiKey, "userId": apiKeyUserId(serverUrl, deviceId, apiKey), "apiKey": true};
+    }
+    username = preferenceText("username");
+    if (username == "") {
+        throwSourceError("loginRequired", "Enter your Jellyfin username and password, or an API key, in the extension settings");
+    }
+    storedSession = storageGet(sessionStorageKey(serverUrl, username));
+    if (storedSession == null) {
+        storedSession = signIn(serverUrl, deviceId);
+    }
+    return {"server": serverUrl, "deviceId": deviceId, "token": storedSession["token"], "userId": storedSession["userId"], "apiKey": false};
+}
+
+function sessionHeaders(headerSession) {
+    return {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": authorizationValue(headerSession["deviceId"], headerSession["token"])
+    };
+}
+
+function decodeJellyfinResponse(jellyfinResponse, requestLabel) {
+    jellyfinStatus = jellyfinResponse["statusCode"];
+    if (jellyfinStatus >= 200 && jellyfinStatus < 300) {
+        responseBody = jellyfinResponse["body"];
+        if (responseBody == null || responseBody.trim() == "") {
+            return {};
+        }
+        return jsonDecode(responseBody);
+    }
+    if (jellyfinStatus == 401 || jellyfinStatus == 403) {
+        throwSourceError("loginRequired", "Jellyfin rejected the sign-in; check the extension settings");
+    }
+    if (jellyfinStatus == 404 || jellyfinStatus == 400) {
+        throwSourceError("notFound", "Jellyfin has no such entry (" + requestLabel + ")");
+    }
+    if (jellyfinStatus == 429) {
+        throwSourceError("rateLimited", "Jellyfin is rate limiting requests (" + requestLabel + ")");
+    }
+    if (jellyfinStatus >= 500) {
+        throwSourceError("sourceDown", "Jellyfin answered HTTP " + parseString(jellyfinStatus) + " (" + requestLabel + ")");
+    }
+    throw "Jellyfin answered HTTP " + parseString(jellyfinStatus) + " (" + requestLabel + ")";
+}
+
+function sendWithSession(requestSession, requestPath, requestParams) {
+    return sendToJellyfin("GET", requestSession["server"] + requestPath, requestParams, null, sessionHeaders(requestSession), requestSession["server"]);
+}
+
+function jellyfinGetResponse(getPath, getParams) {
+    getSession = jellyfinSession();
+    getResponse = sendWithSession(getSession, getPath, getParams);
+    if (getResponse["statusCode"] == 401 && getSession["apiKey"] == false) {
+        storageRemove(sessionStorageKey(getSession["server"], preferenceText("username")));
+        freshSession = jellyfinSession();
+        getResponse = sendWithSession(freshSession, getPath, getParams);
+    }
+    return getResponse;
+}
+
+function jellyfinGet(getPath, getParams, getLabel) {
+    return decodeJellyfinResponse(jellyfinGetResponse(getPath, getParams), getLabel);
+}
+
+function currentUserId() {
+    return jellyfinSession()["userId"];
+}
+
+function galleryPageSize(requestedPageSize) {
+    if (requestedPageSize == null) {
+        return 50;
+    }
+    if (requestedPageSize < 1) {
+        return 50;
+    }
+    if (requestedPageSize > 500) {
+        return 500;
+    }
+    return requestedPageSize;
+}
+
+function filterSelection(selectionFilters, selectionParam) {
+    if (selectionFilters == null) {
+        return null;
+    }
+    for (sf = 0; sf < selectionFilters.length; sf = sf + 1) {
+        selectionData = selectionFilters[sf];
+        if (selectionData["filter"]["param"] == selectionParam) {
+            selectedValue = selectionData["selected"];
+            if (selectedValue != null && selectedValue != "") {
+                return selectedValue;
+            }
+        }
+    }
+    return null;
+}
+
+function selectedLibraryId(libraryUserId) {
+    wantedLibrary = preferenceText("library");
+    if (wantedLibrary == "") {
+        return null;
+    }
+    serverUrl = jellyfinServerUrl();
+    cacheKey = "library|" + serverUrl + "|" + libraryUserId + "|" + wantedLibrary.toLowerCase();
+    cachedLibraryId = storageGet(cacheKey);
+    if (cachedLibraryId != null) {
+        return cachedLibraryId;
+    }
+    userViews = jellyfinGet("/Users/" + libraryUserId + "/Views", {}, "libraries")["Items"];
+    viewNames = [];
+    for (uv = 0; uv < userViews.length; uv = uv + 1) {
+        userView = userViews[uv];
+        viewNames.push(userView["Name"]);
+        if (userView["Name"].toLowerCase() == wantedLibrary.toLowerCase()) {
+            storageSet(cacheKey, userView["Id"], 3600);
+            return userView["Id"];
+        }
+    }
+    throw "Jellyfin has no library named " + wantedLibrary + "; its libraries are " + viewNames.join(", ");
+}
+
+function imageUrl(imageServer, imageItemId, imageTag) {
+    pictureUrl = imageServer + "/Items/" + imageItemId + "/Images/Primary?maxHeight=600&quality=90";
+    if (imageTag != null && imageTag != "") {
+        pictureUrl = pictureUrl + "&tag=" + imageTag;
+    }
+    return pictureUrl;
+}
+
+function primaryTagOf(taggedItem) {
+    imageTags = taggedItem["ImageTags"];
+    if (imageTags == null) {
+        return null;
+    }
+    return imageTags["Primary"];
+}
+
+function itemStatusOf(statusItem) {
+    if (statusItem["Type"] == "Movie") {
+        return statusReleased();
+    }
+    seriesStatus = statusItem["Status"];
+    if (seriesStatus == "Continuing") {
+        return statusOngoing();
+    }
+    if (seriesStatus == "Ended") {
+        return statusReleased();
+    }
+    return statusUndefined();
+}
+
+function itemGenres(genreItem) {
+    genreNames = [];
+    rawGenres = genreItem["Genres"];
+    if (rawGenres == null) {
+        return genreNames;
+    }
+    for (gi = 0; gi < rawGenres.length; gi = gi + 1) {
+        genreNames.push(rawGenres[gi]);
+    }
+    return genreNames;
+}
+
+function itemKindLabel(kindItem) {
+    if (kindItem["Type"] == "Movie") {
+        return "Movie";
+    }
+    if (kindItem["Type"] == "Series") {
+        return "Series";
+    }
+    return null;
+}
+
+function episodeCode(codedEpisode) {
+    seasonNumber = codedEpisode["ParentIndexNumber"];
+    episodeNumber = codedEpisode["IndexNumber"];
+    if (episodeNumber == null) {
+        return codedEpisode["Name"];
+    }
+    if (seasonNumber == null) {
+        return "E" + parseString(episodeNumber);
+    }
+    return "S" + parseString(seasonNumber) + " E" + parseString(episodeNumber);
+}
+
+function titleGalleryItem(titleServer, titleItem) {
+    titleUid = titleItem["Id"];
+    titleName = titleItem["Name"];
+    titleCover = imageUrl(titleServer, titleUid, primaryTagOf(titleItem));
+    titleStatus = itemStatusOf(titleItem);
+    titleTags = itemGenres(titleItem);
+    titleYear = titleItem["ProductionYear"];
+    titleRating = titleItem["CommunityRating"];
+    titleKind = itemKindLabel(titleItem);
+    return buildGallery({
+        "uid": titleUid,
+        "title": titleName,
+        "cover": titleCover,
+        "data": {"type": titleItem["Type"]},
+        "status": titleStatus,
+        "tags": titleTags,
+        "year": titleYear,
+        "rating": titleRating,
+        "subtitle": titleKind
+    });
+}
+
+function episodeGalleryItem(episodeServer, episodeItem) {
+    seriesUid = episodeItem["SeriesId"];
+    seriesName = episodeItem["SeriesName"];
+    seriesCover = imageUrl(episodeServer, seriesUid, episodeItem["SeriesPrimaryImageTag"]);
+    episodeLabel = episodeCode(episodeItem);
+    return buildGallery({
+        "uid": seriesUid,
+        "title": seriesName,
+        "cover": seriesCover,
+        "data": {"type": "Series"},
+        "status": statusUndefined(),
+        "latestChapter": episodeLabel,
+        "subtitle": "Series"
+    });
+}
+
+function galleryItemsFrom(itemsServer, rawItems) {
+    galleryItems = [];
+    seenUids = [];
+    for (ri = 0; ri < rawItems.length; ri = ri + 1) {
+        rawItem = rawItems[ri];
+        if (rawItem["Type"] == "Episode" && rawItem["SeriesId"] != null) {
+            if (seenUids.contains(rawItem["SeriesId"]) == false) {
+                seenUids.push(rawItem["SeriesId"]);
+                galleryItems.push(episodeGalleryItem(itemsServer, rawItem));
+            }
+        } else if (rawItem["Type"] == "Series" || rawItem["Type"] == "Movie") {
+            if (seenUids.contains(rawItem["Id"]) == false) {
+                seenUids.push(rawItem["Id"]);
+                galleryItems.push(titleGalleryItem(itemsServer, rawItem));
+            }
+        }
+    }
+    return galleryItems;
+}
+
+function listFields() {
+    return "Genres,ProductionYear,CommunityRating,Status";
+}
+
+function titleListParams(listFilters, listStart, listSize, listLibraryId) {
+    listParams = {
+        "Recursive": "true",
+        "IncludeItemTypes": "Series,Movie",
+        "Fields": listFields(),
+        "EnableImageTypes": "Primary",
+        "ImageTypeLimit": "1",
+        "StartIndex": listStart,
+        "Limit": listSize
+    };
+    if (listLibraryId != null) {
+        listParams["ParentId"] = listLibraryId;
+    }
+    typeValue = filterSelection(listFilters, "itemType");
+    if (typeValue != null) {
+        listParams["IncludeItemTypes"] = typeValue;
+    }
+    genreValues = filterSelection(listFilters, "genres");
+    if (genreValues != null && genreValues.isNotEmpty) {
+        listParams["Genres"] = genreValues.join("|");
+    }
+    playedValue = filterSelection(listFilters, "played");
+    if (playedValue != null) {
+        listParams["IsPlayed"] = playedValue;
+    }
+    return listParams;
+}
+
+function applySort(sortParams, sortFilters, sortFallback) {
+    sortField = filterSelection(sortFilters, "sort");
+    if (sortField == null) {
+        sortField = sortFallback;
+    }
+    sortParams["SortBy"] = sortField;
+    if (sortField == "SortName") {
+        sortParams["SortOrder"] = "Ascending";
+    } else {
+        sortParams["SortOrder"] = "Descending";
+    }
+    return sortParams;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    gallerySize = galleryPageSize(pageSize);
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    galleryStart = gallerySize * (galleryPage - 1);
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    userId = currentUserId();
+    libraryId = selectedLibraryId(userId);
+    serverUrl = jellyfinServerUrl();
+
+    if (searchText == "" && feed == "resume") {
+        resumeParams = {"MediaTypes": "Video", "StartIndex": galleryStart, "Limit": gallerySize, "Fields": listFields(), "EnableImageTypes": "Primary", "ImageTypeLimit": "1"};
+        if (libraryId != null) {
+            resumeParams["ParentId"] = libraryId;
+        }
+        resumeItems = jellyfinGet("/Users/" + userId + "/Items/Resume", resumeParams, "continue watching")["Items"];
+        return galleryItemsFrom(serverUrl, resumeItems);
+    }
+    if (searchText == "" && feed == "nextup") {
+        nextUpParams = {"userId": userId, "StartIndex": galleryStart, "Limit": gallerySize, "Fields": listFields(), "EnableImageTypes": "Primary", "ImageTypeLimit": "1"};
+        if (libraryId != null) {
+            nextUpParams["ParentId"] = libraryId;
+        }
+        nextUpItems = jellyfinGet("/Shows/NextUp", nextUpParams, "next up")["Items"];
+        return galleryItemsFrom(serverUrl, nextUpItems);
+    }
+
+    itemParams = titleListParams(filters, galleryStart, gallerySize, libraryId);
+    if (searchText != "") {
+        itemParams["SearchTerm"] = searchText;
+    } else if (feed == "latest") {
+        itemParams["SortBy"] = "DateLastContentAdded,DateCreated";
+        itemParams["SortOrder"] = "Descending";
+    } else {
+        itemParams = applySort(itemParams, filters, "SortName");
+    }
+    if (searchText == "" && feed == "favorites") {
+        itemParams["Filters"] = "IsFavorite";
+    }
+    listedItems = jellyfinGet("/Users/" + userId + "/Items", itemParams, "library")["Items"];
+    return galleryItemsFrom(serverUrl, listedItems);
+}
+
+function formatPremiere(rawPremiere) {
+    if (rawPremiere == null || rawPremiere.length < 10) {
+        return null;
+    }
+    return rawPremiere.substring(0, 10);
+}
+
+function detailsUrl(detailsServer, detailsItemId) {
+    return detailsServer + "/web/#/details?id=" + detailsItemId;
+}
+
+function episodeTitleOf(titledEpisode) {
+    episodeName = titledEpisode["Name"];
+    if (episodeName == null || episodeName == "") {
+        episodeName = "Episode";
+    }
+    episodeNumber = titledEpisode["IndexNumber"];
+    if (episodeNumber == null) {
+        return episodeName;
+    }
+    numberText = parseString(episodeNumber);
+    if (episodeName.contains(numberText)) {
+        return episodeName;
+    }
+    return numberText + ". " + episodeName;
+}
+
+function episodeVideo(videoServer, videoEpisode) {
+    videoUid = videoEpisode["Id"];
+    videoSrc = detailsUrl(videoServer, videoUid);
+    videoTitle = episodeTitleOf(videoEpisode);
+    videoTimestamp = formatPremiere(videoEpisode["PremiereDate"]);
+    return buildAnimeVideo({
+        "uid": videoUid,
+        "src": videoSrc,
+        "title": videoTitle,
+        "timestamp": videoTimestamp,
+        "type": typeIframe(),
+        "data": {},
+        "number": videoEpisode["IndexNumber"],
+        "season": videoEpisode["ParentIndexNumber"]
+    });
+}
+
+function movieVideo(movieServer, movieItem) {
+    movieUid = movieItem["Id"];
+    movieSrc = detailsUrl(movieServer, movieUid);
+    movieTitle = movieItem["Name"];
+    movieTimestamp = formatPremiere(movieItem["PremiereDate"]);
+    return buildAnimeVideo({
+        "uid": movieUid,
+        "src": movieSrc,
+        "title": movieTitle,
+        "timestamp": movieTimestamp,
+        "type": typeIframe(),
+        "data": {},
+        "number": 1
+    });
+}
+
+function isAvailableEpisode(checkedEpisode) {
+    return checkedEpisode["LocationType"] != "Virtual";
+}
+
+function seasonGroups(groupsServer, groupsUserId, groupsSeriesId) {
+    seasonList = jellyfinGet("/Shows/" + groupsSeriesId + "/Seasons", {"userId": groupsUserId}, "seasons")["Items"];
+    episodeList = jellyfinGet("/Shows/" + groupsSeriesId + "/Episodes", {"userId": groupsUserId, "Fields": "PremiereDate"}, "episodes")["Items"];
+    orderedSeasons = [];
+    specialSeasons = [];
+    for (sl = 0; sl < seasonList.length; sl = sl + 1) {
+        if (seasonList[sl]["IndexNumber"] == 0) {
+            specialSeasons.push(seasonList[sl]);
+        } else {
+            orderedSeasons.push(seasonList[sl]);
+        }
+    }
+    for (ss = 0; ss < specialSeasons.length; ss = ss + 1) {
+        orderedSeasons.push(specialSeasons[ss]);
+    }
+    groupedIds = [];
+    videoGroups = [];
+    for (os = 0; os < orderedSeasons.length; os = os + 1) {
+        season = orderedSeasons[os];
+        seasonVideos = [];
+        for (el = 0; el < episodeList.length; el = el + 1) {
+            listedEpisode = episodeList[el];
+            if (listedEpisode["SeasonId"] == season["Id"] && isAvailableEpisode(listedEpisode)) {
+                seasonVideos.push(episodeVideo(groupsServer, listedEpisode));
+                groupedIds.push(listedEpisode["Id"]);
+            }
+        }
+        if (seasonVideos.isNotEmpty) {
+            videoGroups.push(buildAnimeVideoGroup({"title": season["Name"], "videos": seasonVideos}));
+        }
+    }
+    looseVideos = [];
+    for (le = 0; le < episodeList.length; le = le + 1) {
+        looseEpisode = episodeList[le];
+        if (groupedIds.contains(looseEpisode["Id"]) == false && isAvailableEpisode(looseEpisode)) {
+            looseVideos.push(episodeVideo(groupsServer, looseEpisode));
+        }
+    }
+    if (looseVideos.isNotEmpty) {
+        videoGroups.push(buildAnimeVideoGroup({"title": "Episodes", "videos": looseVideos}));
+    }
+    return videoGroups;
+}
+
+function alternativeNames(namedItem) {
+    otherNames = [];
+    originalTitle = namedItem["OriginalTitle"];
+    if (originalTitle != null && originalTitle != "" && originalTitle != namedItem["Name"]) {
+        otherNames.push(originalTitle);
+    }
+    return otherNames;
+}
+
+function peopleOfKind(peopleItem, wantedKinds) {
+    peopleNames = [];
+    rawPeople = peopleItem["People"];
+    if (rawPeople == null) {
+        return peopleNames;
+    }
+    for (rp = 0; rp < rawPeople.length; rp = rp + 1) {
+        person = rawPeople[rp];
+        if (wantedKinds.contains(person["Type"]) && peopleNames.contains(person["Name"]) == false) {
+            peopleNames.push(person["Name"]);
+        }
+    }
+    return peopleNames;
+}
+
+function studioNames(studioItem) {
+    namesOfStudios = [];
+    rawStudios = studioItem["Studios"];
+    if (rawStudios == null) {
+        return namesOfStudios;
+    }
+    for (rs = 0; rs < rawStudios.length; rs = rs + 1) {
+        namesOfStudios.push(rawStudios[rs]["Name"]);
+    }
+    return namesOfStudios;
+}
+
+function fetchItem(fetchUserId, fetchItemId, fetchLabel) {
+    return jellyfinGet("/Users/" + fetchUserId + "/Items/" + fetchItemId, {}, fetchLabel);
+}
+
+function getConcrete(uid, data) {
+    serverUrl = jellyfinServerUrl();
+    userId = currentUserId();
+    concreteItem = fetchItem(userId, uid, "title details");
+    if (concreteItem["Type"] == "Episode" && concreteItem["SeriesId"] != null) {
+        concreteItem = fetchItem(userId, concreteItem["SeriesId"], "series details");
+    }
+    concreteId = concreteItem["Id"];
+    concreteGroups = [];
+    if (concreteItem["Type"] == "Series") {
+        concreteGroups = seasonGroups(serverUrl, userId, concreteId);
+    } else if (concreteItem["MediaType"] == "Video" || concreteItem["Type"] == "Movie") {
+        concreteGroups = [buildAnimeVideoGroup({"title": "Movie", "videos": [movieVideo(serverUrl, concreteItem)]})];
+    } else {
+        throwSourceError("unsupported", "Jellyfin item " + concreteItem["Name"] + " is a " + parseString(concreteItem["Type"]) + ", not a movie or a show");
+    }
+    concreteDescription = concreteItem["Overview"];
+    if (concreteDescription == null) {
+        concreteDescription = "";
+    }
+    return buildConcrete({
+        "uid": uid,
+        "cover": imageUrl(serverUrl, concreteId, primaryTagOf(concreteItem)),
+        "title": concreteItem["Name"],
+        "description": concreteDescription,
+        "tags": itemGenres(concreteItem),
+        "status": itemStatusOf(concreteItem),
+        "alternativeTitles": alternativeNames(concreteItem),
+        "authors": studioNames(concreteItem),
+        "artists": peopleOfKind(concreteItem, ["Director"]),
+        "year": concreteItem["ProductionYear"],
+        "rating": concreteItem["CommunityRating"],
+        "url": detailsUrl(serverUrl, concreteId),
+        "groups": concreteGroups
+    });
+}
+
+function streamsOfType(typedSource, wantedType) {
+    typedStreams = [];
+    rawStreams = typedSource["MediaStreams"];
+    if (rawStreams == null) {
+        return typedStreams;
+    }
+    for (rs = 0; rs < rawStreams.length; rs = rs + 1) {
+        if (rawStreams[rs]["Type"] == wantedType) {
+            typedStreams.push(rawStreams[rs]);
+        }
+    }
+    return typedStreams;
+}
+
+function streamLabel(labelledStream, fallbackLabel) {
+    streamTitle = labelledStream["Title"];
+    if (streamTitle != null && streamTitle.trim() != "") {
+        return streamTitle.trim();
+    }
+    streamLanguage = labelledStream["Language"];
+    if (streamLanguage == null || streamLanguage == "" || streamLanguage == "und") {
+        return fallbackLabel;
+    }
+    displayTitle = labelledStream["DisplayTitle"];
+    if (displayTitle != null && displayTitle.trim() != "") {
+        return displayTitle.split(" - ")[0].trim();
+    }
+    return streamLanguage;
+}
+
+function audioFallbackLabel(labelledAudio, audioPosition) {
+    if (labelledAudio.length < 2) {
+        return null;
+    }
+    return "Audio " + parseString(audioPosition + 1);
+}
+
+function defaultAudioFirst(audioStreams, defaultAudioIndex) {
+    orderedAudio = [];
+    for (da = 0; da < audioStreams.length; da = da + 1) {
+        if (audioStreams[da]["Index"] == defaultAudioIndex) {
+            orderedAudio.push(audioStreams[da]);
+        }
+    }
+    for (oa = 0; oa < audioStreams.length; oa = oa + 1) {
+        if (audioStreams[oa]["Index"] != defaultAudioIndex) {
+            orderedAudio.push(audioStreams[oa]);
+        }
+    }
+    return orderedAudio;
+}
+
+function defaultAudioIndexOf(indexedSource, indexedAudio) {
+    defaultIndex = indexedSource["DefaultAudioStreamIndex"];
+    if (defaultIndex != null) {
+        return defaultIndex;
+    }
+    for (ia = 0; ia < indexedAudio.length; ia = ia + 1) {
+        if (indexedAudio[ia]["IsDefault"] == true) {
+            return indexedAudio[ia]["Index"];
+        }
+    }
+    if (indexedAudio.isNotEmpty) {
+        return indexedAudio[0]["Index"];
+    }
+    return null;
+}
+
+function subtitleTracks(subtitleServer, subtitleItemId, subtitleSource, subtitleToken) {
+    tracks = [];
+    subtitleStreams = streamsOfType(subtitleSource, "Subtitle");
+    for (ts = 0; ts < subtitleStreams.length; ts = ts + 1) {
+        subtitleStream = subtitleStreams[ts];
+        if (subtitleStream["IsTextSubtitleStream"] != true) {
+            continue;
+        }
+        trackLabel = streamLabel(subtitleStream, "Subtitles " + parseString(ts + 1));
+        if (subtitleStream["IsForced"] == true) {
+            trackLabel = trackLabel + " (forced)";
+        }
+        trackUrl = subtitleServer + "/Videos/" + subtitleItemId + "/" + subtitleSource["Id"] + "/Subtitles/" + parseString(subtitleStream["Index"]) + "/0/Stream.vtt?ApiKey=" + urlEncode(subtitleToken);
+        tracks.push({
+            "url": trackUrl,
+            "label": trackLabel,
+            "language": subtitleStream["Language"],
+            "format": "vtt"
+        });
+    }
+    return tracks;
+}
+
+function skipTypeOf(segmentType) {
+    if (segmentType == "Intro") {
+        return "intro";
+    }
+    if (segmentType == "Outro") {
+        return "outro";
+    }
+    if (segmentType == "Recap") {
+        return "recap";
+    }
+    return null;
+}
+
+function skipMarkers(markerItemId) {
+    markers = [];
+    segmentResponse = null;
+    try {
+        segmentResponse = jellyfinGetResponse("/MediaSegments/" + markerItemId, {});
+    } catch (segmentError) {
+        return markers;
+    }
+    if (segmentResponse["statusCode"] != 200) {
+        return markers;
+    }
+    segmentItems = jsonDecode(segmentResponse["body"])["Items"];
+    if (segmentItems == null) {
+        return markers;
+    }
+    for (si = 0; si < segmentItems.length; si = si + 1) {
+        segment = segmentItems[si];
+        markerType = skipTypeOf(segment["Type"]);
+        if (markerType != null) {
+            markers.push({
+                "type": markerType,
+                "start": segment["StartTicks"] / 10000000,
+                "end": segment["EndTicks"] / 10000000
+            });
+        }
+    }
+    return markers;
+}
+
+function containerNames(namedSource) {
+    rawContainer = namedSource["Container"];
+    if (rawContainer == null) {
+        return [];
+    }
+    return parseString(rawContainer).toLowerCase().split(",");
+}
+
+function playableContainer(checkedSource) {
+    directContainers = ["mp4", "m4v", "mkv", "matroska", "webm", "mov"];
+    sourceContainers = containerNames(checkedSource);
+    for (sc = 0; sc < sourceContainers.length; sc = sc + 1) {
+        if (directContainers.contains(sourceContainers[sc].trim())) {
+            return sourceContainers[sc].trim();
+        }
+    }
+    return null;
+}
+
+function codecOf(codecStream) {
+    if (codecStream == null || codecStream["Codec"] == null) {
+        return "";
+    }
+    return parseString(codecStream["Codec"]).toLowerCase();
+}
+
+function directPlayable(playSource, playVideo, playAudio, playMaxBitrate) {
+    if (playableContainer(playSource) == null) {
+        return false;
+    }
+    directVideoCodecs = ["h264", "hevc", "vp9", "vp8", "av1"];
+    if (directVideoCodecs.contains(codecOf(playVideo)) == false) {
+        return false;
+    }
+    directAudioCodecs = ["aac", "mp3", "opus", "vorbis", "flac"];
+    if (playAudio != null && directAudioCodecs.contains(codecOf(playAudio)) == false) {
+        return false;
+    }
+    sourceBitrate = playSource["Bitrate"];
+    if (playMaxBitrate > 0 && sourceBitrate != null && sourceBitrate > playMaxBitrate) {
+        return false;
+    }
+    return true;
+}
+
+function maxBitrateSetting() {
+    bitrateText = preferenceText("maxBitrate");
+    if (bitrateText == "") {
+        return 0;
+    }
+    return parseInt(bitrateText);
+}
+
+function qualityLabel(labelBitrate) {
+    if (labelBitrate <= 0) {
+        return "Auto";
+    }
+    return parseString(labelBitrate / 1000000).split(".")[0] + " Mbps";
+}
+
+function hlsUrl(hlsServer, hlsItemId, hlsSource, hlsSession, hlsAudioIndex, hlsMaxBitrate) {
+    hlsLink = hlsServer + "/Videos/" + hlsItemId + "/master.m3u8?MediaSourceId=" + urlEncode(hlsSource["Id"]);
+    hlsLink = hlsLink + "&DeviceId=" + urlEncode(hlsSession["deviceId"]);
+    hlsLink = hlsLink + "&ApiKey=" + urlEncode(hlsSession["token"]);
+    hlsLink = hlsLink + "&PlaySessionId=" + urlEncode(hlsSession["deviceId"] + hlsItemId + parseString(hlsAudioIndex));
+    hlsLink = hlsLink + "&VideoCodec=h264,hevc&AudioCodec=aac&TranscodingMaxAudioChannels=2";
+    hlsLink = hlsLink + "&SegmentContainer=ts&MinSegments=1&BreakOnNonKeyFrames=True";
+    if (hlsAudioIndex != null) {
+        hlsLink = hlsLink + "&AudioStreamIndex=" + parseString(hlsAudioIndex);
+    }
+    if (hlsMaxBitrate > 0) {
+        hlsLink = hlsLink + "&MaxStreamingBitrate=" + parseString(hlsMaxBitrate);
+        hlsLink = hlsLink + "&VideoBitrate=" + parseString(hlsMaxBitrate - 192000);
+    }
+    return hlsLink;
+}
+
+function directUrl(directServer, directItemId, directSource, directSession, directContainer) {
+    directLink = directServer + "/Videos/" + directItemId + "/stream." + directContainer + "?static=true";
+    directLink = directLink + "&MediaSourceId=" + urlEncode(directSource["Id"]);
+    directLink = directLink + "&DeviceId=" + urlEncode(directSession["deviceId"]);
+    directLink = directLink + "&ApiKey=" + urlEncode(directSession["token"]);
+    return directLink;
+}
+
+function directFormat(formatContainer) {
+    if (formatContainer == "matroska") {
+        return "mkv";
+    }
+    return formatContainer;
+}
+
+function getVideoSources(uid, src, data) {
+    session = jellyfinSession();
+    serverUrl = session["server"];
+    videoItem = fetchItem(session["userId"], uid, "video details");
+    mediaSources = videoItem["MediaSources"];
+    if (mediaSources == null || mediaSources.isEmpty) {
+        throwSourceError("unsupported", "Jellyfin has no playable file for " + videoItem["Name"]);
+    }
+    mediaSource = mediaSources[0];
+    videoStreams = streamsOfType(mediaSource, "Video");
+    audioStreams = streamsOfType(mediaSource, "Audio");
+    defaultAudioIndex = defaultAudioIndexOf(mediaSource, audioStreams);
+    orderedAudio = defaultAudioFirst(audioStreams, defaultAudioIndex);
+    subtitles = subtitleTracks(serverUrl, uid, mediaSource, session["token"]);
+    markers = skipMarkers(uid);
+    maxBitrate = maxBitrateSetting();
+    sources = [];
+
+    firstVideo = null;
+    if (videoStreams.isNotEmpty) {
+        firstVideo = videoStreams[0];
+    }
+    firstAudio = null;
+    if (orderedAudio.isNotEmpty) {
+        firstAudio = orderedAudio[0];
+    }
+    if (preferenceText("playback") != "hls" && directPlayable(mediaSource, firstVideo, firstAudio, maxBitrate)) {
+        directAudioLabel = null;
+        if (firstAudio != null) {
+            directAudioLabel = streamLabel(firstAudio, audioFallbackLabel(orderedAudio, 0));
+        }
+        directContainer = playableContainer(mediaSource);
+        sources.push({
+            "url": directUrl(serverUrl, uid, mediaSource, session, directContainer),
+            "quality": "Original",
+            "format": directFormat(directContainer),
+            "subtitles": subtitles,
+            "skip": markers,
+            "audioLabel": directAudioLabel,
+            "preferForDownload": true
+        });
+    }
+
+    if (orderedAudio.isEmpty) {
+        sources.push({
+            "url": hlsUrl(serverUrl, uid, mediaSource, session, null, maxBitrate),
+            "quality": qualityLabel(maxBitrate),
+            "format": "hls",
+            "subtitles": subtitles,
+            "skip": markers
+        });
+        return sources;
+    }
+    for (ao = 0; ao < orderedAudio.length; ao = ao + 1) {
+        audioStream = orderedAudio[ao];
+        sources.push({
+            "url": hlsUrl(serverUrl, uid, mediaSource, session, audioStream["Index"], maxBitrate),
+            "quality": qualityLabel(maxBitrate),
+            "format": "hls",
+            "subtitles": subtitles,
+            "skip": markers,
+            "audioLabel": streamLabel(audioStream, audioFallbackLabel(orderedAudio, ao))
+        });
+    }
+    return sources;
+}

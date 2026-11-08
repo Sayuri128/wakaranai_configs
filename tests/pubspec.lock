@@ -55,7 +55,7 @@ packages:
       path: "D:/StudioProjects/capyscript"
       relative: false
     source: path
-    version: "0.2.0"
+    version: "0.4.0"
   cli_config:
     dependency: transitive
     description:
@@ -201,7 +201,7 @@ packages:
     source: hosted
     version: "4.12.0"
   logger:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: logger
       sha256: "25aee487596a6257655a1e091ec2ae66bc30e7af663592cc3a27e6591e05035c"

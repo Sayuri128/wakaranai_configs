@@ -1,0 +1,1117 @@
+import "http";
+import "json";
+import "html";
+import "anime_models";
+import "converter";
+
+function uaflixBaseUrl() {
+    return "https://uafix.net";
+}
+
+function uaflixHeaders() {
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8",
+        "Referer": "https://uafix.net/"
+    };
+}
+
+function fetchSitePage(pageUrl, pageParams, pageLabel, missingIsEmpty) {
+    pageResponse = httpGet({
+        "url": pageUrl,
+        "params": pageParams,
+        "paths": {},
+        "headers": uaflixHeaders(),
+        "throughWeb": false
+    });
+    pageStatus = pageResponse["statusCode"];
+    if (pageStatus == 404 && missingIsEmpty) {
+        return null;
+    }
+    if (pageStatus != 200) {
+        throw "HTTP " + parseString(pageStatus) + " (uafix.net " + pageLabel + ")";
+    }
+    pageBody = pageResponse["body"];
+    if (pageBody == null || pageBody.trim() == "") {
+        throw "uafix.net returned an empty page (" + pageLabel + ")";
+    }
+    return pageBody;
+}
+
+function absoluteUrl(rawLink) {
+    linkText = parseString(rawLink).trim();
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("http://") || linkText.startsWith("https://")) {
+        return linkText;
+    }
+    if (linkText.startsWith("/")) {
+        return uaflixBaseUrl() + linkText;
+    }
+    return uaflixBaseUrl() + "/" + linkText;
+}
+
+function sitePath(rawHref) {
+    hrefText = parseString(rawHref).trim();
+    schemeIndex = hrefText.indexOf("://");
+    if (schemeIndex >= 0) {
+        afterScheme = hrefText.substring(schemeIndex + 3);
+        hostEnd = afterScheme.indexOf("/");
+        if (hostEnd < 0) {
+            return "";
+        }
+        hrefText = afterScheme.substring(hostEnd);
+    }
+    if (hrefText.startsWith("/")) {
+        hrefText = hrefText.substring(1);
+    }
+    return hrefText;
+}
+
+function hostOf(hostedUrl) {
+    if (hostedUrl.contains("://") == false) {
+        return "";
+    }
+    return hostedUrl.split("://")[1].split("/")[0].split("?")[0].toLowerCase();
+}
+
+function textAfter(haystack, marker) {
+    if (haystack == null) {
+        return null;
+    }
+    markerIndex = haystack.indexOf(marker);
+    if (markerIndex < 0) {
+        return null;
+    }
+    return haystack.substring(markerIndex + marker.length);
+}
+
+function imageSourceOf(imageElement) {
+    if (imageElement == null) {
+        return "";
+    }
+    lazySource = imageElement.attributes["data-src"];
+    if (lazySource != null && lazySource != "") {
+        return absoluteUrl(lazySource);
+    }
+    plainSource = imageElement.attributes["src"];
+    if (plainSource == null || plainSource == "") {
+        return "";
+    }
+    return absoluteUrl(plainSource);
+}
+
+function splitTitleParts(fullTitleText) {
+    titleParts = [];
+    if (fullTitleText == null) {
+        return titleParts;
+    }
+    rawParts = parseString(fullTitleText).split(" / ");
+    for (tp = 0; tp < rawParts.length; tp = tp + 1) {
+        titlePart = rawParts[tp].trim();
+        if (titlePart != "") {
+            titleParts.push(titlePart);
+        }
+    }
+    return titleParts;
+}
+
+function secondaryTitle(fullNameText) {
+    secondaryParts = splitTitleParts(fullNameText);
+    if (secondaryParts.length < 2) {
+        return null;
+    }
+    return secondaryParts.sublist(1).join(" / ");
+}
+
+function galleryEntry(entryPath, entryTitle, entryCover, entryFullName) {
+    return buildGallery({
+        "uid": entryPath,
+        "title": entryTitle,
+        "cover": entryCover,
+        "subtitle": secondaryTitle(entryFullName),
+        "data": {"cover": entryCover, "title": entryTitle},
+        "status": statusUndefined()
+    });
+}
+
+function selectedSection(galleryFilters) {
+    if (galleryFilters == null) {
+        return "films";
+    }
+    for (sf = 0; sf < galleryFilters.length; sf = sf + 1) {
+        sectionFilter = galleryFilters[sf]["filter"];
+        if (sectionFilter == null) {
+            continue;
+        }
+        if (sectionFilter["param"] != "section") {
+            continue;
+        }
+        sectionValue = galleryFilters[sf]["selected"];
+        if (sectionValue != null && sectionValue != "") {
+            return sectionValue;
+        }
+    }
+    return "films";
+}
+
+function getGallery(page, query, filters) {
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    if (searchText != "") {
+        return searchGallery(page, searchText);
+    }
+    listUrl = uaflixBaseUrl() + "/" + selectedSection(filters) + "/";
+    if (page > 1) {
+        listUrl = listUrl + "page/" + parseString(page) + "/";
+    }
+    listBody = fetchSitePage(listUrl, {}, "gallery page " + parseString(page), true);
+    if (listBody == null) {
+        return [];
+    }
+    return parseListing(createHTMLParser(listBody));
+}
+
+function parseListing(listDocument) {
+    listedItems = [];
+    listCards = listDocument.querySelectorAll("#dle-content .video-item a.vi-img");
+    for (lc = 0; lc < listCards.length; lc = lc + 1) {
+        listCard = listCards[lc];
+        cardHref = listCard.attributes["href"];
+        if (cardHref == null || cardHref == "") {
+            continue;
+        }
+        cardFullName = listCard.attributes["alt"];
+        cardTitle = "";
+        cardTitleElement = listCard.querySelector(".vi-title");
+        if (cardTitleElement != null) {
+            cardTitle = cardTitleElement.text.trim();
+        }
+        if (cardTitle == "") {
+            cardNameParts = splitTitleParts(cardFullName);
+            if (cardNameParts.isEmpty) {
+                continue;
+            }
+            cardTitle = cardNameParts[0];
+        }
+        listedItems.push(galleryEntry(sitePath(cardHref), cardTitle, imageSourceOf(listCard.querySelector("img")), cardFullName));
+    }
+    return listedItems;
+}
+
+function searchGallery(searchPage, searchText) {
+    resultFrom = searchPage - 1;
+    resultFrom = resultFrom * 12;
+    resultFrom = resultFrom + 1;
+    searchBody = fetchSitePage(uaflixBaseUrl() + "/index.php", {
+        "do": "search",
+        "subaction": "search",
+        "story": searchText,
+        "search_start": parseString(searchPage),
+        "full_search": "0",
+        "result_from": parseString(resultFrom)
+    }, "search", true);
+    if (searchBody == null) {
+        return [];
+    }
+    searchDocument = createHTMLParser(searchBody);
+    foundItems = [];
+    resultLinks = searchDocument.querySelectorAll("a.sres-wrap");
+    for (sr = 0; sr < resultLinks.length; sr = sr + 1) {
+        resultLink = resultLinks[sr];
+        resultHref = resultLink.attributes["href"];
+        if (resultHref == null || resultHref == "") {
+            continue;
+        }
+        resultFullName = "";
+        resultHeading = resultLink.querySelector("h2");
+        if (resultHeading != null) {
+            resultFullName = resultHeading.text.trim();
+        }
+        resultImage = resultLink.querySelector("img");
+        if (resultFullName == "" && resultImage != null) {
+            resultFullName = resultImage.attributes["alt"];
+        }
+        resultNameParts = splitTitleParts(resultFullName);
+        if (resultNameParts.isEmpty) {
+            continue;
+        }
+        foundItems.push(galleryEntry(sitePath(resultHref), resultNameParts[0], imageSourceOf(resultImage), resultFullName));
+    }
+    return foundItems;
+}
+
+function getConcrete(uid, data) {
+    titlePath = uid;
+    titleUrl = absoluteUrl(titlePath);
+    titleBody = fetchSitePage(titleUrl, {}, titlePath, false);
+    titleDocument = createHTMLParser(titleBody);
+
+    posterImage = titleDocument.querySelector(".fposter2 img");
+    fullName = "";
+    if (posterImage != null) {
+        posterAlt = posterImage.attributes["alt"];
+        if (posterAlt != null) {
+            fullName = posterAlt.trim();
+        }
+    }
+    if (fullName == "") {
+        headingElement = titleDocument.querySelector("#ftitle");
+        if (headingElement != null) {
+            fullName = headingElement.text.split(" дивитись онлайн")[0].trim();
+        }
+    }
+    nameParts = splitTitleParts(fullName);
+    mainTitle = "";
+    otherTitles = [];
+    if (nameParts.isEmpty == false) {
+        mainTitle = nameParts[0];
+        otherTitles = nameParts.sublist(1);
+    }
+    if (mainTitle == "" && data != null) {
+        if (data["title"] != null) {
+            mainTitle = data["title"];
+        }
+    }
+
+    posterUrl = imageSourceOf(posterImage);
+    if (posterUrl == "" && data != null) {
+        if (data["cover"] != null) {
+            posterUrl = data["cover"];
+        }
+    }
+
+    episodeLayout = buildEpisodeGroups(titleDocument, titlePath, mainTitle);
+    titleGroups = episodeLayout["groups"];
+    titleStatus = statusUndefined();
+    if (episodeLayout["movie"] == true) {
+        titleStatus = statusReleased();
+    }
+
+    return buildConcrete({
+        "uid": titlePath,
+        "cover": posterUrl,
+        "title": mainTitle,
+        "alternativeTitles": otherTitles,
+        "description": readDescription(titleDocument),
+        "tags": readGenres(titleDocument),
+        "status": titleStatus,
+        "groups": titleGroups,
+        "authors": readDirectors(titleDocument),
+        "year": readElementText(titleDocument, "#finfo .year"),
+        "rating": readRating(titleDocument),
+        "url": titleUrl
+    });
+}
+
+function readElementText(textDocument, textSelector) {
+    textElement = textDocument.querySelector(textSelector);
+    if (textElement == null) {
+        return null;
+    }
+    elementText = textElement.text.trim();
+    if (elementText == "") {
+        return null;
+    }
+    return elementText;
+}
+
+function readDescription(descriptionDocument) {
+    shortText = readElementText(descriptionDocument, "#serial-kratko");
+    if (shortText != null) {
+        return shortText;
+    }
+    fullText = readElementText(descriptionDocument, "#fdesc");
+    if (fullText != null) {
+        return fullText;
+    }
+    return "";
+}
+
+function readRating(ratingDocument) {
+    ratingText = readElementText(ratingDocument, ".rat-imdb");
+    if (ratingText == null) {
+        return null;
+    }
+    ratingValue = null;
+    try {
+        ratingValue = parseDouble(ratingText.replaceAll(",", "."));
+    } catch (e) {
+        ratingValue = null;
+    }
+    if (ratingValue == null) {
+        return null;
+    }
+    if (ratingValue <= 0) {
+        return null;
+    }
+    return ratingText.replaceAll(",", ".");
+}
+
+function readGenres(genreDocument) {
+    genreNames = [];
+    genreItem = genreDocument.querySelector("#finfo li.genre");
+    if (genreItem == null) {
+        return genreNames;
+    }
+    genreText = genreItem.text;
+    genreLabelEnd = genreText.indexOf(":");
+    if (genreLabelEnd >= 0) {
+        genreText = genreText.substring(genreLabelEnd + 1);
+    }
+    genreParts = genreText.split(",");
+    for (gn = 0; gn < genreParts.length; gn = gn + 1) {
+        genreName = genreParts[gn].trim();
+        if (genreName != "" && genreNames.contains(genreName) == false) {
+            genreNames.push(genreName);
+        }
+    }
+    return genreNames;
+}
+
+function readDirectors(directorDocument) {
+    directorNames = [];
+    directorElements = directorDocument.querySelectorAll("[itemprop=director]");
+    for (dn = 0; dn < directorElements.length; dn = dn + 1) {
+        directorText = directorElements[dn].text.trim();
+        if (directorText == "") {
+            directorContent = directorElements[dn].attributes["content"];
+            if (directorContent != null) {
+                directorText = directorContent.trim();
+            }
+        }
+        directorParts = directorText.split(",");
+        for (dp = 0; dp < directorParts.length; dp = dp + 1) {
+            directorName = directorParts[dp].trim();
+            if (directorName != "" && directorNames.contains(directorName) == false) {
+                directorNames.push(directorName);
+            }
+        }
+    }
+    return directorNames;
+}
+
+function readPlayers(playerDocument) {
+    foundPlayers = [];
+    playerTabs = playerDocument.querySelectorAll(".tabs-sel .tabs-link");
+    playerBoxes = playerDocument.querySelectorAll(".video-box");
+    for (pb = 0; pb < playerBoxes.length; pb = pb + 1) {
+        boxFrame = playerBoxes[pb].querySelector("iframe");
+        if (boxFrame == null) {
+            continue;
+        }
+        frameSource = boxFrame.attributes["src"];
+        if (frameSource == null || frameSource.trim() == "") {
+            frameSource = boxFrame.attributes["data-src"];
+        }
+        if (frameSource == null || frameSource.trim() == "") {
+            continue;
+        }
+        frameUrl = absoluteUrl(frameSource);
+        if (frameUrl.contains("youtube.") || frameUrl.contains("youtu.be")) {
+            continue;
+        }
+        frameLabel = "";
+        if (pb < playerTabs.length) {
+            frameLabel = playerTabs[pb].text.trim();
+        }
+        foundPlayers.push({"label": frameLabel, "url": frameUrl});
+    }
+    return foundPlayers;
+}
+
+function buildEpisodeGroups(groupDocument, groupTitlePath, groupMainTitle) {
+    pagePlayers = readPlayers(groupDocument);
+
+    playlistGroups = [];
+    for (pp = 0; pp < pagePlayers.length; pp = pp + 1) {
+        playerUrl = pagePlayers[pp]["url"];
+        if (playerUrl.contains("/serial/")) {
+            playerGroups = ashdiPlaylistGroups(playerUrl);
+            for (pg = 0; pg < playerGroups.length; pg = pg + 1) {
+                playlistGroups.push(playerGroups[pg]);
+            }
+        }
+    }
+    if (playlistGroups.isEmpty == false) {
+        return {"movie": false, "groups": playlistGroups};
+    }
+
+    seasonGroups = [];
+    seasonLinks = groupDocument.querySelectorAll(".sez-wr a");
+    seasonPaths = [];
+    for (sl = 0; sl < seasonLinks.length; sl = sl + 1) {
+        seasonHref = seasonLinks[sl].attributes["href"];
+        if (seasonHref == null) {
+            continue;
+        }
+        if (seasonHref.contains("/sezon-") == false) {
+            continue;
+        }
+        seasonPath = sitePath(seasonHref);
+        if (seasonPaths.contains(seasonPath)) {
+            continue;
+        }
+        seasonPaths.push(seasonPath);
+        seasonVideos = seasonEpisodeVideos(seasonPath);
+        if (seasonVideos.isEmpty) {
+            continue;
+        }
+        seasonLabel = seasonLinks[sl].text.trim();
+        if (seasonLabel == "") {
+            seasonLabel = "Сезон";
+        }
+        seasonGroups.push(buildAnimeVideoGroup({"title": seasonLabel, "videos": seasonVideos}));
+    }
+    if (seasonGroups.isEmpty == false) {
+        return {"movie": false, "groups": seasonGroups};
+    }
+
+    pageCards = parseEpisodeCards(groupDocument);
+    pageEpisodeVideos = episodeVideosFromCards(orderCardsByEpisode(pageCards));
+    if (pageEpisodeVideos.isEmpty == false) {
+        return {"movie": false, "groups": [buildAnimeVideoGroup({"title": "Серії", "videos": pageEpisodeVideos})]};
+    }
+
+    if (pagePlayers.isEmpty) {
+        return {"movie": false, "groups": []};
+    }
+    movieVideo = buildAnimeVideo({
+        "uid": groupTitlePath,
+        "src": pagePlayers[0]["url"],
+        "title": groupMainTitle,
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {"players": pagePlayers}
+    });
+    return {"movie": true, "groups": [buildAnimeVideoGroup({"title": "Фільм", "videos": [movieVideo]})]};
+}
+
+function parseEpisodeCards(cardsDocument) {
+    episodeCards = [];
+    cardLinks = cardsDocument.querySelectorAll(".sers-wr .video-item a.vi-img");
+    for (ec = 0; ec < cardLinks.length; ec = ec + 1) {
+        episodeHref = cardLinks[ec].attributes["href"];
+        if (episodeHref == null) {
+            continue;
+        }
+        if (episodeHref.contains("-episode-") == false) {
+            continue;
+        }
+        episodeCardText = cardLinks[ec].text;
+        if (episodeCardText.contains("Найближчим часом")) {
+            continue;
+        }
+        episodeCards.push(sitePath(episodeHref));
+    }
+    return episodeCards;
+}
+
+function lastSeasonPage(pagedDocument) {
+    highestPage = 1;
+    pageLinks = pagedDocument.querySelectorAll("a");
+    for (pl = 0; pl < pageLinks.length; pl = pl + 1) {
+        pageHref = pageLinks[pl].attributes["href"];
+        pageNumberText = textAfter(pageHref, "?page=");
+        if (pageNumberText == null) {
+            continue;
+        }
+        pageNumber = null;
+        try {
+            pageNumber = parseInt(pageNumberText.split("&")[0].split("#")[0].trim());
+        } catch (e) {
+            pageNumber = null;
+        }
+        if (pageNumber != null) {
+            if (pageNumber > highestPage) {
+                highestPage = pageNumber;
+            }
+        }
+    }
+    if (highestPage > 60) {
+        highestPage = 60;
+    }
+    return highestPage;
+}
+
+function seasonEpisodeVideos(seasonPagePath) {
+    seasonUrl = absoluteUrl(seasonPagePath);
+    firstSeasonBody = fetchSitePage(seasonUrl, {}, seasonPagePath, true);
+    if (firstSeasonBody == null) {
+        return [];
+    }
+    firstSeasonDocument = createHTMLParser(firstSeasonBody);
+    collectedCards = parseEpisodeCards(firstSeasonDocument);
+    seasonPageCount = lastSeasonPage(firstSeasonDocument);
+    seasonPagingDone = false;
+    for (sp = 2; sp <= seasonPageCount; sp = sp + 1) {
+        if (seasonPagingDone) {
+            continue;
+        }
+        nextSeasonBody = fetchSitePage(seasonUrl, {"page": parseString(sp)}, seasonPagePath + " page " + parseString(sp), true);
+        if (nextSeasonBody == null) {
+            seasonPagingDone = true;
+            continue;
+        }
+        nextCards = parseEpisodeCards(createHTMLParser(nextSeasonBody));
+        newCardCount = 0;
+        for (nc = 0; nc < nextCards.length; nc = nc + 1) {
+            if (collectedCards.contains(nextCards[nc]) == false) {
+                collectedCards.push(nextCards[nc]);
+                newCardCount = newCardCount + 1;
+            }
+        }
+        if (newCardCount == 0) {
+            seasonPagingDone = true;
+        }
+    }
+    return episodeVideosFromCards(orderCardsByEpisode(cardsOfSeason(collectedCards, seasonPagePath)));
+}
+
+function cardsOfSeason(candidateCards, seasonListPath) {
+    seasonPrefix = seasonListPath.split("sezon-")[0];
+    wantedSeasonNumber = numberAfter(seasonListPath, "sezon-");
+    matchingCards = [];
+    for (mc = 0; mc < candidateCards.length; mc = mc + 1) {
+        candidatePath = candidateCards[mc];
+        if (candidatePath.startsWith(seasonPrefix) == false) {
+            continue;
+        }
+        if (wantedSeasonNumber != null) {
+            if (numberAfter(candidatePath, "season-") != wantedSeasonNumber) {
+                continue;
+            }
+        }
+        matchingCards.push(candidatePath);
+    }
+    return matchingCards;
+}
+
+function orderCardsByEpisode(unorderedCards) {
+    cardsByNumber = {};
+    unnumberedCards = [];
+    highestEpisode = 0;
+    for (oc = 0; oc < unorderedCards.length; oc = oc + 1) {
+        orderedPath = unorderedCards[oc];
+        orderedNumber = numberAfter(orderedPath, "-episode-");
+        if (orderedNumber == null) {
+            unnumberedCards.push(orderedPath);
+            continue;
+        }
+        numberKey = parseString(orderedNumber);
+        if (cardsByNumber.containsKey(numberKey)) {
+            continue;
+        }
+        cardsByNumber[numberKey] = orderedPath;
+        if (orderedNumber > highestEpisode) {
+            highestEpisode = orderedNumber;
+        }
+    }
+    sortedCards = [];
+    for (on = 0; on <= highestEpisode; on = on + 1) {
+        sortedKey = parseString(on);
+        if (cardsByNumber.containsKey(sortedKey)) {
+            sortedCards.push(cardsByNumber[sortedKey]);
+        }
+    }
+    for (ou = unnumberedCards.length - 1; ou >= 0; ou = ou - 1) {
+        sortedCards.push(unnumberedCards[ou]);
+    }
+    return sortedCards;
+}
+
+function numberAfter(numberSource, numberMarker) {
+    numberText = textAfter(numberSource, numberMarker);
+    if (numberText == null) {
+        return null;
+    }
+    digitsText = numberText.split("/")[0].split("-")[0].trim();
+    parsedValue = null;
+    try {
+        parsedValue = parseInt(digitsText);
+    } catch (e) {
+        parsedValue = null;
+    }
+    return parsedValue;
+}
+
+function episodeVideosFromCards(orderedCards) {
+    cardVideos = [];
+    seenPaths = [];
+    for (cv = 0; cv < orderedCards.length; cv = cv + 1) {
+        episodePath = orderedCards[cv];
+        if (seenPaths.contains(episodePath)) {
+            continue;
+        }
+        seenPaths.push(episodePath);
+        episodeNumber = numberAfter(episodePath, "-episode-");
+        seasonNumber = numberAfter(episodePath, "season-");
+        episodeTitle = "Серія";
+        if (episodeNumber != null) {
+            episodeTitle = "Серія " + parseString(episodeNumber);
+        }
+        cardVideos.push(buildAnimeVideo({
+            "uid": episodePath,
+            "src": absoluteUrl(episodePath),
+            "title": episodeTitle,
+            "timestamp": null,
+            "type": typeIframe(),
+            "data": {"page": episodePath},
+            "number": episodeNumber,
+            "season": seasonNumber
+        }));
+    }
+    return cardVideos;
+}
+
+function fetchPlayerPage(playerPageUrl) {
+    playerResponse = httpGet({
+        "url": playerPageUrl,
+        "params": {},
+        "paths": {},
+        "headers": uaflixHeaders(),
+        "throughWeb": false
+    });
+    if (playerResponse["statusCode"] != 200) {
+        return null;
+    }
+    return playerResponse["body"];
+}
+
+function cleanLabel(rawLabel) {
+    if (rawLabel == null) {
+        return "";
+    }
+    return parseString(rawLabel).trim();
+}
+
+function playlistNumber(numberLabel, numberWord) {
+    numberText = textAfter(numberLabel, numberWord);
+    if (numberText == null) {
+        return null;
+    }
+    numberDigits = numberText.trim().split(" ")[0];
+    parsedNumber = null;
+    try {
+        parsedNumber = parseDouble(numberDigits.replaceAll(",", "."));
+    } catch (e) {
+        parsedNumber = null;
+    }
+    return parsedNumber;
+}
+
+function ashdiEpisodeVideo(ashdiItem, ashdiDub, ashdiSeason) {
+    ashdiId = ashdiItem["id"];
+    if (ashdiId == null) {
+        ashdiId = ashdiItem["vid"];
+    }
+    if (ashdiId == null) {
+        return null;
+    }
+    ashdiEmbedUrl = "https://ashdi.vip/vod/" + parseString(ashdiId);
+    ashdiTitle = cleanLabel(ashdiItem["title"]);
+    if (ashdiTitle == "") {
+        ashdiTitle = "Серія";
+    }
+    return buildAnimeVideo({
+        "uid": ashdiEmbedUrl,
+        "src": ashdiEmbedUrl,
+        "title": ashdiTitle,
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {"dub": ashdiDub},
+        "number": playlistNumber(ashdiTitle, "Серія"),
+        "season": ashdiSeason
+    });
+}
+
+function ashdiPlaylistGroups(playlistUrl) {
+    playlistPage = fetchPlayerPage(playlistUrl);
+    playlistText = textAfter(playlistPage, "file:'");
+    if (playlistText == null) {
+        return [];
+    }
+    playlistEnd = playlistText.indexOf("',");
+    if (playlistEnd < 0) {
+        return [];
+    }
+    playlistTree = null;
+    try {
+        playlistTree = jsonDecode(playlistText.substring(0, playlistEnd));
+    } catch (e) {
+        playlistTree = null;
+    }
+    if (playlistTree == null) {
+        return [];
+    }
+    ashdiGroups = [];
+    looseVideos = [];
+    for (la = 0; la < playlistTree.length; la = la + 1) {
+        firstNode = playlistTree[la];
+        firstLabel = cleanLabel(firstNode["title"]);
+        firstChildren = firstNode["folder"];
+        if (firstChildren == null) {
+            looseVideo = ashdiEpisodeVideo(firstNode, "", null);
+            if (looseVideo != null) {
+                looseVideos.push(looseVideo);
+            }
+            continue;
+        }
+        firstIsSeason = firstLabel.contains("Сезон");
+        firstDub = firstLabel;
+        firstSeason = null;
+        if (firstIsSeason) {
+            firstDub = "";
+            firstSeason = playlistNumber(firstLabel, "Сезон");
+        }
+        directVideos = [];
+        for (lb = 0; lb < firstChildren.length; lb = lb + 1) {
+            secondNode = firstChildren[lb];
+            secondChildren = secondNode["folder"];
+            if (secondChildren == null) {
+                directVideo = ashdiEpisodeVideo(secondNode, firstDub, firstSeason);
+                if (directVideo != null) {
+                    directVideos.push(directVideo);
+                }
+                continue;
+            }
+            secondLabel = cleanLabel(secondNode["title"]);
+            nestedVideos = [];
+            for (lc = 0; lc < secondChildren.length; lc = lc + 1) {
+                nestedVideo = ashdiEpisodeVideo(secondChildren[lc], firstDub, playlistNumber(secondLabel, "Сезон"));
+                if (nestedVideo != null) {
+                    nestedVideos.push(nestedVideo);
+                }
+            }
+            if (nestedVideos.isEmpty == false) {
+                ashdiGroups.push(buildAnimeVideoGroup({"title": joinLabels(firstLabel, secondLabel), "videos": nestedVideos}));
+            }
+        }
+        if (directVideos.isEmpty == false) {
+            ashdiGroups.push(buildAnimeVideoGroup({"title": joinLabels(firstLabel, ""), "videos": directVideos}));
+        }
+    }
+    if (looseVideos.isEmpty == false) {
+        ashdiGroups.push(buildAnimeVideoGroup({"title": "Серії", "videos": looseVideos}));
+    }
+    return ashdiGroups;
+}
+
+function joinLabels(outerLabel, innerLabel) {
+    if (outerLabel == "") {
+        if (innerLabel == "") {
+            return "Серії";
+        }
+        return innerLabel;
+    }
+    if (innerLabel == "") {
+        return outerLabel;
+    }
+    return outerLabel + " · " + innerLabel;
+}
+
+function getVideoSources(uid, src, data) {
+    episodePlayers = [];
+    if (data != null) {
+        if (data["players"] != null) {
+            episodePlayers = data["players"];
+        }
+    }
+    if (episodePlayers.isEmpty) {
+        if (hostOf(absoluteUrl(src)) == hostOf(uaflixBaseUrl())) {
+            episodeBody = fetchSitePage(absoluteUrl(src), {}, uid, false);
+            episodePlayers = readPlayers(createHTMLParser(episodeBody));
+        } else {
+            episodePlayers = [{"label": "", "url": src}];
+        }
+    }
+    episodeDub = "";
+    if (data != null) {
+        if (data["dub"] != null) {
+            episodeDub = data["dub"];
+        }
+    }
+    resolvedSources = [];
+    for (ep = 0; ep < episodePlayers.length; ep = ep + 1) {
+        playerEntry = episodePlayers[ep];
+        playerSources = [];
+        try {
+            playerSources = resolvePlayerjsSources(playerEntry["url"]);
+        } catch (e) {
+            playerSources = [];
+        }
+        playerAudio = episodeDub;
+        if (playerAudio == "" && episodePlayers.length > 1) {
+            playerAudio = audioLabelOf(playerEntry["label"], ep);
+        }
+        for (ps = 0; ps < playerSources.length; ps = ps + 1) {
+            playerSource = playerSources[ps];
+            if (playerAudio != "" && playerSource["audioLabel"] == null) {
+                playerSource["audioLabel"] = playerAudio;
+            }
+            resolvedSources.push(playerSource);
+        }
+    }
+    return resolvedSources;
+}
+
+function audioLabelOf(tabLabel, tabIndex) {
+    labelText = cleanLabel(tabLabel);
+    openIndex = labelText.indexOf("(");
+    if (openIndex >= 0) {
+        insideText = labelText.substring(openIndex + 1).split(")")[0].trim();
+        if (insideText != "") {
+            return insideText.substring(0, 1).toUpperCase() + insideText.substring(1);
+        }
+    }
+    if (labelText != "") {
+        return labelText;
+    }
+    return "Плеєр " + parseString(tabIndex + 1);
+}
+
+function readQuotedValue(rawText) {
+    if (rawText == null) {
+        return null;
+    }
+    trimmedText = rawText.trimLeft();
+    if (trimmedText.length < 2) {
+        return null;
+    }
+    quoteChar = trimmedText.substring(0, 1);
+    if (quoteChar != '"' && quoteChar != "'") {
+        return null;
+    }
+    quotedRest = trimmedText.substring(1);
+    closingIndex = quotedRest.indexOf(quoteChar);
+    if (closingIndex < 0) {
+        return null;
+    }
+    return quotedRest.substring(0, closingIndex).replaceAll(`\/`, "/").trim();
+}
+
+function guessStreamFormat(streamUrl) {
+    streamPath = streamUrl.toLowerCase().split("?")[0];
+    if (streamPath.endsWith(".mp4")) {
+        return "mp4";
+    }
+    if (streamPath.endsWith(".mpd")) {
+        return "dash";
+    }
+    return "hls";
+}
+
+function guessSubtitleLanguage(subtitleLabel) {
+    lowerLabel = subtitleLabel.toLowerCase();
+    if (lowerLabel.contains("укр") || lowerLabel.contains("ukr")) {
+        return "uk";
+    }
+    if (lowerLabel.contains("англ") || lowerLabel.contains("eng")) {
+        return "en";
+    }
+    if (lowerLabel.contains("япон") || lowerLabel.contains("jap")) {
+        return "ja";
+    }
+    return null;
+}
+
+function splitLabeledLink(labeledEntry) {
+    entryText = labeledEntry.trim();
+    entryLabel = "";
+    if (entryText.startsWith("[")) {
+        closingBracket = entryText.indexOf("]");
+        if (closingBracket > 0) {
+            entryLabel = entryText.substring(1, closingBracket).trim();
+            entryText = entryText.substring(closingBracket + 1).trim();
+        }
+    }
+    entryLink = entryText.split(" or ")[0].trim();
+    if (entryLink.startsWith("//")) {
+        entryLink = "https:" + entryLink;
+    }
+    return {"label": entryLabel, "link": entryLink};
+}
+
+function parsePlayerjsSubtitles(subtitleValue, subtitleHeaders) {
+    parsedSubtitles = [];
+    if (subtitleValue == null) {
+        return parsedSubtitles;
+    }
+    subtitleEntries = subtitleValue.split(",");
+    for (st = 0; st < subtitleEntries.length; st = st + 1) {
+        subtitleEntry = splitLabeledLink(subtitleEntries[st]);
+        subtitleLink = subtitleEntry["link"];
+        if (subtitleLink.startsWith("http") == false) {
+            continue;
+        }
+        subtitleLabel = subtitleEntry["label"];
+        if (subtitleLabel == "") {
+            subtitleLabel = "Субтитри";
+        }
+        subtitleFormat = "vtt";
+        if (subtitleLink.toLowerCase().split("?")[0].endsWith(".srt")) {
+            subtitleFormat = "srt";
+        }
+        parsedSubtitles.push({
+            "url": subtitleLink,
+            "label": subtitleLabel,
+            "language": guessSubtitleLanguage(subtitleLabel),
+            "format": subtitleFormat,
+            "headers": subtitleHeaders
+        });
+    }
+    return parsedSubtitles;
+}
+
+function resolvePlayerjsSources(playerPageUrl) {
+    playerPage = fetchPlayerPage(playerPageUrl);
+    playerConfig = textAfter(playerPage, "new Playerjs(");
+    if (playerConfig == null) {
+        return [];
+    }
+    fileText = textAfter(playerConfig, "file:");
+    if (fileText == null) {
+        fileText = textAfter(playerConfig, '"file":');
+    }
+    playerFile = readQuotedValue(fileText);
+    if (playerFile == null || playerFile == "") {
+        return [];
+    }
+    playerHeaders = {"Referer": "https://" + hostOf(playerPageUrl) + "/"};
+    if (playerFile.startsWith("[{") || playerFile.startsWith("{")) {
+        return playlistEpisodeSources(playerFile, playerPageUrl, playerHeaders);
+    }
+    subtitleText = textAfter(playerConfig, "subtitle:");
+    playerSubtitles = parsePlayerjsSubtitles(readQuotedValue(subtitleText), playerHeaders);
+    fileEntries = [playerFile];
+    if (playerFile.startsWith("[")) {
+        fileEntries = playerFile.split(",");
+    }
+    builtSources = [];
+    for (fe = 0; fe < fileEntries.length; fe = fe + 1) {
+        fileEntry = splitLabeledLink(fileEntries[fe]);
+        streamLink = fileEntry["link"];
+        if (streamLink.startsWith("http") == false) {
+            continue;
+        }
+        streamQuality = fileEntry["label"];
+        if (streamQuality == "") {
+            streamQuality = "Auto";
+        }
+        builtSources.push({
+            "url": streamLink,
+            "quality": streamQuality,
+            "format": guessStreamFormat(streamLink),
+            "headers": playerHeaders,
+            "subtitles": playerSubtitles
+        });
+    }
+    return builtSources;
+}
+
+function queryNumber(queryUrl, queryKey) {
+    queryText = textAfter(queryUrl, queryKey + "=");
+    if (queryText == null) {
+        return null;
+    }
+    queryDigits = queryText.split("&")[0].split("#")[0].trim();
+    queryValue = null;
+    try {
+        queryValue = parseInt(queryDigits);
+    } catch (e) {
+        queryValue = null;
+    }
+    return queryValue;
+}
+
+function playlistStreamSource(streamItem, streamDub, streamHeaders) {
+    streamFile = streamItem["file"];
+    if (streamFile == null) {
+        return null;
+    }
+    streamEntry = splitLabeledLink(parseString(streamFile).split(",")[0]);
+    streamUrl = streamEntry["link"];
+    if (streamUrl.startsWith("http") == false) {
+        return null;
+    }
+    streamSubtitle = streamItem["subtitle"];
+    if (streamSubtitle == null) {
+        streamSubtitle = "";
+    }
+    streamSource = {
+        "url": streamUrl,
+        "quality": "Auto",
+        "format": guessStreamFormat(streamUrl),
+        "headers": streamHeaders,
+        "subtitles": parsePlayerjsSubtitles(parseString(streamSubtitle), streamHeaders)
+    };
+    if (streamDub != "") {
+        streamSource["audioLabel"] = streamDub;
+    }
+    return streamSource;
+}
+
+function playlistEpisodeSources(playlistJson, playlistPageUrl, playlistHeaders) {
+    wantedSeason = queryNumber(playlistPageUrl, "season");
+    wantedEpisode = queryNumber(playlistPageUrl, "episode");
+    if (wantedEpisode == null) {
+        return [];
+    }
+    if (wantedSeason == null) {
+        wantedSeason = 1;
+    }
+    playlistNodes = null;
+    try {
+        playlistNodes = jsonDecode(playlistJson);
+    } catch (e) {
+        playlistNodes = null;
+    }
+    if (playlistNodes == null) {
+        return [];
+    }
+    episodeSources = [];
+    for (dn = 0; dn < playlistNodes.length; dn = dn + 1) {
+        dubNode = playlistNodes[dn];
+        dubName = cleanLabel(dubNode["title"]);
+        dubSeasons = dubNode["folder"];
+        if (dubSeasons == null) {
+            continue;
+        }
+        for (sn = 0; sn < dubSeasons.length; sn = sn + 1) {
+            seasonNode = dubSeasons[sn];
+            seasonEpisodes = seasonNode["folder"];
+            if (seasonEpisodes == null) {
+                continue;
+            }
+            seasonNodeNumber = playlistNumber(cleanLabel(seasonNode["title"]), "Сезон");
+            if (seasonNodeNumber != null) {
+                if (seasonNodeNumber != wantedSeason) {
+                    continue;
+                }
+            }
+            for (en = 0; en < seasonEpisodes.length; en = en + 1) {
+                episodeNode = seasonEpisodes[en];
+                episodeNodeNumber = playlistNumber(cleanLabel(episodeNode["title"]), "Серія");
+                if (episodeNodeNumber == null) {
+                    continue;
+                }
+                if (episodeNodeNumber != wantedEpisode) {
+                    continue;
+                }
+                matchedSource = playlistStreamSource(episodeNode, dubName, playlistHeaders);
+                if (matchedSource != null) {
+                    episodeSources.push(matchedSource);
+                }
+            }
+        }
+    }
+    return episodeSources;
+}
+
+function getImageHeaders(uid) {
+    return {"Referer": "https://uafix.net/"};
+}

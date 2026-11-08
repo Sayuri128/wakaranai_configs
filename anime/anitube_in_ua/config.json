@@ -6,11 +6,46 @@
   "nsfw": false,
   "language": "Українська",
   "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
   "filters": [],
   "protectorConfig": {
     "pingUrl": "https://anitube.in.ua/anime/",
     "needToLogin": false,
     "inAppBrowserInterceptor": true
+  },
+  "preferences": [
+    {
+      "key": "preferredPlayer",
+      "type": "select",
+      "title": "Preferred player",
+      "summary": "Episode lists from this player come first within each dub",
+      "default": "auto",
+      "options": [
+        {"value": "auto", "label": "Site order"},
+        {"value": "fenixplay", "label": "FenixPlay"},
+        {"value": "ashdi", "label": "Ashdi"},
+        {"value": "moonanime", "label": "MoonAnime"},
+        {"value": "mp4upload", "label": "Mp4Upload"}
+      ]
+    },
+    {
+      "key": "preferredDubs",
+      "type": "text",
+      "title": "Preferred dubs",
+      "summary": "Dub studio names to list first, comma-separated in order of preference, e.g. FanVoxUA, Amanogawa",
+      "default": ""
+    },
+    {
+      "key": "hideUnsupportedPlayers",
+      "type": "toggle",
+      "title": "Hide unsupported players",
+      "summary": "Only list Ashdi, FenixPlay, MoonAnime and Mp4Upload episodes when a title has any of them",
+      "default": false
+    }
+  ],
+  "requestPolicy": {
+    "rateLimit": {"requests": 3, "perSeconds": 2}
   },
   "searchAvailable": true
 }

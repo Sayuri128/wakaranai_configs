@@ -1,0 +1,589 @@
+import "http";
+import "json";
+import "date";
+import "converter";
+import "manga_models";
+import "preferences";
+import "errors";
+import "storage";
+
+function preferenceText(preferenceKey) {
+    preferenceValue = getPreference(preferenceKey);
+    if (preferenceValue == null) {
+        return "";
+    }
+    return parseString(preferenceValue).trim();
+}
+
+function kavitaServerUrl() {
+    serverUrl = preferenceText("serverUrl");
+    if (serverUrl == "") {
+        throwSourceError("loginRequired", "Enter your Kavita server address in the extension settings");
+    }
+    if (serverUrl.startsWith("http://") == false && serverUrl.startsWith("https://") == false) {
+        serverUrl = "http://" + serverUrl;
+    }
+    for (slashIndex = 0; slashIndex < 8; slashIndex = slashIndex + 1) {
+        if (serverUrl.endsWith("/")) {
+            serverUrl = serverUrl.substring(0, serverUrl.length - 1);
+        }
+    }
+    return serverUrl;
+}
+
+function kavitaApiKey() {
+    apiKey = preferenceText("apiKey");
+    if (apiKey == "") {
+        throwSourceError("loginRequired", "Enter your Kavita API key in the extension settings");
+    }
+    return apiKey;
+}
+
+function tokenTtlSeconds() {
+    return 21600;
+}
+
+function tokenStorageKey(tokenServer, tokenApiKey) {
+    return "token|" + tokenServer + "|" + tokenApiKey;
+}
+
+function callKavita(callMethod, callUrl, callParams, callBody, callHeaders, callServer) {
+    callResponse = null;
+    try {
+        if (callMethod == "POST") {
+            callResponse = httpPost({
+                "url": callUrl,
+                "params": callParams,
+                "paths": {},
+                "body": callBody,
+                "headers": callHeaders,
+                "throughWeb": false
+            });
+        } else {
+            callResponse = httpGet({
+                "url": callUrl,
+                "params": callParams,
+                "paths": {},
+                "headers": callHeaders,
+                "throughWeb": false
+            });
+        }
+    } catch (callError) {
+        throwSourceError("sourceDown", "Can't reach Kavita at " + callServer + ": " + callError);
+    }
+    return callResponse;
+}
+
+function authenticate(authServer, authApiKey) {
+    authResponse = callKavita("POST", authServer + "/api/Plugin/authenticate", {
+        "apiKey": authApiKey,
+        "pluginName": "Wakaranai"
+    }, "", {"Accept": "application/json"}, authServer);
+    authStatus = authResponse["statusCode"];
+    if (authStatus == 401 || authStatus == 400) {
+        throwSourceError("loginRequired", "Kavita rejected the API key; check it in the extension settings");
+    }
+    authUser = decodeKavitaResponse(authResponse, "sign in");
+    authToken = authUser["token"];
+    if (authToken == null || authToken == "") {
+        throwSourceError("loginRequired", "Kavita did not return a session for this API key");
+    }
+    storageSet(tokenStorageKey(authServer, authApiKey), authToken, tokenTtlSeconds());
+    return authToken;
+}
+
+function kavitaToken(tokenServer, tokenApiKey) {
+    cachedToken = storageGet(tokenStorageKey(tokenServer, tokenApiKey));
+    if (cachedToken != null && cachedToken != "") {
+        return cachedToken;
+    }
+    return authenticate(tokenServer, tokenApiKey);
+}
+
+function sendKavitaRequest(requestMethod, requestPath, requestParams, requestBody) {
+    serverUrl = kavitaServerUrl();
+    apiKey = kavitaApiKey();
+    requestBodyText = "";
+    if (requestBody != null) {
+        requestBodyText = jsonEncode(requestBody);
+    }
+    sessionToken = kavitaToken(serverUrl, apiKey);
+    requestHeaders = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + sessionToken
+    };
+    requestResponse = callKavita(requestMethod, serverUrl + requestPath, requestParams, requestBodyText, requestHeaders, serverUrl);
+    if (requestResponse["statusCode"] == 401) {
+        storageRemove(tokenStorageKey(serverUrl, apiKey));
+        freshToken = authenticate(serverUrl, apiKey);
+        retryHeaders = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + freshToken
+        };
+        requestResponse = callKavita(requestMethod, serverUrl + requestPath, requestParams, requestBodyText, retryHeaders, serverUrl);
+    }
+    return requestResponse;
+}
+
+function decodeKavitaResponse(kavitaResponse, requestLabel) {
+    kavitaStatus = kavitaResponse["statusCode"];
+    if (kavitaStatus >= 200 && kavitaStatus < 300) {
+        return jsonDecode(kavitaResponse["body"]);
+    }
+    if (kavitaStatus == 401) {
+        throwSourceError("loginRequired", "Kavita rejected the API key; check it in the extension settings");
+    }
+    if (kavitaStatus == 404) {
+        throwSourceError("notFound", "Kavita has no such entry (" + requestLabel + ")");
+    }
+    if (kavitaStatus == 429) {
+        throwSourceError("rateLimited", "Kavita is rate limiting requests (" + requestLabel + ")");
+    }
+    if (kavitaStatus >= 500) {
+        throwSourceError("sourceDown", "Kavita answered HTTP " + parseString(kavitaStatus) + " (" + requestLabel + ")");
+    }
+    throw "Kavita answered HTTP " + parseString(kavitaStatus) + " (" + requestLabel + ")";
+}
+
+function kavitaGet(getPath, getParams, getLabel) {
+    return decodeKavitaResponse(sendKavitaRequest("GET", getPath, getParams, null), getLabel);
+}
+
+function kavitaPost(postPath, postParams, postBody, postLabel) {
+    return decodeKavitaResponse(sendKavitaRequest("POST", postPath, postParams, postBody), postLabel);
+}
+
+function galleryPageSize(requestedPageSize) {
+    if (requestedPageSize == null) {
+        return 20;
+    }
+    if (requestedPageSize < 1) {
+        return 20;
+    }
+    if (requestedPageSize > 500) {
+        return 500;
+    }
+    return requestedPageSize;
+}
+
+function selectedFilterValue(selectionFilters, selectionParam) {
+    for (sf = 0; sf < selectionFilters.length; sf = sf + 1) {
+        selectionData = selectionFilters[sf];
+        if (selectionData["filter"]["param"] == selectionParam) {
+            selectedValue = selectionData["selected"];
+            if (selectedValue != null && selectedValue != "") {
+                return selectedValue;
+            }
+        }
+    }
+    return null;
+}
+
+function selectedLibraryIds() {
+    wantedText = preferenceText("libraries");
+    if (wantedText == "") {
+        return [];
+    }
+    knownLibraries = kavitaGet("/api/Library/libraries", {}, "libraries");
+    wantedIds = [];
+    wantedNames = wantedText.split(",");
+    for (wn = 0; wn < wantedNames.length; wn = wn + 1) {
+        wantedName = wantedNames[wn].trim().toLowerCase();
+        if (wantedName == "") {
+            continue;
+        }
+        matchedId = null;
+        for (kl = 0; kl < knownLibraries.length; kl = kl + 1) {
+            knownLibrary = knownLibraries[kl];
+            knownId = parseString(knownLibrary["id"]);
+            if (knownLibrary["name"].toLowerCase() == wantedName || knownId == wantedName) {
+                matchedId = knownId;
+            }
+        }
+        if (matchedId == null) {
+            throw "Kavita has no library named " + wantedNames[wn].trim() + "; check Libraries in the extension settings";
+        }
+        wantedIds.push(matchedId);
+    }
+    return wantedIds;
+}
+
+function seriesNameField() {
+    return 1;
+}
+
+function publicationStatusField() {
+    return 2;
+}
+
+function librariesField() {
+    return 19;
+}
+
+function readProgressField() {
+    return 20;
+}
+
+function filterStatement(statementField, statementComparison, statementValue) {
+    return {"field": statementField, "comparison": statementComparison, "value": statementValue};
+}
+
+function galleryStatements(statementQuery, statementFilters, statementLibraryIds) {
+    statements = [];
+    if (statementQuery != "") {
+        statements.push(filterStatement(seriesNameField(), 7, statementQuery));
+    }
+    if (statementLibraryIds.isNotEmpty) {
+        statements.push(filterStatement(librariesField(), 5, statementLibraryIds.join(",")));
+    }
+    statusValue = selectedFilterValue(statementFilters, "publicationStatus");
+    if (statusValue != null) {
+        statements.push(filterStatement(publicationStatusField(), 5, statusValue));
+    }
+    readValue = selectedFilterValue(statementFilters, "readProgress");
+    if (readValue == "unread") {
+        statements.push(filterStatement(readProgressField(), 0, "0"));
+    } else if (readValue == "read") {
+        statements.push(filterStatement(readProgressField(), 0, "100"));
+    } else if (readValue == "inProgress") {
+        statements.push(filterStatement(readProgressField(), 1, "0"));
+        statements.push(filterStatement(readProgressField(), 3, "100"));
+    }
+    return statements;
+}
+
+function gallerySortOptions(sortQuery, sortFeed) {
+    if (sortQuery == "" && sortFeed == "new") {
+        return {"sortField": 2, "isAscending": false};
+    }
+    if (sortQuery == "" && sortFeed == "updated") {
+        return {"sortField": 4, "isAscending": false};
+    }
+    return {"sortField": 1, "isAscending": true};
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    gallerySize = galleryPageSize(pageSize);
+    galleryPage = page;
+    if (galleryPage < 1) {
+        galleryPage = 1;
+    }
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    filterBody = {
+        "id": 0,
+        "name": "",
+        "statements": galleryStatements(searchText, filters, selectedLibraryIds()),
+        "combination": 1,
+        "sortOptions": gallerySortOptions(searchText, feed),
+        "limitTo": 0
+    };
+    seriesList = kavitaPost("/api/Series/all-v2", {"PageNumber": galleryPage, "PageSize": gallerySize}, filterBody, "series list");
+    serverUrl = kavitaServerUrl();
+    apiKey = kavitaApiKey();
+    galleryItems = [];
+    for (si = 0; si < seriesList.length; si = si + 1) {
+        galleryItems.push(seriesGalleryItem(serverUrl, apiKey, seriesList[si]));
+    }
+    return galleryItems;
+}
+
+function seriesCoverUrl(coverServer, coverApiKey, coverSeriesId) {
+    return coverServer + "/api/Image/series-cover?seriesId=" + coverSeriesId + "&apiKey=" + urlEncode(coverApiKey);
+}
+
+function seriesTitleOf(titledSeries) {
+    localizedName = titledSeries["localizedName"];
+    seriesName = titledSeries["name"];
+    if (seriesName == null || seriesName == "") {
+        return localizedName;
+    }
+    return seriesName;
+}
+
+function seriesGalleryItem(itemServer, itemApiKey, itemSeries) {
+    itemId = parseString(itemSeries["id"]);
+    itemTitle = seriesTitleOf(itemSeries);
+    itemCover = seriesCoverUrl(itemServer, itemApiKey, itemId);
+    itemSubtitle = itemSeries["libraryName"];
+    return buildGallery({
+        "uid": itemId,
+        "title": itemTitle,
+        "cover": itemCover,
+        "data": {},
+        "subtitle": itemSubtitle
+    });
+}
+
+function seriesStatusOf(statusCode) {
+    if (statusCode == 0) {
+        return statusOngoing();
+    }
+    if (statusCode == 1) {
+        return statusPaused();
+    }
+    if (statusCode == 2 || statusCode == 4) {
+        return statusReleased();
+    }
+    if (statusCode == 3) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function namesOf(namedEntries, nameField) {
+    entryNames = [];
+    if (namedEntries == null) {
+        return entryNames;
+    }
+    for (ne = 0; ne < namedEntries.length; ne = ne + 1) {
+        entryName = namedEntries[ne][nameField];
+        if (entryName != null && entryName != "" && entryNames.contains(entryName) == false) {
+            entryNames.push(entryName);
+        }
+    }
+    return entryNames;
+}
+
+function artistNames(artistMetadata) {
+    combinedArtists = [];
+    artistLists = [artistMetadata["pencillers"], artistMetadata["inkers"], artistMetadata["colorists"], artistMetadata["coverArtists"]];
+    for (al = 0; al < artistLists.length; al = al + 1) {
+        listNames = namesOf(artistLists[al], "name");
+        for (ln = 0; ln < listNames.length; ln = ln + 1) {
+            if (combinedArtists.contains(listNames[ln]) == false) {
+                combinedArtists.push(listNames[ln]);
+            }
+        }
+    }
+    return combinedArtists;
+}
+
+function seriesTags(tagMetadata) {
+    tagNames = namesOf(tagMetadata["genres"], "title");
+    extraTags = namesOf(tagMetadata["tags"], "title");
+    for (et = 0; et < extraTags.length; et = et + 1) {
+        if (tagNames.contains(extraTags[et]) == false) {
+            tagNames.push(extraTags[et]);
+        }
+    }
+    return tagNames;
+}
+
+function alternativeTitlesOf(alternativeSeries, mainTitle) {
+    alternativeNames = [];
+    candidates = [alternativeSeries["localizedName"], alternativeSeries["originalName"]];
+    for (ac = 0; ac < candidates.length; ac = ac + 1) {
+        candidateName = candidates[ac];
+        if (candidateName != null && candidateName != "" && candidateName != mainTitle && alternativeNames.contains(candidateName) == false) {
+            alternativeNames.push(candidateName);
+        }
+    }
+    return alternativeNames;
+}
+
+function formatTimestamp(rawTimestamp) {
+    if (rawTimestamp == null || rawTimestamp == "" || rawTimestamp.startsWith("0001")) {
+        return null;
+    }
+    parsedTimestamp = parseDate(rawTimestamp);
+    if (parsedTimestamp == null) {
+        return rawTimestamp;
+    }
+    timestampFormatter = createDateFormatter("yyyy-MM-dd HH:mm");
+    return timestampFormatter.format(parsedTimestamp);
+}
+
+function looseLeafVolumeNumber() {
+    return 0 - 100000;
+}
+
+function specialVolumeNumber() {
+    return 100000;
+}
+
+function isLooseLeafVolume(looseVolume) {
+    looseNumber = looseVolume["minNumber"];
+    if (looseNumber == null) {
+        looseNumber = looseVolume["number"];
+    }
+    if (looseNumber == looseLeafVolumeNumber()) {
+        return true;
+    }
+    return looseNumber == 0 && looseVolume["name"] == "0";
+}
+
+function isSpecialVolume(specialVolume) {
+    specialNumber = specialVolume["minNumber"];
+    if (specialNumber == null) {
+        specialNumber = specialVolume["number"];
+    }
+    return specialNumber == specialVolumeNumber();
+}
+
+function isWholeVolumeChapter(wholeChapter, wholeLooseVolume) {
+    wholeRange = wholeChapter["range"];
+    if (wholeRange == "-100000") {
+        return true;
+    }
+    return wholeLooseVolume == false && wholeRange == "0";
+}
+
+function chapterTitleOf(titledChapter, titledVolume) {
+    looseVolume = isLooseLeafVolume(titledVolume);
+    chapterRange = titledChapter["range"];
+    chapterName = titledChapter["titleName"];
+    if (titledChapter["isSpecial"] == true || isSpecialVolume(titledVolume)) {
+        specialTitle = titledChapter["title"];
+        if (chapterName != null && chapterName != "") {
+            specialTitle = chapterName;
+        }
+        if (specialTitle == null || specialTitle == "") {
+            specialTitle = chapterRange;
+        }
+        return specialTitle;
+    }
+    if (isWholeVolumeChapter(titledChapter, looseVolume)) {
+        wholeTitle = "Volume " + titledVolume["name"];
+        if (chapterName != null && chapterName != "") {
+            wholeTitle = wholeTitle + " - " + chapterName;
+        }
+        return wholeTitle;
+    }
+    numberedTitle = "Chapter " + chapterRange;
+    if (looseVolume == false) {
+        numberedTitle = "Vol. " + titledVolume["name"] + " Ch. " + chapterRange;
+    }
+    if (chapterName != null && chapterName != "" && chapterName != "Chapter " + chapterRange) {
+        numberedTitle = numberedTitle + " - " + chapterName;
+    }
+    return numberedTitle;
+}
+
+function chapterElement(elementChapter, elementVolume) {
+    elementId = parseString(elementChapter["id"]);
+    elementTitle = chapterTitleOf(elementChapter, elementVolume);
+    elementTimestamp = formatTimestamp(elementChapter["releaseDate"]);
+    if (elementTimestamp == null) {
+        elementTimestamp = formatTimestamp(elementChapter["created"]);
+    }
+    elementNumber = null;
+    elementVolumeNumber = null;
+    looseVolume = isLooseLeafVolume(elementVolume);
+    if (elementChapter["isSpecial"] != true && isSpecialVolume(elementVolume) == false) {
+        if (isWholeVolumeChapter(elementChapter, looseVolume) == false) {
+            elementNumber = elementChapter["minNumber"];
+        }
+        if (looseVolume == false) {
+            elementVolumeNumber = elementVolume["minNumber"];
+        }
+    }
+    return buildChapter({
+        "uid": elementId,
+        "title": elementTitle,
+        "timestamp": elementTimestamp,
+        "data": {},
+        "number": elementNumber,
+        "volume": elementVolumeNumber
+    });
+}
+
+function seriesChapters(chapterVolumes) {
+    regularChapters = [];
+    looseChapters = [];
+    specialChapters = [];
+    for (cv = 0; cv < chapterVolumes.length; cv = cv + 1) {
+        chapterVolume = chapterVolumes[cv];
+        volumeChapters = chapterVolume["chapters"];
+        if (volumeChapters == null) {
+            continue;
+        }
+        for (vc = 0; vc < volumeChapters.length; vc = vc + 1) {
+            volumeChapter = volumeChapters[vc];
+            if (volumeChapter["isSpecial"] == true || isSpecialVolume(chapterVolume)) {
+                specialChapters.push(chapterElement(volumeChapter, chapterVolume));
+            } else if (isLooseLeafVolume(chapterVolume)) {
+                looseChapters.push(chapterElement(volumeChapter, chapterVolume));
+            } else {
+                regularChapters.push(chapterElement(volumeChapter, chapterVolume));
+            }
+        }
+    }
+    for (lc = 0; lc < looseChapters.length; lc = lc + 1) {
+        regularChapters.push(looseChapters[lc]);
+    }
+    chapterGroups = [];
+    if (regularChapters.isNotEmpty) {
+        chapterGroups.push(buildChapterGroups({"title": "Chapters", "elements": regularChapters}));
+    }
+    if (specialChapters.isNotEmpty) {
+        chapterGroups.push(buildChapterGroups({"title": "Specials", "elements": specialChapters}));
+    }
+    return chapterGroups;
+}
+
+function getConcrete(uid) {
+    serverUrl = kavitaServerUrl();
+    apiKey = kavitaApiKey();
+    concreteSeries = kavitaGet("/api/Series/" + uid, {}, "series details");
+    concreteMetadata = kavitaGet("/api/Series/metadata", {"seriesId": uid}, "series metadata");
+    concreteVolumes = kavitaGet("/api/Series/volumes", {"seriesId": uid}, "series volumes");
+    concreteTitle = seriesTitleOf(concreteSeries);
+    concreteDescription = concreteMetadata["summary"];
+    if (concreteDescription == null) {
+        concreteDescription = "";
+    }
+    concreteYear = null;
+    if (concreteMetadata["releaseYear"] != null && concreteMetadata["releaseYear"] > 0) {
+        concreteYear = concreteMetadata["releaseYear"];
+    }
+    concreteCover = seriesCoverUrl(serverUrl, apiKey, uid);
+    concreteTags = seriesTags(concreteMetadata);
+    concreteStatus = seriesStatusOf(concreteMetadata["publicationStatus"]);
+    concreteAlternatives = alternativeTitlesOf(concreteSeries, concreteTitle);
+    concreteAuthors = namesOf(concreteMetadata["writers"], "name");
+    concreteArtists = artistNames(concreteMetadata);
+    concreteUrl = serverUrl + "/library/" + parseString(concreteSeries["libraryId"]) + "/series/" + uid;
+    concreteGroups = seriesChapters(concreteVolumes);
+    return buildConcrete({
+        "uid": uid,
+        "title": concreteTitle,
+        "cover": concreteCover,
+        "description": concreteDescription,
+        "tags": concreteTags,
+        "status": concreteStatus,
+        "alternativeTitles": concreteAlternatives,
+        "authors": concreteAuthors,
+        "artists": concreteArtists,
+        "year": concreteYear,
+        "url": concreteUrl,
+        "groups": concreteGroups
+    });
+}
+
+function epubFormat() {
+    return 3;
+}
+
+function getPages(uid) {
+    serverUrl = kavitaServerUrl();
+    apiKey = kavitaApiKey();
+    chapterInfo = kavitaGet("/api/Reader/chapter-info", {"chapterId": uid, "extractPdf": true}, "chapter pages");
+    if (chapterInfo["seriesFormat"] == epubFormat()) {
+        throwSourceError("unsupported", "This chapter is a text EPUB; only comic pages can be shown");
+    }
+    pageCount = chapterInfo["pages"];
+    pageUrls = [];
+    for (pi = 0; pi < pageCount; pi = pi + 1) {
+        pageUrls.push(serverUrl + "/api/Reader/image?chapterId=" + uid + "&page=" + parseString(pi) + "&apiKey=" + urlEncode(apiKey) + "&extractPdf=true");
+    }
+    return buildPages({"uid": uid, "value": pageUrls});
+}
+
+function getImageHeaders(uid) {
+    return {};
+}

@@ -87,6 +87,10 @@ void main() {
       expect(concrete.groups, isNotEmpty);
       expect(concrete.groups.first.elements, isNotEmpty);
     });
+
+    test('links to the gallery page', () {
+      expect(concrete.url, 'https://nhentai.net/g/${concrete.uid}/');
+    });
   });
 
   group('getPages', () {

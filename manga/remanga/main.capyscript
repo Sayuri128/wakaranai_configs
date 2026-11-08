@@ -1,0 +1,440 @@
+import "http";
+import "json";
+import "html";
+import "converter";
+import "manga_models";
+import "errors";
+
+function remangaApiBase() {
+    return "https://api.remanga.org/api/v2";
+}
+
+function remangaHeaders() {
+    return {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Referer": "https://remanga.org/",
+        "Origin": "https://remanga.org"
+    };
+}
+
+function remangaRequest(requestUrl, requestParams, requestPaths, requestLabel) {
+    apiResponse = httpGet({
+        "url": requestUrl,
+        "params": requestParams,
+        "paths": requestPaths,
+        "headers": remangaHeaders(),
+        "throughWeb": false
+    });
+    apiStatus = apiResponse["statusCode"];
+    if (apiStatus == 404) {
+        throwSourceError("notFound", requestLabel + " is no longer on ReManga");
+    }
+    if (apiStatus == 429) {
+        throwSourceError("rateLimited", "ReManga is rate limiting requests (" + requestLabel + ")");
+    }
+    if (apiStatus == 401) {
+        throwSourceError("loginRequired", "ReManga needs a signed-in account for " + requestLabel);
+    }
+    if (apiStatus == 0 || apiStatus >= 500) {
+        throwSourceError("sourceDown", "ReManga answered HTTP " + parseString(apiStatus) + " (" + requestLabel + ")");
+    }
+    if (apiStatus != 200) {
+        throw "HTTP " + parseString(apiStatus) + " (ReManga " + requestLabel + ")";
+    }
+    return jsonDecode(apiResponse["body"]);
+}
+
+function remangaQueryRequest(queryUrl, queryText, requestParams, requestLabel) {
+    return remangaRequest(queryUrl + "?" + queryText + "&_=1", requestParams, {"&_=1?": ""}, requestLabel);
+}
+
+function remangaMediaUrl(mediaPath) {
+    if (mediaPath == null || mediaPath == "") {
+        return "";
+    }
+    if (mediaPath.startsWith("http")) {
+        return mediaPath;
+    }
+    if (mediaPath.startsWith("/")) {
+        return "https://remanga.org" + mediaPath;
+    }
+    return "https://remanga.org/" + mediaPath;
+}
+
+function remangaCover(coverSet) {
+    if (coverSet == null) {
+        return "";
+    }
+    if (coverSet["high"] != null) {
+        return remangaMediaUrl(coverSet["high"]);
+    }
+    if (coverSet["mid"] != null) {
+        return remangaMediaUrl(coverSet["mid"]);
+    }
+    if (coverSet["low"] != null) {
+        return remangaMediaUrl(coverSet["low"]);
+    }
+    return "";
+}
+
+function remangaName(namedItem) {
+    nameKeys = ["main_name", "secondary_name", "another_name"];
+    for (nk = 0; nk < nameKeys.length; nk = nk + 1) {
+        nameValue = namedItem[nameKeys[nk]];
+        if (nameValue != null && nameValue != "") {
+            return nameValue;
+        }
+    }
+    return namedItem["dir"];
+}
+
+function remangaNamesOf(namedList) {
+    namesFound = [];
+    if (namedList == null) {
+        return namesFound;
+    }
+    for (nl = 0; nl < namedList.length; nl = nl + 1) {
+        listedName = namedList[nl]["name"];
+        if (listedName != null && listedName != "") {
+            namesFound.push(listedName);
+        }
+    }
+    return namesFound;
+}
+
+function remangaStatus(statusInfo, translateInfo) {
+    statusId = null;
+    if (statusInfo != null) {
+        statusId = statusInfo["id"];
+    }
+    if (statusId == 6 && translateInfo != null) {
+        statusId = translateInfo["id"];
+    }
+    if (statusId == 1) {
+        return statusReleased();
+    }
+    if (statusId == 2) {
+        return statusOngoing();
+    }
+    if (statusId == 3) {
+        return statusPaused();
+    }
+    if (statusId == 4) {
+        return statusCanceled();
+    }
+    if (statusId == 5) {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function remangaGalleryItem(catalogItem) {
+    itemCover = remangaCover(catalogItem["cover"]);
+    itemName = remangaName(catalogItem);
+    itemType = null;
+    if (catalogItem["type"] != null) {
+        itemType = catalogItem["type"]["name"];
+    }
+    return buildGallery({
+        "uid": catalogItem["dir"],
+        "title": itemName,
+        "cover": itemCover,
+        "data": {},
+        "status": remangaStatus(catalogItem["status"], catalogItem["translate_status"]),
+        "subtitle": itemType,
+        "tags": remangaNamesOf(catalogItem["genres"]),
+        "year": catalogItem["issue_year"],
+        "rating": catalogItem["avg_rating"]
+    });
+}
+
+function remangaCatalogQuery(catalogFilters) {
+    ordering = "-views";
+    queryParts = [];
+    if (catalogFilters != null) {
+        for (cf = 0; cf < catalogFilters.length; cf = cf + 1) {
+            filterData = catalogFilters[cf];
+            filterInfo = filterData["filter"];
+            filterType = filterInfo["type"];
+            if (filterType == "ONE_OF_MULTIPLE") {
+                orderingChoice = filterData["selected"];
+                if (orderingChoice != null && orderingChoice != "") {
+                    ordering = orderingChoice;
+                }
+            }
+            if (filterType == "MULTIPLE_OF_MULTIPLE") {
+                chosenGroups = filterData["selected"];
+                for (cg = 0; cg < chosenGroups.length; cg = cg + 1) {
+                    chosenGroup = chosenGroups[cg];
+                    for (cv = 0; cv < chosenGroup.length; cv = cv + 1) {
+                        queryParts.push(filterInfo["param"] + "=" + chosenGroup[cv]);
+                    }
+                }
+            }
+        }
+    }
+    queryParts.push("ordering=" + ordering);
+    return queryParts.join("&");
+}
+
+function getGallery(page, query, filters) {
+    galleryItems = [];
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    if (searchText != "") {
+        searchResult = remangaRequest(remangaApiBase() + "/search/", {
+            "query": searchText,
+            "page": parseString(page),
+            "count": "30"
+        }, {}, "search");
+        if (searchResult["meta"] != null) {
+            if (searchResult["meta"]["total_pages"] != null) {
+                if (page > searchResult["meta"]["total_pages"]) {
+                    return [];
+                }
+            }
+        }
+        galleryItems = searchResult["results"];
+    } else {
+        catalogResult = remangaQueryRequest(remangaApiBase() + "/search/catalog/", remangaCatalogQuery(filters) + "&page=" + parseString(page) + "&count=30", {}, "catalog page " + parseString(page));
+        galleryItems = catalogResult["results"];
+    }
+    if (galleryItems == null) {
+        return [];
+    }
+    builtItems = [];
+    for (gi = 0; gi < galleryItems.length; gi = gi + 1) {
+        if (galleryItems[gi]["dir"] == null) {
+            continue;
+        }
+        builtItems.push(remangaGalleryItem(galleryItems[gi]));
+    }
+    return builtItems;
+}
+
+function remangaDescription(descriptionHtml) {
+    if (descriptionHtml == null || descriptionHtml == "") {
+        return "";
+    }
+    descriptionBody = createHTMLParser("<html><body>" + descriptionHtml.replaceAll("</p>", "</p> ").replaceAll("<br>", " ") + "</body></html>").querySelector("body");
+    if (descriptionBody == null) {
+        return "";
+    }
+    return descriptionBody.text.trim();
+}
+
+function remangaCreatorsOf(creatorList, creatorType) {
+    creatorNames = [];
+    if (creatorList == null) {
+        return creatorNames;
+    }
+    for (cr = 0; cr < creatorList.length; cr = cr + 1) {
+        if (creatorList[cr]["type"] == creatorType) {
+            creatorName = creatorList[cr]["name"];
+            if (creatorName != null && creatorName != "") {
+                creatorNames.push(creatorName);
+            }
+        }
+    }
+    return creatorNames;
+}
+
+function remangaAlternativeNames(titleInfo, shownName) {
+    alternativeNames = [];
+    secondaryName = titleInfo["secondary_name"];
+    if (secondaryName != null && secondaryName != "" && secondaryName != shownName) {
+        alternativeNames.push(secondaryName);
+    }
+    anotherNames = titleInfo["another_name"];
+    if (anotherNames != null) {
+        anotherParts = anotherNames.split(" / ");
+        for (an = 0; an < anotherParts.length; an = an + 1) {
+            anotherName = anotherParts[an].trim();
+            if (anotherName != "" && anotherName != shownName && alternativeNames.contains(anotherName) == false) {
+                alternativeNames.push(anotherName);
+            }
+        }
+    }
+    return alternativeNames;
+}
+
+function remangaChapterReadable(chapterInfo) {
+    if (chapterInfo["is_published"] == false) {
+        return false;
+    }
+    if (chapterInfo["is_paid"] == true) {
+        if (chapterInfo["is_bought"] == true) {
+            return true;
+        }
+        if (chapterInfo["is_free_today"] == true) {
+            return true;
+        }
+        return false;
+    }
+    return true;
+}
+
+function remangaChapterNumber(chapterText) {
+    chapterNumber = null;
+    try {
+        chapterNumber = parseDouble(parseString(chapterText));
+    } catch (e) {
+        chapterNumber = null;
+    }
+    return chapterNumber;
+}
+
+function remangaChapter(chapterInfo) {
+    chapterLabel = "Том " + parseString(chapterInfo["tome"]) + " Глава " + parseString(chapterInfo["chapter"]);
+    chapterName = chapterInfo["name"];
+    if (chapterName != null && chapterName != "") {
+        chapterLabel = chapterLabel + " - " + chapterName;
+    }
+    chapterDate = chapterInfo["upload_date"];
+    if (chapterDate != null) {
+        chapterDate = parseString(chapterDate);
+        if (chapterDate.length >= 16) {
+            chapterDate = chapterDate.substring(0, 16).replaceFirst("T", " ");
+        }
+    }
+    return buildChapter({
+        "uid": parseString(chapterInfo["id"]),
+        "title": chapterLabel,
+        "timestamp": chapterDate,
+        "data": {},
+        "number": remangaChapterNumber(chapterInfo["chapter"]),
+        "volume": chapterInfo["tome"]
+    });
+}
+
+function remangaBranchChapters(branchId) {
+    branchChapters = [];
+    morePages = true;
+    for (bp = 1; bp <= 200; bp = bp + 1) {
+        if (morePages == false) {
+            continue;
+        }
+        chapterPage = remangaRequest(remangaApiBase() + "/titles/chapters/", {
+            "branch_id": parseString(branchId),
+            "ordering": "index",
+            "count": "50",
+            "page": parseString(bp)
+        }, {}, "chapters");
+        pageChapters = chapterPage["results"];
+        if (pageChapters == null) {
+            pageChapters = [];
+        }
+        for (pc = 0; pc < pageChapters.length; pc = pc + 1) {
+            if (remangaChapterReadable(pageChapters[pc])) {
+                branchChapters.push(remangaChapter(pageChapters[pc]));
+            }
+        }
+        if (chapterPage["next"] == null || pageChapters.isEmpty) {
+            morePages = false;
+        }
+    }
+    return branchChapters;
+}
+
+function remangaBranchTitle(branchInfo, branchIndex) {
+    publisherNames = remangaNamesOf(branchInfo["publishers"]);
+    if (publisherNames.isEmpty) {
+        return "Перевод " + parseString(branchIndex + 1);
+    }
+    return publisherNames.join(", ");
+}
+
+function remangaPathSegment(rawSegment) {
+    return parseString(rawSegment).replaceAll("%", "%25").replaceAll("<", "%3C").replaceAll(">", "%3E").replaceAll(" ", "%20");
+}
+
+function getConcrete(uid, data) {
+    titleDir = uid;
+    titleInfo = remangaRequest(remangaApiBase() + "/titles/" + remangaPathSegment(titleDir) + "/", {}, {}, titleDir);
+    if (titleInfo["meta"] != null) {
+        if (titleInfo["meta"]["is_forbidden_by_country"] == true) {
+            throwSourceError("regionBlocked", "ReManga does not show " + titleDir + " in your country");
+        }
+    }
+    shownName = remangaName(titleInfo);
+
+    titleTags = remangaNamesOf(titleInfo["genres"]);
+    titleCategories = remangaNamesOf(titleInfo["categories"]);
+    for (tc = 0; tc < titleCategories.length; tc = tc + 1) {
+        if (titleTags.contains(titleCategories[tc]) == false) {
+            titleTags.push(titleCategories[tc]);
+        }
+    }
+
+    chapterGroups = [];
+    titleBranches = titleInfo["branches"];
+    if (titleBranches == null) {
+        titleBranches = [];
+    }
+    for (tb = 0; tb < titleBranches.length; tb = tb + 1) {
+        branchElements = remangaBranchChapters(titleBranches[tb]["id"]);
+        if (branchElements.isEmpty) {
+            continue;
+        }
+        chapterGroups.push(buildChapterGroups({
+            "title": remangaBranchTitle(titleBranches[tb], tb),
+            "elements": branchElements
+        }));
+    }
+
+    return buildConcrete({
+        "uid": titleDir,
+        "title": shownName,
+        "cover": remangaCover(titleInfo["cover"]),
+        "description": remangaDescription(titleInfo["description"]),
+        "tags": titleTags,
+        "status": remangaStatus(titleInfo["status"], titleInfo["translate_status"]),
+        "alternativeTitles": remangaAlternativeNames(titleInfo, shownName),
+        "authors": remangaCreatorsOf(titleInfo["creators"], 1),
+        "artists": remangaCreatorsOf(titleInfo["creators"], 2),
+        "year": titleInfo["issue_year"],
+        "rating": titleInfo["avg_rating"],
+        "url": "https://remanga.org/manga/" + titleDir,
+        "groups": chapterGroups
+    });
+}
+
+function getPages(uid, data) {
+    chapterId = uid;
+    chapterInfo = remangaRequest(remangaApiBase() + "/titles/chapters/" + chapterId + "/", {}, {}, "chapter " + chapterId);
+    chapterPages = chapterInfo["pages"];
+    if (chapterPages == null || chapterPages.isEmpty) {
+        if (chapterInfo["is_paid"] == true) {
+            throwSourceError("loginRequired", "This ReManga chapter is paid");
+        }
+        throwSourceError("notFound", "ReManga returned no pages for chapter " + chapterId);
+    }
+    pageLinks = [];
+    for (cp = 0; cp < chapterPages.length; cp = cp + 1) {
+        pageSlices = chapterPages[cp];
+        if (parseString(pageSlices).startsWith("[") == false) {
+            pageSlices = [pageSlices];
+        }
+        for (ps = 0; ps < pageSlices.length; ps = ps + 1) {
+            sliceLink = pageSlices[ps]["link"];
+            if (sliceLink != null && sliceLink != "") {
+                pageLinks.push(sliceLink);
+            }
+        }
+    }
+    return buildPages({
+        "uid": chapterId,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Referer": "https://remanga.org/",
+        "Accept": "image/avif,image/webp,image/*,*/*"
+    };
+}

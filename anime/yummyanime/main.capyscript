@@ -1,0 +1,1163 @@
+import "http";
+import "json";
+import "anime_models";
+import "converter";
+import "preferences";
+import "storage";
+import "errors";
+
+function apiBase() {
+    return "https://api.yani.tv";
+}
+
+function siteOrigin() {
+    return "https://yummyani.me";
+}
+
+function catalogPageSize() {
+    return 30;
+}
+
+function searchOffsetLimit() {
+    return 300;
+}
+
+function kodikDefaultEndpoint() {
+    return "/ftor";
+}
+
+function cvhApiBase() {
+    return "https://plapi.cdnvideohub.com/api/v1/player/sv";
+}
+
+function cvhEmbedOrigin() {
+    return "https://ru.yummyani.me/";
+}
+
+function digitsAlphabet() {
+    return "0123456789";
+}
+
+function upperLetters() {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+}
+
+function lowerLetters() {
+    return "abcdefghijklmnopqrstuvwxyz";
+}
+
+function leadingNumber(numberSource) {
+    if (numberSource == null) {
+        return null;
+    }
+    scanText = parseString(numberSource);
+    scanDigits = digitsAlphabet();
+    scanValue = null;
+    scanFinished = false;
+    for (sn = 0; sn < scanText.length; sn = sn + 1) {
+        if (scanFinished) {
+            continue;
+        }
+        scanDigit = scanDigits.indexOf(scanText.substring(sn, sn + 1));
+        if (scanDigit < 0) {
+            if (scanValue != null) {
+                scanFinished = true;
+            }
+            continue;
+        }
+        if (scanValue == null) {
+            scanValue = 0;
+        }
+        scanValue = scanValue * 10 + scanDigit;
+    }
+    return scanValue;
+}
+
+function isDigitsOnly(digitsText) {
+    if (digitsText == null || digitsText == "") {
+        return false;
+    }
+    onlyDigits = digitsAlphabet();
+    for (od = 0; od < digitsText.length; od = od + 1) {
+        if (onlyDigits.indexOf(digitsText.substring(od, od + 1)) < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function absoluteUrl(rawLink) {
+    if (rawLink == null) {
+        return "";
+    }
+    linkText = parseString(rawLink).trim();
+    if (linkText == "") {
+        return "";
+    }
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("http://")) {
+        return "https://" + linkText.substring(7);
+    }
+    if (linkText.startsWith("/")) {
+        return siteOrigin() + linkText;
+    }
+    return linkText;
+}
+
+function textBetween(haystack, startMarker, endMarker) {
+    if (haystack == null) {
+        return null;
+    }
+    startAt = haystack.indexOf(startMarker);
+    if (startAt < 0) {
+        return null;
+    }
+    afterStart = haystack.substring(startAt + startMarker.length);
+    endAt = afterStart.indexOf(endMarker);
+    if (endAt < 0) {
+        return null;
+    }
+    return afterStart.substring(0, endAt);
+}
+
+function embedHost(pageUrl) {
+    if (pageUrl.contains("://") == false) {
+        return "";
+    }
+    afterScheme = pageUrl.split("://")[1];
+    return afterScheme.split("/")[0].split("?")[0].toLowerCase();
+}
+
+function ongoingStatus() {
+    ongoingValue = null;
+    try {
+        ongoingValue = statusOngoing();
+    } catch (e) {
+        ongoingValue = null;
+    }
+    if (ongoingValue == null) {
+        ongoingValue = statusUndefined();
+    }
+    return ongoingValue;
+}
+
+function titleStatus(statusEntry) {
+    if (statusEntry == null) {
+        return statusUndefined();
+    }
+    statusAlias = statusEntry["alias"];
+    if (statusAlias == "ongoing") {
+        return ongoingStatus();
+    }
+    if (statusAlias == "released") {
+        return statusReleased();
+    }
+    if (statusAlias == "announcement" || statusAlias == "announce") {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function applicationToken() {
+    appToken = getPreference("applicationToken");
+    appTokenText = "";
+    if (appToken != null) {
+        appTokenText = parseString(appToken).trim();
+    }
+    return appTokenText;
+}
+
+function apiHeaders() {
+    headerMap = {"Accept": "application/json", "Lang": "ru"};
+    appTokenValue = applicationToken();
+    if (appTokenValue != "") {
+        headerMap["X-Application"] = appTokenValue;
+    }
+    return headerMap;
+}
+
+function apiRequest(apiPath, apiLabel, missingIsNotFound) {
+    apiResponse = null;
+    apiFailed = false;
+    requestHeaders = apiHeaders();
+    try {
+        apiResponse = httpGet({
+            "url": apiBase() + apiPath,
+            "params": {},
+            "paths": {},
+            "headers": requestHeaders,
+            "throughWeb": false
+        });
+    } catch (e) {
+        apiFailed = true;
+    }
+    if (apiFailed || apiResponse == null) {
+        throwSourceError("sourceDown", "YummyAnime did not answer (" + apiLabel + ")");
+    }
+    apiStatus = apiResponse["statusCode"];
+    if (apiStatus == 429) {
+        throwSourceError("rateLimited", "YummyAnime is rate limiting requests (" + apiLabel + ")");
+    }
+    if (apiStatus == 451) {
+        throwSourceError("regionBlocked", "YummyAnime is not available in this region (" + apiLabel + ")");
+    }
+    if (apiStatus == 404 && missingIsNotFound) {
+        throwSourceError("notFound", apiLabel + " is no longer on YummyAnime");
+    }
+    if (apiStatus == 401 || apiStatus == 403) {
+        if (applicationToken() == "") {
+            throwSourceError("sourceDown", "YummyAnime refused the request (" + apiLabel + "); adding your own application token from yummyani.me/dev/applications in the extension settings may help");
+        }
+        throwSourceError("sourceDown", "YummyAnime rejected the application token (" + apiLabel + "); check it in the extension settings");
+    }
+    if (apiStatus != 200) {
+        throwSourceError("sourceDown", "YummyAnime answered HTTP " + parseString(apiStatus) + " (" + apiLabel + ")");
+    }
+    apiJson = null;
+    apiUnreadable = false;
+    try {
+        apiJson = jsonDecode(apiResponse["body"]);
+    } catch (e) {
+        apiUnreadable = true;
+    }
+    if (apiUnreadable || apiJson == null) {
+        throwSourceError("sourceDown", "YummyAnime returned an unreadable answer (" + apiLabel + ")");
+    }
+    return apiJson["response"];
+}
+
+function posterUrl(posterSet) {
+    if (posterSet == null) {
+        return "";
+    }
+    posterKeys = ["big", "fullsize", "medium", "small"];
+    for (pk = 0; pk < posterKeys.length; pk = pk + 1) {
+        posterLink = absoluteUrl(posterSet[posterKeys[pk]]);
+        if (posterLink != "") {
+            return posterLink;
+        }
+    }
+    return "";
+}
+
+function averageRating(ratingSet) {
+    if (ratingSet == null) {
+        return null;
+    }
+    ratingAverage = ratingSet["average"];
+    if (ratingAverage == null || ratingAverage == 0) {
+        return null;
+    }
+    return ratingAverage;
+}
+
+function kindName(kindEntry) {
+    if (kindEntry == null) {
+        return null;
+    }
+    kindLabel = kindEntry["name"];
+    if (kindLabel == null || kindLabel == "") {
+        return null;
+    }
+    return kindLabel;
+}
+
+function galleryItem(apiItem, latestEpisode) {
+    itemId = parseString(apiItem["anime_id"]);
+    itemName = parseString(apiItem["title"]).trim();
+    itemCover = posterUrl(apiItem["poster"]);
+    itemLatest = null;
+    if (latestEpisode != null && latestEpisode != "") {
+        itemLatest = "Серия " + latestEpisode;
+    }
+    return buildGallery({
+        "uid": itemId,
+        "title": itemName,
+        "cover": itemCover,
+        "data": {"title": itemName, "cover": itemCover, "alias": apiItem["anime_url"]},
+        "status": titleStatus(apiItem["anime_status"]),
+        "subtitle": kindName(apiItem["type"]),
+        "year": apiItem["year"],
+        "rating": averageRating(apiItem["rating"]),
+        "latestChapter": itemLatest
+    });
+}
+
+function galleryItems(apiItems) {
+    builtItems = [];
+    if (apiItems == null) {
+        return builtItems;
+    }
+    for (gi = 0; gi < apiItems.length; gi = gi + 1) {
+        if (apiItems[gi] == null) {
+            continue;
+        }
+        builtItems.push(galleryItem(apiItems[gi], null));
+    }
+    return builtItems;
+}
+
+function selectedValues(filterEntry) {
+    chosenValues = [];
+    chosenGroups = filterEntry["selected"];
+    if (chosenGroups == null) {
+        return chosenValues;
+    }
+    for (cg = 0; cg < chosenGroups.length; cg = cg + 1) {
+        chosenGroup = chosenGroups[cg];
+        if (chosenGroup == null) {
+            continue;
+        }
+        for (cv = 0; cv < chosenGroup.length; cv = cv + 1) {
+            chosenValue = parseString(chosenGroup[cv]).trim();
+            if (chosenValue != "" && chosenValues.contains(chosenValue) == false) {
+                chosenValues.push(chosenValue);
+            }
+        }
+    }
+    return chosenValues;
+}
+
+function filterQuery(galleryFilters) {
+    queryParts = [];
+    if (galleryFilters == null) {
+        return "";
+    }
+    for (fq = 0; fq < galleryFilters.length; fq = fq + 1) {
+        queryEntry = galleryFilters[fq];
+        if (queryEntry == null) {
+            continue;
+        }
+        queryFilter = queryEntry["filter"];
+        if (queryFilter == null) {
+            continue;
+        }
+        queryType = queryFilter["type"];
+        if (queryType == "MULTIPLE_OF_MULTIPLE") {
+            queryValues = selectedValues(queryEntry);
+            for (qv = 0; qv < queryValues.length; qv = qv + 1) {
+                queryParts.push(queryFilter["param"] + "=" + urlEncode(queryValues[qv]));
+            }
+        } else if (queryType == "RANGE") {
+            rangeFrom = queryEntry["from"];
+            if (rangeFrom != null && isDigitsOnly(parseString(rangeFrom).trim())) {
+                queryParts.push(queryFilter["paramMin"] + "=" + parseString(rangeFrom).trim());
+            }
+            rangeTo = queryEntry["to"];
+            if (rangeTo != null && isDigitsOnly(parseString(rangeTo).trim())) {
+                queryParts.push(queryFilter["paramMax"] + "=" + parseString(rangeTo).trim());
+            }
+        }
+    }
+    return queryParts.join("&");
+}
+
+function feedSort(sortFeed) {
+    if (sortFeed == "top") {
+        return "sort=top";
+    }
+    if (sortFeed == "added") {
+        return "sort=id&sort_forward=false";
+    }
+    return "sort=views&sort_forward=false";
+}
+
+function catalogGallery(catalogPage, catalogFilters, catalogFeed) {
+    catalogOffset = (catalogPage - 1) * catalogPageSize();
+    catalogPath = "/anime?limit=" + parseString(catalogPageSize()) + "&offset=" + parseString(catalogOffset) + "&" + feedSort(catalogFeed);
+    if (catalogFilters != "") {
+        catalogPath = catalogPath + "&" + catalogFilters;
+    }
+    return galleryItems(apiRequest(catalogPath, "catalog page " + parseString(catalogPage), false));
+}
+
+function updatesGallery(updatesPage) {
+    if (updatesPage > 1) {
+        return [];
+    }
+    feedResponse = apiRequest("/feed", "new episodes", false);
+    if (feedResponse == null) {
+        return [];
+    }
+    newVideos = feedResponse["new_videos"];
+    updatedItems = [];
+    seenIds = [];
+    if (newVideos == null) {
+        return updatedItems;
+    }
+    for (nv = 0; nv < newVideos.length; nv = nv + 1) {
+        newVideo = newVideos[nv];
+        if (newVideo == null) {
+            continue;
+        }
+        newVideoId = parseString(newVideo["anime_id"]);
+        if (seenIds.contains(newVideoId)) {
+            continue;
+        }
+        seenIds.push(newVideoId);
+        updatedItems.push(galleryItem(newVideo, newVideo["ep_title"]));
+    }
+    return updatedItems;
+}
+
+function searchGallery(searchPage, searchText) {
+    searchOffset = (searchPage - 1) * catalogPageSize();
+    if (searchOffset > searchOffsetLimit()) {
+        return [];
+    }
+    searchPath = "/search?q=" + urlEncode(searchText) + "&limit=" + parseString(catalogPageSize()) + "&offset=" + parseString(searchOffset);
+    return galleryItems(apiRequest(searchPath, "search", false));
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    galleryPage = page;
+    if (galleryPage == null || galleryPage < 1) {
+        galleryPage = 1;
+    }
+    galleryQuery = "";
+    if (query != null) {
+        galleryQuery = parseString(query).trim();
+    }
+    if (galleryQuery != "") {
+        return searchGallery(galleryPage, galleryQuery);
+    }
+    galleryFilterQuery = filterQuery(filters);
+    if (galleryFilterQuery == "" && (feed == "updates" || feed == null || feed == "")) {
+        return updatesGallery(galleryPage);
+    }
+    return catalogGallery(galleryPage, galleryFilterQuery, feed);
+}
+
+function readGroupPreferences() {
+    preferredPlayer = getPreference("preferredPlayer");
+    if (preferredPlayer == null || preferredPlayer == "") {
+        preferredPlayer = "auto";
+    }
+    preferredDubsText = getPreference("preferredDubs");
+    if (preferredDubsText == null) {
+        preferredDubsText = "";
+    }
+    dubNames = [];
+    dubParts = parseString(preferredDubsText).split(",");
+    for (dp = 0; dp < dubParts.length; dp = dp + 1) {
+        dubName = dubParts[dp].trim().toLowerCase();
+        if (dubName != "") {
+            dubNames.push(dubName);
+        }
+    }
+    return {"player": preferredPlayer, "dubs": dubNames};
+}
+
+function dubLabel(rawDub) {
+    if (rawDub == null) {
+        return "Без названия";
+    }
+    dubText = parseString(rawDub).trim();
+    if (dubText.startsWith("Озвучка ")) {
+        dubText = dubText.substring(8).trim();
+    }
+    if (dubText == "") {
+        return "Без названия";
+    }
+    return dubText;
+}
+
+function playerLabel(rawPlayer) {
+    if (rawPlayer == null) {
+        return "Player";
+    }
+    playerText = parseString(rawPlayer).trim();
+    if (playerText.startsWith("Плеер ")) {
+        playerText = playerText.substring(6).trim();
+    }
+    if (playerText == "") {
+        return "Player";
+    }
+    return playerText;
+}
+
+function playerKey(keyLabel, keyUrl) {
+    keyHost = embedHost(keyUrl);
+    if (keyHost.contains("kodik")) {
+        return "kodik";
+    }
+    if (keyHost.contains("aksor")) {
+        return "aksor";
+    }
+    if (keyHost.contains("alloha")) {
+        return "alloha";
+    }
+    if (keyUrl.contains("iframeCVH")) {
+        return "cvh";
+    }
+    return keyLabel.toLowerCase();
+}
+
+function defaultPlayerRank(rankKey) {
+    if (rankKey == "kodik") {
+        return 1;
+    }
+    if (rankKey == "cvh") {
+        return 2;
+    }
+    if (rankKey == "aksor") {
+        return 3;
+    }
+    if (rankKey == "alloha") {
+        return 5;
+    }
+    return 4;
+}
+
+function preferredDubRank(rankDub, rankDubs) {
+    rankDubLower = rankDub.toLowerCase();
+    for (rd = 0; rd < rankDubs.length; rd = rd + 1) {
+        if (rankDubLower.contains(rankDubs[rd])) {
+            return rd;
+        }
+    }
+    return -1;
+}
+
+function skipMarkers(skipSet) {
+    markers = [];
+    if (skipSet == null) {
+        return markers;
+    }
+    skipKinds = [["opening", "intro"], ["ending", "outro"]];
+    for (sk = 0; sk < skipKinds.length; sk = sk + 1) {
+        skipEntry = skipSet[skipKinds[sk][0]];
+        if (skipEntry == null) {
+            continue;
+        }
+        skipStart = skipEntry["time"];
+        skipLength = skipEntry["length"];
+        if (skipStart == null || skipLength == null) {
+            continue;
+        }
+        if (skipStart < 0 || skipLength <= 0) {
+            continue;
+        }
+        markers.push({"type": skipKinds[sk][1], "start": skipStart, "end": skipStart + skipLength});
+    }
+    return markers;
+}
+
+function insertByOrder(orderedList, orderedEntry, entryOrder) {
+    insertAt = orderedList.length;
+    if (entryOrder != null) {
+        insertAt = 0;
+        for (io = 0; io < orderedList.length; io = io + 1) {
+            placedOrder = orderedList[io]["order"];
+            if (placedOrder != null) {
+                if (placedOrder <= entryOrder) {
+                    insertAt = io + 1;
+                }
+            }
+        }
+    }
+    orderedList.insert(insertAt, {"order": entryOrder, "entry": orderedEntry});
+    return orderedList;
+}
+
+function episodeVideo(rawVideo, videoDub, videoPlayerKey, videoTitleId) {
+    videoNumberText = parseString(rawVideo["number"]).trim();
+    videoTitleText = "Серия " + videoNumberText;
+    if (videoNumberText == "" || videoNumberText == "null") {
+        videoTitleText = "Видео";
+    }
+    videoSrc = absoluteUrl(rawVideo["iframe_url"]);
+    return buildAnimeVideo({
+        "uid": parseString(rawVideo["video_id"]),
+        "src": videoSrc,
+        "title": videoTitleText,
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {
+            "titleId": videoTitleId,
+            "dub": videoDub,
+            "player": videoPlayerKey,
+            "skip": skipMarkers(rawVideo["skips"])
+        },
+        "number": videoNumberText
+    });
+}
+
+function buildEpisodeGroups(rawVideos, groupTitleId) {
+    groupPrefs = readGroupPreferences();
+    groupKeys = [];
+    groupInfo = {};
+    dubOrder = [];
+    dubEpisodeCounts = {};
+    for (rv = 0; rv < rawVideos.length; rv = rv + 1) {
+        rawVideo = rawVideos[rv];
+        if (rawVideo == null) {
+            continue;
+        }
+        rawData = rawVideo["data"];
+        if (rawData == null) {
+            rawData = {};
+        }
+        rawSrc = absoluteUrl(rawVideo["iframe_url"]);
+        if (rawSrc == "") {
+            continue;
+        }
+        rawDub = dubLabel(rawData["dubbing"]);
+        rawPlayerLabel = playerLabel(rawData["player"]);
+        rawPlayerKey = playerKey(rawPlayerLabel, rawSrc);
+        rawGroupKey = rawDub + "|" + rawPlayerKey;
+        if (groupKeys.contains(rawGroupKey) == false) {
+            groupKeys.push(rawGroupKey);
+            groupInfo[rawGroupKey] = {"dub": rawDub, "player": rawPlayerKey, "label": rawPlayerLabel, "episodes": []};
+        }
+        if (dubOrder.contains(rawDub) == false) {
+            dubOrder.push(rawDub);
+            dubEpisodeCounts[rawDub] = 0;
+        }
+        groupEntry = groupInfo[rawGroupKey];
+        groupEpisodes = groupEntry["episodes"];
+        insertByOrder(groupEpisodes, rawVideo, leadingNumber(rawVideo["number"]));
+        if (groupEpisodes.length > dubEpisodeCounts[rawDub]) {
+            dubEpisodeCounts[rawDub] = groupEpisodes.length;
+        }
+    }
+
+    rankedDubs = [];
+    for (od = 0; od < dubOrder.length; od = od + 1) {
+        orderedDub = dubOrder[od];
+        dubPreference = preferredDubRank(orderedDub, groupPrefs["dubs"]);
+        dubScore = 0;
+        if (dubPreference >= 0) {
+            dubScore = 0 - 1000000 + dubPreference;
+        } else {
+            dubScore = 0 - dubEpisodeCounts[orderedDub];
+        }
+        insertByOrder(rankedDubs, orderedDub, dubScore);
+    }
+
+    episodeGroups = [];
+    for (rk = 0; rk < rankedDubs.length; rk = rk + 1) {
+        rankedDub = rankedDubs[rk]["entry"];
+        dubGroups = [];
+        for (gk = 0; gk < groupKeys.length; gk = gk + 1) {
+            candidateGroup = groupInfo[groupKeys[gk]];
+            if (candidateGroup["dub"] != rankedDub) {
+                continue;
+            }
+            candidateRank = defaultPlayerRank(candidateGroup["player"]);
+            if (candidateGroup["player"] == groupPrefs["player"]) {
+                candidateRank = 0;
+            }
+            insertByOrder(dubGroups, candidateGroup, candidateRank);
+        }
+        for (dg = 0; dg < dubGroups.length; dg = dg + 1) {
+            chosenGroup = dubGroups[dg]["entry"];
+            chosenEpisodes = chosenGroup["episodes"];
+            groupVideos = [];
+            for (ce = 0; ce < chosenEpisodes.length; ce = ce + 1) {
+                groupVideos.push(episodeVideo(chosenEpisodes[ce]["entry"], chosenGroup["dub"], chosenGroup["player"], groupTitleId));
+            }
+            if (groupVideos.isEmpty) {
+                continue;
+            }
+            episodeGroups.push(buildAnimeVideoGroup({
+                "title": chosenGroup["dub"] + " · " + chosenGroup["label"],
+                "videos": groupVideos
+            }));
+        }
+    }
+    return episodeGroups;
+}
+
+function blockedRegions(blockedList) {
+    regions = [];
+    if (blockedList == null) {
+        return regions;
+    }
+    for (br = 0; br < blockedList.length; br = br + 1) {
+        regionCode = parseString(blockedList[br]).trim();
+        if (regionCode != "" && regionCode != "null") {
+            regions.push(regionCode);
+        }
+    }
+    return regions;
+}
+
+function namedList(namedEntries) {
+    names = [];
+    if (namedEntries == null) {
+        return names;
+    }
+    for (ne = 0; ne < namedEntries.length; ne = ne + 1) {
+        namedEntry = namedEntries[ne];
+        if (namedEntry == null) {
+            continue;
+        }
+        entryName = parseString(namedEntry["title"]).trim();
+        if (entryName != "" && names.contains(entryName) == false) {
+            names.push(entryName);
+        }
+    }
+    return names;
+}
+
+function getConcrete(uid, data) {
+    concreteId = parseString(uid).trim();
+    concreteData = data;
+    if (concreteData == null) {
+        concreteData = {};
+    }
+    if (concreteId == "") {
+        throwSourceError("notFound", "empty YummyAnime title id");
+    }
+    concreteLabel = "title " + concreteId;
+    anime = apiRequest("/anime/" + urlEncode(concreteId) + "?need_videos=true", concreteLabel, true);
+    if (anime == null) {
+        throwSourceError("notFound", concreteLabel + " is no longer on YummyAnime");
+    }
+    animeVideos = anime["videos"];
+    if (animeVideos == null) {
+        animeVideos = [];
+    }
+    concreteGroups = buildEpisodeGroups(animeVideos, concreteId);
+    regionList = blockedRegions(anime["blocked_in"]);
+    if (concreteGroups.isEmpty && regionList.isEmpty == false) {
+        throwSourceError("regionBlocked", "YummyAnime hides the episodes of " + concreteLabel + " in " + regionList.join(", "));
+    }
+
+    concreteName = parseString(anime["title"]).trim();
+    if (concreteName == "" && concreteData["title"] != null) {
+        concreteName = concreteData["title"];
+    }
+    concreteCover = posterUrl(anime["poster"]);
+    if (concreteCover == "" && concreteData["cover"] != null) {
+        concreteCover = concreteData["cover"];
+    }
+    concreteAlternatives = [];
+    otherTitles = anime["other_titles"];
+    if (otherTitles != null) {
+        for (ot = 0; ot < otherTitles.length; ot = ot + 1) {
+            otherName = parseString(otherTitles[ot]).trim();
+            if (otherName != "" && otherName != concreteName && concreteAlternatives.contains(otherName) == false) {
+                concreteAlternatives.push(otherName);
+            }
+        }
+    }
+    concreteTags = namedList(anime["genres"]);
+    concreteKind = kindName(anime["type"]);
+    if (concreteKind != null && concreteTags.contains(concreteKind) == false) {
+        concreteTags.push(concreteKind);
+    }
+    concreteDescription = anime["description"];
+    if (concreteDescription == null) {
+        concreteDescription = "";
+    }
+    concreteUrl = null;
+    if (anime["anime_url"] != null) {
+        concreteUrl = siteOrigin() + "/catalog/item/" + parseString(anime["anime_url"]);
+    }
+
+    return buildConcrete({
+        "uid": concreteId,
+        "cover": concreteCover,
+        "title": concreteName,
+        "alternativeTitles": concreteAlternatives,
+        "description": parseString(concreteDescription).trim(),
+        "tags": concreteTags,
+        "status": titleStatus(anime["anime_status"]),
+        "groups": concreteGroups,
+        "authors": namedList(anime["studios"]),
+        "year": anime["year"],
+        "rating": averageRating(anime["rating"]),
+        "url": concreteUrl
+    });
+}
+
+function fetchText(fetchUrl, fetchHeaders) {
+    fetchResponse = httpGet({
+        "url": fetchUrl,
+        "params": {},
+        "paths": {},
+        "headers": fetchHeaders,
+        "throughWeb": false
+    });
+    if (fetchResponse["statusCode"] != 200) {
+        return null;
+    }
+    return fetchResponse["body"];
+}
+
+function fetchJson(jsonUrl, jsonHeaders) {
+    jsonText = fetchText(jsonUrl, jsonHeaders);
+    if (jsonText == null) {
+        return null;
+    }
+    return jsonDecode(jsonText);
+}
+
+function rotateLetters(rotText, rotShift) {
+    rotUpper = upperLetters();
+    rotLower = lowerLetters();
+    rotChars = [];
+    for (rc = 0; rc < rotText.length; rc = rc + 1) {
+        rotChar = rotText.substring(rc, rc + 1);
+        upperAt = rotUpper.indexOf(rotChar);
+        if (upperAt >= 0) {
+            rotIndex = (upperAt + rotShift) % 26;
+            rotChars.push(rotUpper.substring(rotIndex, rotIndex + 1));
+            continue;
+        }
+        lowerAt = rotLower.indexOf(rotChar);
+        if (lowerAt >= 0) {
+            rotIndex = (lowerAt + rotShift) % 26;
+            rotChars.push(rotLower.substring(rotIndex, rotIndex + 1));
+            continue;
+        }
+        rotChars.push(rotChar);
+    }
+    return rotChars.join("");
+}
+
+function looksLikeStreamLink(linkCandidate) {
+    if (linkCandidate == null) {
+        return false;
+    }
+    if (linkCandidate.startsWith("//") == false && linkCandidate.startsWith("http") == false) {
+        return false;
+    }
+    return linkCandidate.contains(".m3u8") || linkCandidate.contains(".mp4");
+}
+
+function decodeKodikLink(encodedLink, linkShift) {
+    if (looksLikeStreamLink(encodedLink)) {
+        return encodedLink;
+    }
+    shiftedLink = rotateLetters(encodedLink, linkShift);
+    decodedLink = null;
+    try {
+        decodedLink = base64Decode(shiftedLink);
+    } catch (e) {
+        decodedLink = null;
+    }
+    if (looksLikeStreamLink(decodedLink)) {
+        return decodedLink;
+    }
+    return null;
+}
+
+function findKodikShift(sampleLink) {
+    shiftOrder = [18, 13];
+    for (so = 0; so < 26; so = so + 1) {
+        if (shiftOrder.contains(so) == false) {
+            shiftOrder.push(so);
+        }
+    }
+    for (sh = 0; sh < shiftOrder.length; sh = sh + 1) {
+        if (decodeKodikLink(sampleLink, shiftOrder[sh]) != null) {
+            return shiftOrder[sh];
+        }
+    }
+    return null;
+}
+
+function kodikEndpoint(endpointHost, playerPage) {
+    playerScript = textBetween(playerPage, 'src="/assets/js/app.player_single.', '"');
+    if (playerScript == null) {
+        return kodikDefaultEndpoint();
+    }
+    playerScriptPath = "/assets/js/app.player_single." + playerScript;
+    endpointKey = "kodikEndpoint:" + endpointHost + playerScriptPath;
+    cachedEndpoint = storageGet(endpointKey);
+    if (cachedEndpoint != null && cachedEndpoint != "") {
+        return cachedEndpoint;
+    }
+    scriptText = fetchText("https://" + endpointHost + playerScriptPath, {});
+    encodedEndpoint = textBetween(scriptText, 'type:"POST",url:atob("', '"');
+    if (encodedEndpoint == null) {
+        return kodikDefaultEndpoint();
+    }
+    decodedEndpoint = base64Decode(encodedEndpoint);
+    if (decodedEndpoint.startsWith("/") == false) {
+        return kodikDefaultEndpoint();
+    }
+    storageSet(endpointKey, decodedEndpoint, 86400);
+    return decodedEndpoint;
+}
+
+function resolveKodikSources(kodikUrl) {
+    kodikHost = embedHost(kodikUrl);
+    kodikPage = fetchText(kodikUrl, {"Referer": siteOrigin() + "/"});
+    if (kodikPage == null) {
+        return [];
+    }
+    urlParamsText = textBetween(kodikPage, "var urlParams = '", "';");
+    videoType = textBetween(kodikPage, "vInfo.type = '", "'");
+    videoHash = textBetween(kodikPage, "vInfo.hash = '", "'");
+    videoId = textBetween(kodikPage, "vInfo.id = '", "'");
+    if (urlParamsText == null || videoType == null || videoHash == null || videoId == null) {
+        return [];
+    }
+    urlParams = jsonDecode(urlParamsText);
+    kodikForm = {
+        "d": parseString(urlParams["d"]),
+        "d_sign": parseString(urlParams["d_sign"]),
+        "pd": parseString(urlParams["pd"]),
+        "pd_sign": parseString(urlParams["pd_sign"]),
+        "ref": urlDecode(parseString(urlParams["ref"])),
+        "ref_sign": parseString(urlParams["ref_sign"]),
+        "bad_user": "true",
+        "cdn_is_working": "true",
+        "type": videoType,
+        "hash": videoHash,
+        "id": videoId,
+        "info": "{}"
+    };
+    kodikPath = kodikEndpoint(kodikHost, kodikPage);
+    linksResponse = httpPost({
+        "url": "https://" + kodikHost + kodikPath,
+        "params": {},
+        "paths": {},
+        "body": kodikForm,
+        "headers": {"Referer": kodikUrl},
+        "throughWeb": false
+    });
+    if (linksResponse["statusCode"] != 200) {
+        return [];
+    }
+    linksJson = jsonDecode(linksResponse["body"]);
+    kodikLinks = linksJson["links"];
+    if (kodikLinks == null) {
+        return [];
+    }
+    kodikQualities = ["1080", "720", "480", "360"];
+    kodikShift = null;
+    kodikSources = [];
+    for (kq = 0; kq < kodikQualities.length; kq = kq + 1) {
+        qualityLinks = kodikLinks[kodikQualities[kq]];
+        if (qualityLinks == null) {
+            continue;
+        }
+        if (qualityLinks.isEmpty) {
+            continue;
+        }
+        encodedSrc = qualityLinks[0]["src"];
+        if (encodedSrc == null) {
+            continue;
+        }
+        if (kodikShift == null) {
+            kodikShift = findKodikShift(encodedSrc);
+        }
+        if (kodikShift == null) {
+            continue;
+        }
+        decodedSrc = decodeKodikLink(encodedSrc, kodikShift);
+        if (decodedSrc == null) {
+            continue;
+        }
+        streamLink = absoluteUrl(decodedSrc);
+        streamFormat = "mp4";
+        if (streamLink.contains(".m3u8")) {
+            streamFormat = "hls";
+        }
+        kodikSources.push({
+            "url": streamLink,
+            "quality": kodikQualities[kq] + "p",
+            "format": streamFormat,
+            "headers": {}
+        });
+    }
+    return kodikSources;
+}
+
+function queryValue(queryUrl, queryName) {
+    if (queryUrl.contains("?") == false) {
+        return "";
+    }
+    queryPairs = queryUrl.split("?")[1].split("#")[0].split("&");
+    for (qp = 0; qp < queryPairs.length; qp = qp + 1) {
+        queryPair = queryPairs[qp];
+        equalsAt = queryPair.indexOf("=");
+        if (equalsAt < 0) {
+            continue;
+        }
+        if (queryPair.substring(0, equalsAt) != queryName) {
+            continue;
+        }
+        return urlDecode(queryPair.substring(equalsAt + 1).replaceAll("+", " "));
+    }
+    return "";
+}
+
+function studioKey(studioName) {
+    if (studioName == null) {
+        return "";
+    }
+    return parseString(studioName).toLowerCase().replaceAll(" ", "").replaceAll("-", "").replaceAll("_", "");
+}
+
+function resolveCvhSources(cvhUrl) {
+    cvhAnimeId = queryValue(cvhUrl, "anime_id");
+    cvhEpisode = queryValue(cvhUrl, "episode");
+    cvhStudio = studioKey(queryValue(cvhUrl, "dubbing_code"));
+    if (cvhAnimeId == "" || cvhEpisode == "") {
+        return [];
+    }
+    cvhHeaders = {"Referer": cvhEmbedOrigin()};
+    cvhPlaylist = fetchJson(cvhApiBase() + "/playlist?pub=745&aggr=mali&id=" + urlEncode(cvhAnimeId), cvhHeaders);
+    if (cvhPlaylist == null) {
+        return [];
+    }
+    cvhItems = cvhPlaylist["items"];
+    if (cvhItems == null) {
+        return [];
+    }
+    cvhVideoId = null;
+    for (ci = 0; ci < cvhItems.length; ci = ci + 1) {
+        cvhItem = cvhItems[ci];
+        if (cvhVideoId != null || cvhItem == null) {
+            continue;
+        }
+        if (parseString(cvhItem["episode"]) != cvhEpisode) {
+            continue;
+        }
+        if (studioKey(cvhItem["voiceStudio"]) != cvhStudio) {
+            continue;
+        }
+        if (cvhItem["vkId"] != null) {
+            cvhVideoId = parseString(cvhItem["vkId"]);
+        }
+    }
+    if (cvhVideoId == null) {
+        return [];
+    }
+    cvhVideo = fetchJson(cvhApiBase() + "/video/" + cvhVideoId, cvhHeaders);
+    if (cvhVideo == null) {
+        return [];
+    }
+    cvhStreams = cvhVideo["sources"];
+    if (cvhStreams == null) {
+        return [];
+    }
+    cvhSources = [];
+    cvhHls = cvhStreams["hlsUrl"];
+    if (cvhHls != null && cvhHls != "") {
+        cvhSources.push({"url": cvhHls, "quality": "Auto", "format": "hls", "headers": {}});
+    }
+    cvhFiles = [
+        ["mpeg4kUrl", "2160p"],
+        ["mpegQhdUrl", "1440p"],
+        ["mpegFullHdUrl", "1080p"],
+        ["mpegHighUrl", "720p"],
+        ["mpegMediumUrl", "480p"],
+        ["mpegLowUrl", "360p"],
+        ["mpegLowestUrl", "240p"]
+    ];
+    for (cf = 0; cf < cvhFiles.length; cf = cf + 1) {
+        cvhFile = cvhStreams[cvhFiles[cf][0]];
+        if (cvhFile == null || cvhFile == "") {
+            continue;
+        }
+        cvhSources.push({
+            "url": cvhFile,
+            "quality": cvhFiles[cf][1],
+            "format": "mp4",
+            "headers": {},
+            "preferForDownload": true
+        });
+    }
+    return cvhSources;
+}
+
+function resolveAksorSources(aksorUrl) {
+    aksorHost = embedHost(aksorUrl);
+    aksorParts = aksorUrl.split("?")[0].split("/");
+    aksorHash = aksorParts[aksorParts.length - 1];
+    if (aksorHash == "") {
+        return [];
+    }
+    aksorVideo = fetchJson("https://" + aksorHost + "/api/video/" + aksorHash, {"Accept": "application/json", "Referer": aksorUrl});
+    if (aksorVideo == null) {
+        return [];
+    }
+    aksorQualities = aksorVideo["qualities"];
+    if (aksorQualities == null) {
+        return [];
+    }
+    aksorSkip = [];
+    aksorOpeningLength = aksorVideo["opening_length"];
+    if (aksorOpeningLength != null && aksorOpeningLength > 0) {
+        aksorSkip.push({"type": "intro", "start": aksorVideo["opening_start"], "end": aksorVideo["opening_start"] + aksorOpeningLength});
+    }
+    aksorEndingLength = aksorVideo["ending_length"];
+    if (aksorEndingLength != null && aksorEndingLength > 0) {
+        aksorSkip.push({"type": "outro", "start": aksorVideo["ending_start"], "end": aksorVideo["ending_start"] + aksorEndingLength});
+    }
+    aksorFiles = [["q4k", "2160p"], ["q2k", "1440p"], ["q1080", "1080p"], ["q720", "720p"], ["q480", "480p"], ["q360", "360p"]];
+    aksorSources = [];
+    for (af = 0; af < aksorFiles.length; af = af + 1) {
+        aksorFile = aksorQualities[aksorFiles[af][0]];
+        if (aksorFile == null || aksorFile == "") {
+            continue;
+        }
+        aksorLink = absoluteUrl(aksorFile).replaceAll(" ", "%20");
+        aksorFormat = "dash";
+        if (aksorLink.contains(".m3u8")) {
+            aksorFormat = "hls";
+        } else if (aksorLink.split("?")[0].endsWith(".mp4")) {
+            aksorFormat = "mp4";
+        }
+        aksorSources.push({
+            "url": aksorLink,
+            "quality": aksorFiles[af][1],
+            "format": aksorFormat,
+            "headers": {},
+            "skip": aksorSkip
+        });
+    }
+    return aksorSources;
+}
+
+function labelSources(unlabeledSources, labelData) {
+    labelDub = null;
+    labelSkip = [];
+    if (labelData != null) {
+        labelDub = labelData["dub"];
+        if (labelData["skip"] != null) {
+            labelSkip = labelData["skip"];
+        }
+    }
+    for (ls = 0; ls < unlabeledSources.length; ls = ls + 1) {
+        if (labelDub != null && labelDub != "") {
+            unlabeledSources[ls]["audioLabel"] = labelDub;
+        }
+        if (labelSkip.isEmpty == false) {
+            unlabeledSources[ls]["skip"] = labelSkip;
+        }
+    }
+    return unlabeledSources;
+}
+
+function getVideoSources(uid, src, data) {
+    embedUrl = absoluteUrl(src);
+    resolvedSources = [];
+    try {
+        resolvedHost = embedHost(embedUrl);
+        if (resolvedHost.contains("kodik")) {
+            resolvedSources = resolveKodikSources(embedUrl);
+        } else if (embedUrl.contains("iframeCVH")) {
+            resolvedSources = resolveCvhSources(embedUrl);
+        } else if (resolvedHost.contains("aksor")) {
+            resolvedSources = resolveAksorSources(embedUrl);
+        } else {
+            resolvedSources = [];
+        }
+    } catch (e) {
+        resolvedSources = [];
+    }
+    if (resolvedSources == null) {
+        resolvedSources = [];
+    }
+    return labelSources(resolvedSources, data);
+}

@@ -1,0 +1,184 @@
+{
+  "name": "MangaPill",
+  "uid": "b3600b02-4f4e-499f-8c1b-9fbe988493b9",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/mangapill/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "language": "English",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "manga",
+    "manhua"
+  ],
+  "feeds": [
+    {
+      "id": "latest",
+      "title": "Latest chapters"
+    },
+    {
+      "id": "trending",
+      "title": "Trending"
+    },
+    {
+      "id": "browse",
+      "title": "Browse"
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Type",
+      "param": "type",
+      "values": [
+        "manga",
+        "one-shot",
+        "manhua",
+        "doujinshi",
+        "oel",
+        "novel"
+      ],
+      "labels": [
+        "Manga",
+        "One-shot",
+        "Manhua",
+        "Doujinshi",
+        "OEL",
+        "Novel"
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Status",
+      "param": "status",
+      "values": [
+        "publishing",
+        "finished",
+        "on hiatus",
+        "discontinued",
+        "not yet published"
+      ],
+      "labels": [
+        "Publishing",
+        "Finished",
+        "On hiatus",
+        "Discontinued",
+        "Not yet published"
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Genres",
+      "param": "genre",
+      "values": [
+        [
+          "Action",
+          "Adventure",
+          "Cars",
+          "Comedy",
+          "Dementia",
+          "Demons",
+          "Doujinshi",
+          "Drama",
+          "Ecchi",
+          "Fantasy",
+          "Game",
+          "Gender Bender",
+          "Harem",
+          "Historical",
+          "Horror",
+          "Isekai",
+          "Josei",
+          "Kids",
+          "Magic",
+          "Martial Arts",
+          "Mecha",
+          "Military",
+          "Music",
+          "Mystery",
+          "Parody",
+          "Police",
+          "Psychological",
+          "Romance",
+          "Samurai",
+          "School",
+          "Sci-Fi",
+          "Seinen",
+          "Shoujo",
+          "Shoujo Ai",
+          "Shounen",
+          "Shounen Ai",
+          "Slice of Life",
+          "Space",
+          "Sports",
+          "Super Power",
+          "Supernatural",
+          "Thriller",
+          "Tragedy",
+          "Vampire",
+          "Yaoi",
+          "Yuri"
+        ]
+      ],
+      "labels": [
+        [
+          "Action",
+          "Adventure",
+          "Cars",
+          "Comedy",
+          "Dementia",
+          "Demons",
+          "Doujinshi",
+          "Drama",
+          "Ecchi",
+          "Fantasy",
+          "Game",
+          "Gender Bender",
+          "Harem",
+          "Historical",
+          "Horror",
+          "Isekai",
+          "Josei",
+          "Kids",
+          "Magic",
+          "Martial Arts",
+          "Mecha",
+          "Military",
+          "Music",
+          "Mystery",
+          "Parody",
+          "Police",
+          "Psychological",
+          "Romance",
+          "Samurai",
+          "School",
+          "Sci-Fi",
+          "Seinen",
+          "Shoujo",
+          "Shoujo Ai",
+          "Shounen",
+          "Shounen Ai",
+          "Slice of Life",
+          "Space",
+          "Sports",
+          "Super Power",
+          "Supernatural",
+          "Thriller",
+          "Tragedy",
+          "Vampire",
+          "Yaoi",
+          "Yuri"
+        ]
+      ]
+    }
+  ],
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 4,
+      "perSeconds": 1
+    }
+  },
+  "searchAvailable": true
+}

@@ -1,0 +1,388 @@
+import "http";
+import "json";
+import "converter";
+import "manga_models";
+import "errors";
+
+function honeyApiBase() {
+    return "https://data.api.honey-manga.com.ua";
+}
+
+function honeyCdnBase() {
+    return "https://hmvolumestorage.b-cdn.net/public-resources/";
+}
+
+function honeyHeaders() {
+    return {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Origin": "https://honey-manga.com.ua",
+        "Referer": "https://honey-manga.com.ua/"
+    };
+}
+
+function honeyCheckResponse(apiResponse, requestLabel) {
+    apiStatus = apiResponse["statusCode"];
+    if (apiStatus == 200 || apiStatus == 201) {
+        return jsonDecode(apiResponse["body"]);
+    }
+    if (apiStatus == 404) {
+        throwSourceError("notFound", requestLabel + " is no longer on Honey Manga");
+    }
+    if (apiStatus == 401 || apiStatus == 403) {
+        throwSourceError("loginRequired", "Honey Manga does not give access to " + requestLabel + " without an account");
+    }
+    if (apiStatus == 429) {
+        throwSourceError("rateLimited", "Honey Manga is rate limiting requests (" + requestLabel + ")");
+    }
+    if (apiStatus == 0 || apiStatus >= 500) {
+        throwSourceError("sourceDown", "Honey Manga answered HTTP " + parseString(apiStatus) + " (" + requestLabel + ")");
+    }
+    throw "HTTP " + parseString(apiStatus) + " (Honey Manga " + requestLabel + ")";
+}
+
+function honeyGet(getUrl, getParams, getLabel) {
+    return honeyCheckResponse(httpGet({
+        "url": getUrl,
+        "params": getParams,
+        "paths": {},
+        "headers": honeyHeaders(),
+        "throughWeb": false
+    }), getLabel);
+}
+
+function honeyPost(postUrl, postBody, postLabel) {
+    return honeyCheckResponse(httpPost({
+        "url": postUrl,
+        "params": {},
+        "paths": {},
+        "headers": honeyHeaders(),
+        "body": jsonEncode(postBody),
+        "throughWeb": false
+    }), postLabel);
+}
+
+function honeyImageUrl(resourceId) {
+    if (resourceId == null || resourceId == "") {
+        return "";
+    }
+    if (parseString(resourceId).startsWith("http")) {
+        return resourceId;
+    }
+    return honeyCdnBase() + resourceId;
+}
+
+function honeyStatus(statusText) {
+    if (statusText == "Онґоїнґ") {
+        return statusOngoing();
+    }
+    if (statusText == "Завершено") {
+        return statusReleased();
+    }
+    if (statusText == "Анонс") {
+        return statusAnnounce();
+    }
+    if (statusText == "Призупинено") {
+        return statusPaused();
+    }
+    if (statusText == "Покинуто") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function honeyPoster(posterItem) {
+    posterRef = posterItem["posterId"];
+    if (posterRef == null || posterRef == "") {
+        posterRef = posterItem["posterUrl"];
+    }
+    return honeyImageUrl(posterRef);
+}
+
+function honeyGalleryItem(listItem) {
+    itemPoster = honeyPoster(listItem);
+    return buildGallery({
+        "uid": listItem["id"],
+        "title": listItem["title"],
+        "cover": itemPoster,
+        "data": {},
+        "status": honeyStatus(listItem["titleStatus"]),
+        "subtitle": listItem["type"],
+        "tags": listItem["genres"],
+        "rating": listItem["rate"]
+    });
+}
+
+function honeyCatalogBody(page, catalogFilters) {
+    sortField = "likes";
+    showAdult = false;
+    chosenType = "";
+    bodyFilters = [];
+    if (catalogFilters != null) {
+        for (cf = 0; cf < catalogFilters.length; cf = cf + 1) {
+            filterData = catalogFilters[cf];
+            filterInfo = filterData["filter"];
+            filterParam = filterInfo["param"];
+            filterType = filterInfo["type"];
+            if (filterType == "SWITCHER") {
+                if (filterData["on"] == true) {
+                    showAdult = true;
+                }
+                continue;
+            }
+            if (filterType == "MULTIPLE_OF_MULTIPLE") {
+                chosenValues = [];
+                chosenGroups = filterData["selected"];
+                for (cg = 0; cg < chosenGroups.length; cg = cg + 1) {
+                    for (cv = 0; cv < chosenGroups[cg].length; cv = cv + 1) {
+                        chosenValues.push(chosenGroups[cg][cv]);
+                    }
+                }
+                if (chosenValues.isEmpty == false) {
+                    bodyFilters.push({"filterBy": filterParam, "filterOperator": "ALL", "filterValue": chosenValues});
+                }
+                continue;
+            }
+            chosenValue = filterData["selected"];
+            if (chosenValue == null || chosenValue == "") {
+                continue;
+            }
+            if (filterParam == "sort") {
+                sortField = chosenValue;
+                continue;
+            }
+            if (filterParam == "type") {
+                chosenType = chosenValue;
+            }
+            bodyFilters.push({"filterBy": filterParam, "filterOperator": "EQUAL", "filterValue": [chosenValue]});
+        }
+    }
+    if (chosenType == "") {
+        bodyFilters.push({"filterBy": "type", "filterOperator": "NOT_IN", "filterValue": ["Новела"]});
+    }
+    if (showAdult == false) {
+        bodyFilters.push({"filterBy": "adult", "filterOperator": "NOT_IN", "filterValue": ["18+"]});
+    }
+    return {
+        "page": page,
+        "pageSize": 30,
+        "sort": {"sortBy": sortField, "sortOrder": "DESC"},
+        "filters": bodyFilters
+    };
+}
+
+function getGallery(page, query, filters) {
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    foundItems = [];
+    if (searchText != "") {
+        if (page > 1) {
+            return [];
+        }
+        foundItems = honeyGet("https://search.api.honey-manga.com.ua/v2/manga/pattern", {"query": searchText}, "search");
+    } else {
+        catalogPage = honeyPost(honeyApiBase() + "/v2/manga/cursor-list", honeyCatalogBody(page, filters), "catalog page " + parseString(page));
+        foundItems = catalogPage["data"];
+    }
+    if (foundItems == null) {
+        return [];
+    }
+    galleryItems = [];
+    for (fi = 0; fi < foundItems.length; fi = fi + 1) {
+        if (foundItems[fi]["id"] == null) {
+            continue;
+        }
+        if (foundItems[fi]["type"] == "Новела") {
+            continue;
+        }
+        galleryItems.push(honeyGalleryItem(foundItems[fi]));
+    }
+    return galleryItems;
+}
+
+function honeyNumberText(numberValue) {
+    numberText = parseString(numberValue);
+    if (numberText.endsWith(".0")) {
+        numberText = numberText.substring(0, numberText.length - 2);
+    }
+    return numberText;
+}
+
+function honeyChapter(chapterInfo) {
+    chapterNumber = chapterInfo["chapterNum"];
+    subNumber = chapterInfo["subChapterNum"];
+    numberLabel = honeyNumberText(chapterNumber);
+    numericValue = null;
+    try {
+        numericValue = parseDouble(numberLabel);
+    } catch (e) {
+        numericValue = null;
+    }
+    if (subNumber != null && subNumber != 0) {
+        numberLabel = numberLabel + "." + honeyNumberText(subNumber);
+        try {
+            numericValue = parseDouble(numberLabel);
+        } catch (e) {
+            numericValue = null;
+        }
+    }
+    chapterLabel = "Розділ " + numberLabel;
+    if (chapterInfo["volume"] != null) {
+        chapterLabel = "Том " + honeyNumberText(chapterInfo["volume"]) + " " + chapterLabel;
+    }
+    chapterName = chapterInfo["title"];
+    if (chapterName != null && chapterName != "" && chapterName != "title") {
+        chapterLabel = chapterLabel + " - " + chapterName;
+    }
+    chapterDate = chapterInfo["lastUpdated"];
+    if (chapterDate != null) {
+        chapterDate = parseString(chapterDate);
+        if (chapterDate.length >= 16) {
+            chapterDate = chapterDate.substring(0, 16).replaceFirst("T", " ");
+        }
+    }
+    chapterResources = chapterInfo["chapterResourcesId"];
+    if (chapterResources == null) {
+        chapterResources = chapterInfo["id"];
+    }
+    return buildChapter({
+        "uid": chapterResources,
+        "title": chapterLabel,
+        "timestamp": chapterDate,
+        "data": {"chapterId": chapterInfo["id"]},
+        "number": numericValue,
+        "volume": chapterInfo["volume"]
+    });
+}
+
+function honeyChapters(mangaId) {
+    mangaChapters = [];
+    moreChapters = true;
+    for (cp = 1; cp <= 20; cp = cp + 1) {
+        if (moreChapters == false) {
+            continue;
+        }
+        chapterPage = honeyPost(honeyApiBase() + "/v2/chapter/cursor-list", {
+            "mangaId": mangaId,
+            "page": cp,
+            "pageSize": 1000,
+            "sortOrder": "ASC"
+        }, "chapters");
+        pageChapters = chapterPage["data"];
+        if (pageChapters == null) {
+            pageChapters = [];
+        }
+        for (pc = 0; pc < pageChapters.length; pc = pc + 1) {
+            if (pageChapters[pc]["isMonetized"] == true) {
+                continue;
+            }
+            mangaChapters.push(honeyChapter(pageChapters[pc]));
+        }
+        if (chapterPage["cursorNext"] == null || pageChapters.isEmpty) {
+            moreChapters = false;
+        }
+    }
+    return mangaChapters;
+}
+
+function honeySplitNames(namesValue) {
+    splitNames = [];
+    if (namesValue == null) {
+        return splitNames;
+    }
+    for (sn = 0; sn < namesValue.length; sn = sn + 1) {
+        namePart = parseString(namesValue[sn]).trim();
+        if (namePart != "" && splitNames.contains(namePart) == false) {
+            splitNames.push(namePart);
+        }
+    }
+    return splitNames;
+}
+
+function honeyAlternativeTitles(alternativeText) {
+    alternativeTitles = [];
+    if (alternativeText == null) {
+        return alternativeTitles;
+    }
+    alternativeParts = parseString(alternativeText).split(" / ");
+    for (ap = 0; ap < alternativeParts.length; ap = ap + 1) {
+        alternativePart = alternativeParts[ap].trim();
+        if (alternativePart != "" && alternativeTitles.contains(alternativePart) == false) {
+            alternativeTitles.push(alternativePart);
+        }
+    }
+    return alternativeTitles;
+}
+
+function getConcrete(uid, data) {
+    mangaId = uid;
+    mangaInfo = honeyGet(honeyApiBase() + "/manga/" + mangaId, {}, mangaId);
+    mangaTags = honeySplitNames(mangaInfo["genres"]);
+    extraTags = honeySplitNames(mangaInfo["tags"]);
+    for (et = 0; et < extraTags.length; et = et + 1) {
+        if (mangaTags.contains(extraTags[et]) == false) {
+            mangaTags.push(extraTags[et]);
+        }
+    }
+    mangaDescription = mangaInfo["description"];
+    if (mangaDescription == null) {
+        mangaDescription = "";
+    }
+    mangaChapters = honeyChapters(mangaId);
+    chapterGroups = [];
+    if (mangaChapters.isEmpty == false) {
+        chapterGroups.push(buildChapterGroups({"title": "Розділи", "elements": mangaChapters}));
+    }
+    return buildConcrete({
+        "uid": mangaId,
+        "title": mangaInfo["title"],
+        "cover": honeyPoster(mangaInfo),
+        "description": mangaDescription,
+        "tags": mangaTags,
+        "status": honeyStatus(mangaInfo["titleStatus"]),
+        "alternativeTitles": honeyAlternativeTitles(mangaInfo["alternativeTitle"]),
+        "authors": honeySplitNames(mangaInfo["authors"]),
+        "artists": honeySplitNames(mangaInfo["artists"]),
+        "rating": mangaInfo["rate"],
+        "url": "https://honey-manga.com.ua/book/" + mangaId,
+        "groups": chapterGroups
+    });
+}
+
+function getPages(uid, data) {
+    resourcesId = uid;
+    framesInfo = honeyGet(honeyApiBase() + "/chapter/frames/" + resourcesId, {}, "chapter " + resourcesId);
+    frameIds = framesInfo["resourceIds"];
+    pageLinks = [];
+    if (frameIds != null) {
+        framesDone = false;
+        for (fr = 0; fr < 1000; fr = fr + 1) {
+            if (framesDone) {
+                continue;
+            }
+            frameId = frameIds[parseString(fr)];
+            if (frameId == null) {
+                framesDone = true;
+                continue;
+            }
+            pageLinks.push(honeyImageUrl(frameId));
+        }
+    }
+    if (pageLinks.isEmpty) {
+        throwSourceError("notFound", "Honey Manga returned no pages for chapter " + resourcesId);
+    }
+    return buildPages({
+        "uid": resourcesId,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Referer": "https://honey-manga.com.ua/"
+    };
+}

@@ -1,0 +1,62 @@
+{
+  "name": "Kavita",
+  "uid": "39ac5954-ef65-457b-b423-2636b94457c7",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/kavita/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "sourceType": "self-hosted",
+  "language": "Multi",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": ["manga", "comic"],
+  "searchAvailable": true,
+  "multiInstance": true,
+  "protectorConfig": null,
+  "filters": [
+    {
+      "type": "ONE_OF_ANY",
+      "paramName": "Status",
+      "param": "publicationStatus",
+      "values": ["0", "1", "2", "3", "4"],
+      "labels": ["Ongoing", "Hiatus", "Completed", "Cancelled", "Ended"]
+    },
+    {
+      "type": "ONE_OF_ANY",
+      "paramName": "Read progress",
+      "param": "readProgress",
+      "values": ["unread", "inProgress", "read"],
+      "labels": ["Unread", "In progress", "Read"]
+    }
+  ],
+  "feeds": [
+    {"id": "all", "title": "All series"},
+    {"id": "new", "title": "Recently added"},
+    {"id": "updated", "title": "Recently updated"}
+  ],
+  "pagination": {
+    "pageSizes": [20, 50, 100],
+    "defaultPageSize": 20
+  },
+  "preferences": [
+    {
+      "key": "serverUrl",
+      "type": "text",
+      "title": "Server address",
+      "summary": "Address of your Kavita server, for example http://192.168.1.10:5000"
+    },
+    {
+      "key": "apiKey",
+      "type": "text",
+      "secret": true,
+      "title": "API key",
+      "summary": "Your Kavita API key, from User settings, 3rd Party Clients (or Auth Keys) in Kavita"
+    },
+    {
+      "key": "libraries",
+      "type": "text",
+      "title": "Libraries",
+      "summary": "Comma-separated library names to browse. Leave empty for every library"
+    }
+  ]
+}

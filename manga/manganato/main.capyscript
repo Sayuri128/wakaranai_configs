@@ -1,0 +1,552 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "date";
+import "manga_models";
+import "errors";
+
+function natoDefaultBase() {
+    return "https://www.manganato.gg";
+}
+
+function natoBase() {
+    activeMirror = currentMirror();
+    if (activeMirror == null || activeMirror == "") {
+        return natoDefaultBase();
+    }
+    return activeMirror;
+}
+
+function natoUserAgent() {
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+}
+
+function natoHeaders(acceptValue) {
+    return {
+        "User-Agent": natoUserAgent(),
+        "Accept": acceptValue,
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": natoBase() + "/"
+    };
+}
+
+function natoIsChallenge(responseBody) {
+    if (responseBody == null) {
+        return false;
+    }
+    bodyText = parseString(responseBody);
+    if (bodyText.contains("challenge-platform") || bodyText.contains("<title>Just a moment")) {
+        return true;
+    }
+    return false;
+}
+
+function natoGet(requestUrl, requestParams, acceptValue, requestLabel, missingAsEmpty) {
+    pageResponse = httpGet({
+        "url": requestUrl,
+        "params": requestParams,
+        "paths": {},
+        "headers": natoHeaders(acceptValue),
+        "throughWeb": false
+    });
+    pageStatus = pageResponse["statusCode"];
+    if (pageStatus == 200) {
+        return pageResponse["body"];
+    }
+    if (pageStatus == 404 || pageStatus == 400) {
+        if (missingAsEmpty) {
+            return null;
+        }
+        throwSourceError("notFound", requestLabel + " is no longer on MangaNato");
+    }
+    if (pageStatus == 429) {
+        throwSourceError("rateLimited", "MangaNato is rate limiting requests (" + requestLabel + ")");
+    }
+    if (pageStatus == 403 || pageStatus == 503) {
+        if (natoIsChallenge(pageResponse["body"])) {
+            throwSourceError("sourceDown", "MangaNato asked for a Cloudflare check (" + requestLabel + "), try another mirror or later");
+        }
+    }
+    if (pageStatus == 0 || pageStatus >= 500) {
+        throwSourceError("sourceDown", "MangaNato answered HTTP " + parseString(pageStatus) + " (" + requestLabel + ")");
+    }
+    throw "HTTP " + parseString(pageStatus) + " (MangaNato " + requestLabel + ")";
+}
+
+function natoDocument(requestUrl, requestParams, requestLabel, missingAsEmpty) {
+    htmlBody = natoGet(requestUrl, requestParams, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", requestLabel, missingAsEmpty);
+    if (htmlBody == null) {
+        return null;
+    }
+    return createHTMLParser(htmlBody);
+}
+
+function natoPathOf(link) {
+    pathText = parseString(link).trim();
+    schemeAt = pathText.indexOf("://");
+    if (schemeAt >= 0) {
+        pathText = pathText.substring(schemeAt + 3);
+        hostEnd = pathText.indexOf("/");
+        if (hostEnd < 0) {
+            pathText = "";
+        } else {
+            pathText = pathText.substring(hostEnd);
+        }
+    }
+    queryAt = pathText.indexOf("?");
+    if (queryAt >= 0) {
+        pathText = pathText.substring(0, queryAt);
+    }
+    hashAt = pathText.indexOf("#");
+    if (hashAt >= 0) {
+        pathText = pathText.substring(0, hashAt);
+    }
+    if (pathText.startsWith("/")) {
+        pathText = pathText.substring(1);
+    }
+    if (pathText.endsWith("/")) {
+        pathText = pathText.substring(0, pathText.length - 1);
+    }
+    return pathText;
+}
+
+function natoSlugOf(titlePath) {
+    pathParts = natoPathOf(titlePath).split("/");
+    mangaAt = pathParts.indexOf("manga");
+    if (mangaAt >= 0 && mangaAt + 1 < pathParts.length) {
+        return pathParts[mangaAt + 1];
+    }
+    return pathParts[pathParts.length - 1];
+}
+
+function natoAbsolute(rawLink) {
+    linkText = parseString(rawLink).trim();
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("/")) {
+        return natoBase() + linkText;
+    }
+    return linkText;
+}
+
+function natoImageOf(imageElement) {
+    if (imageElement == null) {
+        return "";
+    }
+    imageAttributes = imageElement.attributes;
+    sourceKeys = ["data-src", "src"];
+    for (sk = 0; sk < sourceKeys.length; sk++) {
+        candidate = imageAttributes[sourceKeys[sk]];
+        if (candidate != null) {
+            candidate = candidate.trim();
+            if (candidate != "" && candidate.startsWith("data:") == false) {
+                return natoAbsolute(candidate);
+            }
+        }
+    }
+    return "";
+}
+
+function natoText(element) {
+    if (element == null) {
+        return "";
+    }
+    return element.text.trim();
+}
+
+function natoSelectedGenre(galleryFilters) {
+    if (galleryFilters == null) {
+        return "";
+    }
+    for (gf = 0; gf < galleryFilters.length; gf++) {
+        filterData = galleryFilters[gf];
+        filterInfo = filterData["filter"];
+        if (filterInfo["param"] == "genre") {
+            chosenGenre = filterData["selected"];
+            if (chosenGenre != null && chosenGenre != "") {
+                return chosenGenre;
+            }
+        }
+    }
+    return "";
+}
+
+function natoFeedList(feedId) {
+    if (feedId == "popular") {
+        return "hot-manga";
+    }
+    if (feedId == "new") {
+        return "new-manga";
+    }
+    if (feedId == "completed") {
+        return "completed-manga";
+    }
+    return "latest-manga";
+}
+
+function natoFeedOrder(feedId) {
+    if (feedId == "popular") {
+        return "7";
+    }
+    if (feedId == "new") {
+        return "1";
+    }
+    if (feedId == "completed") {
+        return "5";
+    }
+    return "4";
+}
+
+function natoGalleryItems(listDocument) {
+    galleryItems = [];
+    seenPaths = [];
+    listEntries = listDocument.querySelectorAll(".list-comic-item-wrap");
+    for (le = 0; le < listEntries.length; le++) {
+        listEntry = listEntries[le];
+        entryLink = listEntry.querySelector("h3 a");
+        if (entryLink == null) {
+            entryLink = listEntry.querySelector("a.list-story-item");
+        }
+        if (entryLink == null) {
+            continue;
+        }
+        entryHref = entryLink.attributes["href"];
+        if (entryHref == null) {
+            continue;
+        }
+        entryPath = natoPathOf(entryHref);
+        if (entryPath == "" || seenPaths.contains(entryPath)) {
+            continue;
+        }
+        seenPaths.push(entryPath);
+        entryName = natoText(entryLink);
+        if (entryName == "") {
+            entryName = entryLink.attributes["title"];
+        }
+        entryLatest = natoText(listEntry.querySelector(".list-story-item-wrap-chapter"));
+        entryCover = natoImageOf(listEntry.querySelector("img"));
+        galleryItems.push(buildGallery({
+            "uid": entryPath,
+            "title": entryName,
+            "cover": entryCover,
+            "data": {},
+            "latestChapter": entryLatest
+        }));
+    }
+    return galleryItems;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchText = "";
+    if (query != null) {
+        searchText = query.trim();
+    }
+    if (searchText != "") {
+        throwSourceError("unsupported", "MangaNato search is behind a Cloudflare check; browse the feeds and genres instead");
+    }
+    feedId = feed;
+    if (feedId == null || feedId == "") {
+        feedId = "latest";
+    }
+    genreSlug = natoSelectedGenre(filters);
+    listDocument = null;
+    if (genreSlug == "") {
+        listDocument = natoDocument(natoDefaultBase() + "/manga-list/" + natoFeedList(feedId), {"page": parseString(page)}, "list page " + parseString(page), true);
+    } else {
+        listDocument = natoDocument(natoDefaultBase() + "/genre/" + genreSlug, {"filter": natoFeedOrder(feedId), "page": parseString(page)}, "genre page " + parseString(page), true);
+    }
+    if (listDocument == null) {
+        return [];
+    }
+    return natoGalleryItems(listDocument);
+}
+
+function natoStatus(statusText) {
+    loweredStatus = statusText.toLowerCase();
+    if (loweredStatus.contains("complete")) {
+        return statusReleased();
+    }
+    if (loweredStatus.contains("ongoing")) {
+        return statusOngoing();
+    }
+    if (loweredStatus.contains("hiatus") || loweredStatus.contains("pause")) {
+        return statusPaused();
+    }
+    if (loweredStatus.contains("cancel") || loweredStatus.contains("drop")) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function natoAfterColon(rowText) {
+    colonAt = rowText.indexOf(":");
+    if (colonAt < 0) {
+        return rowText.trim();
+    }
+    return rowText.substring(colonAt + 1).trim();
+}
+
+function natoNames(namesText, separator) {
+    foundNames = [];
+    nameParts = namesText.split(separator);
+    for (np = 0; np < nameParts.length; np++) {
+        namePart = nameParts[np].trim();
+        if (namePart == "") {
+            continue;
+        }
+        loweredName = namePart.toLowerCase();
+        if (loweredName == "unknown" || loweredName == "updating") {
+            continue;
+        }
+        if (foundNames.contains(namePart) == false) {
+            foundNames.push(namePart);
+        }
+    }
+    return foundNames;
+}
+
+function natoDescription(titleDocument) {
+    summaryBox = titleDocument.querySelector("#contentBox");
+    if (summaryBox == null) {
+        return "";
+    }
+    summaryText = summaryBox.text;
+    summaryHeading = summaryBox.querySelector("h2");
+    if (summaryHeading != null) {
+        headingText = summaryHeading.text.trim();
+        if (headingText != "") {
+            summaryText = summaryText.replaceFirst(headingText, "");
+        }
+    }
+    return summaryText.trim();
+}
+
+function natoRating(titleDocument) {
+    ratingElement = titleDocument.querySelector(".manga-info-text .rating");
+    if (ratingElement == null) {
+        return null;
+    }
+    ratingText = ratingElement.attributes["data-default"];
+    if (ratingText == null || ratingText.trim() == "") {
+        return null;
+    }
+    ratingValue = null;
+    try {
+        ratingValue = parseDouble(ratingText.trim());
+    } catch (e) {
+        ratingValue = null;
+    }
+    if (ratingValue == null) {
+        return null;
+    }
+    return ratingValue * 2;
+}
+
+function natoTimestamp(rawDate) {
+    if (rawDate == null || rawDate == "") {
+        return null;
+    }
+    formattedDate = rawDate;
+    try {
+        parsedDate = parseDate(rawDate);
+        if (parsedDate != null) {
+            dateFormatter = createDateFormatter("yyyy-MM-dd HH:mm");
+            formattedDate = dateFormatter.format(parsedDate);
+        }
+    } catch (e) {
+        formattedDate = rawDate;
+    }
+    return formattedDate;
+}
+
+function natoChapterPage(titleSlug, chapterOffset, chapterLimit) {
+    chaptersBody = natoGet(natoDefaultBase() + "/api/manga/" + titleSlug + "/chapters", {
+        "limit": parseString(chapterLimit),
+        "offset": parseString(chapterOffset)
+    }, "application/json, text/plain, */*", "chapters of " + titleSlug, false);
+    chaptersJson = jsonDecode(chaptersBody);
+    if (chaptersJson["success"] == false) {
+        throw "MangaNato could not list the chapters of " + titleSlug;
+    }
+    return chaptersJson["data"];
+}
+
+function natoChapters(titleSlug) {
+    builtChapters = [];
+    seenSlugs = [];
+    chapterLimit = 500;
+    for (cp = 0; cp < 20; cp++) {
+        chapterData = natoChapterPage(titleSlug, cp * chapterLimit, chapterLimit);
+        listedChapters = chapterData["chapters"];
+        if (listedChapters == null || listedChapters.isEmpty) {
+            return builtChapters;
+        }
+        for (lc = 0; lc < listedChapters.length; lc++) {
+            listedChapter = listedChapters[lc];
+            chapterSlug = listedChapter["chapter_slug"];
+            if (chapterSlug == null || chapterSlug == "" || seenSlugs.contains(chapterSlug)) {
+                continue;
+            }
+            seenSlugs.push(chapterSlug);
+            chapterName = listedChapter["chapter_name"];
+            if (chapterName == null || parseString(chapterName).trim() == "") {
+                chapterName = chapterSlug;
+            }
+            builtChapters.push(buildChapter({
+                "uid": "manga/" + titleSlug + "/" + chapterSlug,
+                "title": parseString(chapterName).trim(),
+                "timestamp": natoTimestamp(listedChapter["updated_at"]),
+                "data": {},
+                "number": listedChapter["chapter_num"]
+            }));
+        }
+        chapterPaging = chapterData["pagination"];
+        if (chapterPaging == null || chapterPaging["has_more"] != true) {
+            return builtChapters;
+        }
+    }
+    return builtChapters;
+}
+
+function getConcrete(uid, data) {
+    titleSlug = natoSlugOf(uid);
+    titlePath = "manga/" + titleSlug;
+    titleDocument = natoDocument(natoDefaultBase() + "/" + titlePath, {}, "Title " + titleSlug, false);
+    infoBlock = titleDocument.querySelector(".manga-info-text");
+    if (infoBlock == null) {
+        throwSourceError("notFound", "Title " + titleSlug + " is no longer on MangaNato");
+    }
+    titleName = natoText(infoBlock.querySelector("h1"));
+    alternativeNames = [];
+    alternativeElement = infoBlock.querySelector(".story-alternative");
+    if (alternativeElement != null) {
+        alternativeCandidates = natoNames(natoAfterColon(alternativeElement.text), ";");
+        for (an = 0; an < alternativeCandidates.length; an++) {
+            if (alternativeCandidates[an] != titleName) {
+                alternativeNames.push(alternativeCandidates[an]);
+            }
+        }
+    }
+    authorNames = [];
+    titleStatus = statusUndefined();
+    infoRows = infoBlock.querySelectorAll("li");
+    for (ir = 0; ir < infoRows.length; ir++) {
+        rowText = infoRows[ir].text.trim();
+        if (rowText.startsWith("Author")) {
+            authorNames = natoNames(natoAfterColon(rowText), ",");
+        }
+        if (rowText.startsWith("Status")) {
+            titleStatus = natoStatus(natoAfterColon(rowText));
+        }
+    }
+    genreNames = [];
+    genreLinks = infoBlock.querySelectorAll("li.genres a");
+    for (gl = 0; gl < genreLinks.length; gl++) {
+        genreName = natoText(genreLinks[gl]);
+        if (genreName != "" && genreNames.contains(genreName) == false) {
+            genreNames.push(genreName);
+        }
+    }
+    titleCover = natoImageOf(titleDocument.querySelector(".manga-info-pic img"));
+    if (titleCover == "") {
+        ogImage = titleDocument.querySelector("meta[property='og:image']");
+        if (ogImage != null) {
+            titleCover = natoAbsolute(ogImage.attributes["content"]);
+        }
+    }
+    chapterGroup = buildChapterGroups({
+        "title": "Chapters",
+        "elements": natoChapters(titleSlug)
+    });
+    return buildConcrete({
+        "uid": titlePath,
+        "title": titleName,
+        "cover": titleCover,
+        "description": natoDescription(titleDocument),
+        "tags": genreNames,
+        "status": titleStatus,
+        "alternativeTitles": alternativeNames,
+        "authors": authorNames,
+        "rating": natoRating(titleDocument),
+        "url": natoBase() + "/" + titlePath,
+        "groups": [chapterGroup]
+    });
+}
+
+function natoScriptArray(pageBody, variableName) {
+    marker = "var " + variableName + " = ";
+    markerAt = pageBody.indexOf(marker);
+    if (markerAt < 0) {
+        return [];
+    }
+    arrayText = pageBody.substring(markerAt + marker.length);
+    arrayEnd = arrayText.indexOf("];");
+    if (arrayEnd < 0) {
+        return [];
+    }
+    arrayText = arrayText.substring(0, arrayEnd + 1);
+    parsedArray = [];
+    try {
+        parsedArray = jsonDecode(arrayText);
+    } catch (e) {
+        parsedArray = [];
+    }
+    return parsedArray;
+}
+
+function natoScriptPages(pageBody) {
+    scriptLinks = [];
+    cdnBases = natoScriptArray(pageBody, "cdns");
+    imagePaths = natoScriptArray(pageBody, "chapterImages");
+    if (cdnBases.isEmpty || imagePaths.isEmpty) {
+        return scriptLinks;
+    }
+    cdnBase = parseString(cdnBases[0]).trim();
+    if (cdnBase.endsWith("/") == false) {
+        cdnBase = cdnBase + "/";
+    }
+    for (ip = 0; ip < imagePaths.length; ip++) {
+        imagePath = parseString(imagePaths[ip]).trim();
+        if (imagePath.startsWith("/")) {
+            imagePath = imagePath.substring(1);
+        }
+        if (imagePath != "") {
+            scriptLinks.push(cdnBase + imagePath);
+        }
+    }
+    return scriptLinks;
+}
+
+function getPages(uid, data) {
+    chapterPath = natoPathOf(uid);
+    pageBody = natoGet(natoDefaultBase() + "/" + chapterPath, {}, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Chapter " + chapterPath, false);
+    chapterDocument = createHTMLParser(pageBody);
+    pageLinks = [];
+    pageImages = chapterDocument.querySelectorAll(".container-chapter-reader img");
+    for (pi = 0; pi < pageImages.length; pi++) {
+        pageLink = natoImageOf(pageImages[pi]);
+        if (pageLink != "" && pageLinks.contains(pageLink) == false) {
+            pageLinks.push(pageLink);
+        }
+    }
+    if (pageLinks.isEmpty) {
+        pageLinks = natoScriptPages(pageBody);
+    }
+    if (pageLinks.isEmpty) {
+        throwSourceError("notFound", "MangaNato returned no pages for " + chapterPath);
+    }
+    return buildPages({
+        "uid": chapterPath,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": natoUserAgent(),
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": natoBase() + "/"
+    };
+}

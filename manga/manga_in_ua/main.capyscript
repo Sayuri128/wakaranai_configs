@@ -113,13 +113,21 @@ function getConcrete(uid) {
                     if (el && typeof site_login_hash !== 'undefined') {
                         const news_id = el.getAttribute('data-news_id');
                         const news_category = el.getAttribute('data-news_category');
-                        resolve({
+                        const form = new URLSearchParams({
                             action: 'show',
                             news_id: news_id ? news_id.toString() : '',
                             news_category: news_category ? news_category.toString() : '',
                             this_link: news_category === '54' ? (el.getAttribute('data-this_link') || '') : '',
                             user_hash: site_login_hash
                         });
+                        fetch('/engine/ajax/controller.php?mod=load_chapters', {
+                            method: 'POST',
+                            body: form,
+                            headers: {'X-Requested-With': 'XMLHttpRequest'}
+                        })
+                            .then((r) => r.text())
+                            .then((html) => resolve({html: html}))
+                            .catch((e) => resolve({html: 'error'}));
                     } else if (attempts < 20) {
                         setTimeout(check, 500);
                     } else {
@@ -133,23 +141,17 @@ function getConcrete(uid) {
         return fun();
     `
 
-    requestBody = executeJsScript({"code": jsScript});
-
-    response = httpPost({
-        "url": "https://manga.in.ua/engine/ajax/controller.php",
-        "params": {
-          "mod": "load_chapters"
-        },
-        "paths": {},
-        "body": requestBody,
-        "headers": {
-            "X-Requested-With": "XMLHttpRequest"
-        },
-        "throughWeb": false
-    });
+    chaptersResult = executeJsScript({"code": jsScript});
+    if(chaptersResult == null) {
+        throw "manga.in.ua: chapter list block not found";
+    }
+    chaptersHtml = chaptersResult["html"];
+    if(chaptersHtml == "empty" || chaptersHtml == "hash" || chaptersHtml == "error") {
+        throw "manga.in.ua: failed to load chapters (" + chaptersHtml + ")";
+    }
 
     pageDocument = createHTMLParser(result["body"]);
-    document = createHTMLParser(response["body"]);
+    document = createHTMLParser(chaptersHtml);
 
     chaptersTags = document.getElementsByClassName("ltcitems");
     chapters = [];
@@ -157,7 +159,6 @@ function getConcrete(uid) {
     for(i = 0; i < chaptersTags.length; i = i + 1) {
         fastNav = chaptersTags[i].getElementsByClassName("forfastnavigation");
         if(fastNav.isEmpty) {
-            i = i + 1;
             continue;
         }
         chapterUid = fastNav[0].attributes["href"];
@@ -219,6 +220,7 @@ function getConcrete(uid) {
         "tags": tags,
         "alternativeTitles": [],
         "status": null,
+        "url": uid,
         "groups": [
             buildChapterGroups({
                 "title": "Default",
@@ -246,12 +248,18 @@ function getPages(uid) {
                     attempts++;
                     const el = document.getElementById('comics');
                     if (el && typeof site_login_hash !== 'undefined') {
-                        resolve({
-                            action: 'show',
+                        const query = new URLSearchParams({
+                            mod: 'load_chapters_image',
                             news_id: el.getAttribute('data-news_id').toString(),
-                            user_hash: site_login_hash,
-                            mod: 'load_chapters_image'
+                            action: 'show',
+                            user_hash: site_login_hash
                         });
+                        fetch('/engine/ajax/controller.php?' + query.toString(), {
+                            headers: {'X-Requested-With': 'XMLHttpRequest'}
+                        })
+                            .then((r) => r.text())
+                            .then((html) => resolve({html: html}))
+                            .catch((e) => resolve({html: ''}));
                     } else if (attempts < 20) {
                         setTimeout(check, 500);
                     } else {
@@ -265,24 +273,13 @@ function getPages(uid) {
         return fun();
     `
 
-    requestParams = executeJsScript({"code": jsScript});
+    pagesResult = executeJsScript({"code": jsScript});
 
-    if(requestParams == null) {
+    if(pagesResult == null) {
         return buildPages({ "uid": uid, "value": [] });
     }
 
-    result = httpGet({
-        "url": "https://manga.in.ua/engine/ajax/controller.php",
-        "params": requestParams,
-        "paths": {},
-        "body": {},
-        "headers": {
-            "X-Requested-With": "XMLHttpRequest"
-        },
-        "throughWeb": false
-    });
-
-    document = createHTMLParser(result["body"]);
+    document = createHTMLParser(pagesResult["html"]);
 
     value = [];
 
