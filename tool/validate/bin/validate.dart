@@ -285,6 +285,7 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   }
   _validateContentKinds(config['contentKinds'], fail);
   _validatePricing(config['pricing'], fail);
+  _validateSourceType(config['sourceType'], fail);
   final multiInstance = config['multiInstance'];
   if (multiInstance != null && multiInstance is! bool) {
     fail('"multiInstance" must be true or false');
@@ -700,6 +701,17 @@ void _validateFeeds(Object? feeds, void Function(String) fail) {
 }
 
 final RegExp _contentKind = RegExp(r'^[a-z][a-z0-9-]*$');
+
+void _validateSourceType(Object? sourceType, void Function(String) fail) {
+  if (sourceType == null) {
+    return;
+  }
+  if (sourceType != 'website' &&
+      sourceType != 'self-hosted' &&
+      sourceType != 'official') {
+    fail('"sourceType" must be "website", "self-hosted" or "official"');
+  }
+}
 
 void _validatePricing(Object? pricing, void Function(String) fail) {
   if (pricing == null) {
