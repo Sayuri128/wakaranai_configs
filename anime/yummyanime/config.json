@@ -1,0 +1,382 @@
+{
+  "name": "YummyAnime",
+  "uid": "8b628996-40d8-4c72-ac5e-acb6a6fc15c1",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/yummyanime/logo.png?raw=true",
+  "type": 1,
+  "nsfw": false,
+  "language": "Русский",
+  "version": 1,
+  "apiVersion": 2,
+  "contentKinds": [
+    "anime"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "feeds": [
+    {
+      "id": "updates",
+      "title": "New episodes"
+    },
+    {
+      "id": "popular",
+      "title": "Popular"
+    },
+    {
+      "id": "top",
+      "title": "Top"
+    },
+    {
+      "id": "added",
+      "title": "Newly added"
+    }
+  ],
+  "filters": [
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Type",
+      "param": "types",
+      "values": [
+        [
+          "tv",
+          "movie",
+          "ova",
+          "ona",
+          "special",
+          "shortfilm",
+          "shorttv"
+        ]
+      ],
+      "labels": [
+        [
+          "TV series",
+          "Movie",
+          "OVA",
+          "ONA",
+          "Special",
+          "Short film",
+          "Short TV series"
+        ]
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Status",
+      "param": "status",
+      "values": [
+        [
+          "ongoing",
+          "released",
+          "announcement"
+        ]
+      ],
+      "labels": [
+        [
+          "Ongoing",
+          "Released",
+          "Announced"
+        ]
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Season",
+      "param": "season",
+      "values": [
+        [
+          "winter",
+          "spring",
+          "summer",
+          "fall"
+        ]
+      ],
+      "labels": [
+        [
+          "Winter",
+          "Spring",
+          "Summer",
+          "Fall"
+        ]
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Genres",
+      "param": "genres",
+      "values": [
+        [
+          "bisenen",
+          "dzesej",
+          "maho-sedze",
+          "sedze",
+          "sedze-aj",
+          "senen",
+          "senen-aj",
+          "sejnen",
+          "etti",
+          "vestern",
+          "detektiv",
+          "drama",
+          "komediya",
+          "parodiya",
+          "prestupnyj-mir",
+          "vori",
+          "mafiya-yakudza",
+          "ohotniki-za-golovami",
+          "piraty",
+          "terroristy",
+          "ubijcy",
+          "meha",
+          "androidy",
+          "pilotiruemye-roboty",
+          "silovye-kostyumy",
+          "ii",
+          "transformery",
+          "mistika",
+          "priklyucheniya",
+          "romantika",
+          "lyubovnyj-treugol-nik",
+          "triller",
+          "ugasy",
+          "fantastika",
+          "inoplanetyane",
+          "kiborgi",
+          "kosmicheskie-priklyucheniya",
+          "puteshestviya-vo-vremeni",
+          "fentezi",
+          "al-ternativnaya-real-nost",
+          "angely",
+          "bogi",
+          "vampiry",
+          "ved-my",
+          "demony",
+          "drakony",
+          "zombi",
+          "magiya",
+          "prizraki",
+          "rysalki",
+          "sovremennoe-fentezi",
+          "sukkuby",
+          "temnoe-fentezi",
+          "temnye-el-fy",
+          "fei",
+          "celyj-fentezi-mir",
+          "el-fy",
+          "virtual-naya-real-nost",
+          "parallel-nyj-mir",
+          "ekshen",
+          "boevye-iskusstva",
+          "nindzya",
+          "perestrelki",
+          "proksi-boi",
+          "samurai",
+          "srazheniya-na-mechah",
+          "supersposobnosti",
+          "al-ternativnaya-istoriya",
+          "antivojna",
+          "antiutopiya",
+          "vojna",
+          "voennaya-tematika",
+          "garem",
+          "iskusstvo",
+          "muzyka",
+          "istoricheskij",
+          "kiberpank",
+          "kulinariya",
+          "nelinejnyj-syuzhet",
+          "povsednevnost",
+          "politika",
+          "policejskie",
+          "postapokaliptika",
+          "rossiya-v-anime",
+          "sport",
+          "basketbol",
+          "stimpank",
+          "tajnyj-zagovor",
+          "shkola",
+          "garem-dlya-devochek",
+          "lyudi-zveri",
+          "psihologiya",
+          "manga",
+          "erotica",
+          "ne-yaponskoe",
+          "trap",
+          "sverh-estestvennoe",
+          "igry",
+          "isekai",
+          "chinese3d",
+          "motorcycles",
+          "badguys",
+          "bezumie"
+        ]
+      ],
+      "labels": [
+        [
+          "Бисёнэн",
+          "Дзёсэй",
+          "Махо-сёдзё",
+          "Сёдзё",
+          "Сёдзё-ай",
+          "Сёнэн",
+          "Сёнэн-ай",
+          "Сэйнэн",
+          "Этти",
+          "Вестерн",
+          "Детектив",
+          "Драма",
+          "Комедия",
+          "Пародия",
+          "Преступный мир",
+          "Воры",
+          "Мафия/Якудза",
+          "Охотники за головами",
+          "Пираты",
+          "Террористы",
+          "Убийцы",
+          "Меха",
+          "Андроиды",
+          "Пилотируемые роботы",
+          "Силовые костюмы",
+          "Искусственный интеллект",
+          "Трансформеры",
+          "Мистика",
+          "Приключения",
+          "Романтика",
+          "Любовный треугольник",
+          "Триллер",
+          "Ужасы",
+          "Фантастика",
+          "Инопланетные расы",
+          "Киборги",
+          "Космос",
+          "Путешествия во времени",
+          "Фэнтези",
+          "Альтернативная реальность",
+          "Ангелы",
+          "Божества",
+          "Вампиры",
+          "Ведьмы",
+          "Демоны",
+          "Драконы",
+          "Зомби",
+          "Магия",
+          "Призраки",
+          "Русалки",
+          "Современное фэнтези",
+          "Суккубы",
+          "Темное фэнтези",
+          "Темные эльфы",
+          "Феи",
+          "Целый фэнтези мир",
+          "Эльфы",
+          "Виртуальная реальность",
+          "Параллельный мир",
+          "Экшен",
+          "Боевые искусства",
+          "Ниндзя",
+          "Перестрелки",
+          "Прокси бои",
+          "Самураи",
+          "Сражения на мечах",
+          "Суперспособности",
+          "Альтернативная история",
+          "Антивойна",
+          "Антиутопия",
+          "Война",
+          "Военная тематика",
+          "Гарем",
+          "Искусство",
+          "Музыка",
+          "Исторический",
+          "Киберпанк",
+          "Кулинария",
+          "Нелинейный сюжет",
+          "Повседневность",
+          "Политика",
+          "Полицейские",
+          "Постапокалиптика",
+          "Русские в аниме",
+          "Спорт",
+          "Баскетбол",
+          "Стимпанк",
+          "Тайный заговор",
+          "Школьная жизнь",
+          "Гарем (для девочек)",
+          "Полулюди",
+          "Психология",
+          "Манга",
+          "Эротика",
+          "Не японское",
+          "Гендерная интрига",
+          "Сверхъестественное",
+          "Игры",
+          "Исэкай",
+          "Китайское 3D",
+          "Мотоциклы",
+          "Хулиганы",
+          "Безумие"
+        ]
+      ]
+    },
+    {
+      "type": "RANGE",
+      "paramName": "Year",
+      "param": "year",
+      "paramMin": "from_year",
+      "paramMax": "to_year",
+      "min": 1960,
+      "max": 2027
+    }
+  ],
+  "preferences": [
+    {
+      "key": "preferredPlayer",
+      "type": "select",
+      "title": "Preferred player",
+      "summary": "Episode lists from this player come first within each dub",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Built-in playback first"
+        },
+        {
+          "value": "kodik",
+          "label": "Kodik"
+        },
+        {
+          "value": "cvh",
+          "label": "CVH"
+        },
+        {
+          "value": "aksor",
+          "label": "Aksor"
+        },
+        {
+          "value": "alloha",
+          "label": "Alloha (web player only)"
+        }
+      ]
+    },
+    {
+      "key": "preferredDubs",
+      "type": "text",
+      "title": "Preferred dubs",
+      "summary": "Dub studio names to list first, comma-separated in order of preference, e.g. AniLibria, Dream Cast",
+      "default": ""
+    },
+    {
+      "key": "applicationToken",
+      "type": "text",
+      "title": "Application token",
+      "summary": "Optional public token of your own application from yummyani.me/dev/applications, sent as X-Application",
+      "default": "",
+      "secret": true
+    }
+  ],
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 5,
+      "perSeconds": 1
+    }
+  }
+}
