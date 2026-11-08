@@ -4,6 +4,7 @@
   "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/remanga/logo.png?raw=true",
   "type": 0,
   "nsfw": false,
+  "pricing": "partial",
   "language": "Русский",
   "version": 1,
   "apiVersion": 2,

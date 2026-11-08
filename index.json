@@ -1107,7 +1107,7 @@
     {
       "category": "manga",
       "path": "manga/honey_manga",
-      "revision": "362e20a29dccd6e9",
+      "revision": "18e97c030f68c922",
       "apiVersion": 2,
       "config": {
         "name": "Honey Manga",
@@ -1115,6 +1115,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/honey_manga/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
+        "pricing": "partial",
         "language": "Українська",
         "version": 1,
         "apiVersion": 2,
@@ -2954,7 +2955,7 @@
     {
       "category": "manga",
       "path": "manga/remanga",
-      "revision": "f551ca33f495f11c",
+      "revision": "5431e7ab2fe6b235",
       "apiVersion": 2,
       "config": {
         "name": "ReManga",
@@ -2962,6 +2963,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/remanga/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
+        "pricing": "partial",
         "language": "Русский",
         "version": 1,
         "apiVersion": 2,
