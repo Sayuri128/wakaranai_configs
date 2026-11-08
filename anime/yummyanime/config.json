@@ -368,7 +368,7 @@
       "key": "applicationToken",
       "type": "text",
       "title": "Application token",
-      "summary": "Optional public token of your own application from yummyani.me/dev/applications, sent as X-Application",
+      "summary": "Required. Create an application at yummyani.me/dev/applications and paste its public token here; it is sent as X-Application",
       "default": "",
       "secret": true
     }

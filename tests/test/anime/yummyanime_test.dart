@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:capyscript/api_clients/anime_api_client.dart';
 import 'package:capyscript/api_clients/source_error.dart';
 import 'package:capyscript/modules/waka_models/models/anime/anime_concrete_view/anime_concrete_view.dart';
@@ -18,6 +20,11 @@ import '../helpers/extension_host_helpers.dart';
 const String extensionDirectory = 'anime/yummyanime';
 const Duration appVideoSourcesTimeout = Duration(seconds: 20);
 
+final String? yummyToken = Platform.environment['YUMMYANIME_TOKEN'];
+final String? yummySkip = yummyToken == null || yummyToken!.isEmpty
+    ? 'set YUMMYANIME_TOKEN to an application token from yummyani.me/dev/applications'
+    : null;
+
 class NullLogOutput extends LogOutput {
   @override
   void output(OutputEvent event) {}
@@ -35,7 +42,10 @@ class YummySession {
       code: readScript(extensionDirectory),
       host: hostFor(
         config,
-        preferences: preferences,
+        preferences: <String, Object?>{
+          'applicationToken': yummyToken ?? '',
+          ...preferences,
+        },
         storage: MemoryExtensionStorage(),
       ),
     );
@@ -109,6 +119,14 @@ Future<String> fetchText(AnimeVideoSource source) async {
 }
 
 void main() {
+  test('without a token the source asks for one', () async {
+    final session = YummySession.open(preferences: <String, Object?>{'applicationToken': ''});
+    await expectLater(
+      session.client.getGallery(page: 1),
+      throwsA(isA<SourceError>().having((SourceError error) => error.kind, 'kind', SourceErrorKind.loginRequired)),
+    );
+  });
+
   Logger.level = Level.off;
   Logger.defaultOutput = () => NullLogOutput();
 
@@ -118,7 +136,7 @@ void main() {
     session = YummySession.open();
   });
 
-  group('getGallery', () {
+  group('getGallery', skip: yummySkip, () {
     test('the new episodes feed lists titles with their latest episode', () async {
       final items = await session.gallery();
       expect(items, isNotEmpty);
@@ -176,7 +194,7 @@ void main() {
     });
   });
 
-  group('getConcrete', () {
+  group('getConcrete', skip: yummySkip, () {
     late AnimeConcreteView concrete;
 
     setUpAll(() async {
@@ -225,7 +243,7 @@ void main() {
     });
   });
 
-  group('getVideoSources', () {
+  group('getVideoSources', skip: yummySkip, () {
     test('resolves kodik to hls streams labelled with the dub', () async {
       final video = await findVideo(session, 'kodik');
       expect(video, isNotNull, reason: 'no kodik episode found');
@@ -274,7 +292,7 @@ void main() {
     });
   });
 
-  group('preferences', () {
+  group('preferences', skip: yummySkip, () {
     test('the preferred player comes first within a dub', () async {
       final preferred = YummySession.open(
         preferences: {'preferredPlayer': 'alloha'},

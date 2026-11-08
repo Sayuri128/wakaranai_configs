@@ -160,27 +160,32 @@ function titleStatus(statusEntry) {
     return statusUndefined();
 }
 
-function apiHeaders() {
-    headerMap = {"Accept": "application/json", "Lang": "ru"};
+function applicationToken() {
     appToken = getPreference("applicationToken");
+    appTokenText = "";
     if (appToken != null) {
         appTokenText = parseString(appToken).trim();
-        if (appTokenText != "") {
-            headerMap["X-Application"] = appTokenText;
-        }
     }
-    return headerMap;
+    if (appTokenText == "") {
+        throwSourceError("loginRequired", "YummyAnime needs your own application token: create an application at yummyani.me/dev/applications and paste its token into the extension settings");
+    }
+    return appTokenText;
+}
+
+function apiHeaders() {
+    return {"Accept": "application/json", "Lang": "ru", "X-Application": applicationToken()};
 }
 
 function apiRequest(apiPath, apiLabel, missingIsNotFound) {
     apiResponse = null;
     apiFailed = false;
+    requestHeaders = apiHeaders();
     try {
         apiResponse = httpGet({
             "url": apiBase() + apiPath,
             "params": {},
             "paths": {},
-            "headers": apiHeaders(),
+            "headers": requestHeaders,
             "throughWeb": false
         });
     } catch (e) {
@@ -200,7 +205,7 @@ function apiRequest(apiPath, apiLabel, missingIsNotFound) {
         throwSourceError("notFound", apiLabel + " is no longer on YummyAnime");
     }
     if (apiStatus == 401 || apiStatus == 403) {
-        throwSourceError("sourceDown", "YummyAnime refused the request (" + apiLabel + "); an application token may be required, see the extension settings");
+        throwSourceError("sourceDown", "YummyAnime rejected the application token (" + apiLabel + "); check it in the extension settings");
     }
     if (apiStatus != 200) {
         throwSourceError("sourceDown", "YummyAnime answered HTTP " + parseString(apiStatus) + " (" + apiLabel + ")");
