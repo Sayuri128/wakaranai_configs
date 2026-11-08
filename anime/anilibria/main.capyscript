@@ -1,0 +1,776 @@
+import "http";
+import "json";
+import "converter";
+import "anime_models";
+import "errors";
+
+function anilibriaApiBase() {
+    return "https://anilibria.top/api/v1";
+}
+
+function anilibriaSiteOrigin() {
+    return "https://aniliberty.top";
+}
+
+function anilibriaDefaultPageSize() {
+    return 25;
+}
+
+function anilibriaMaxPageSize() {
+    return 50;
+}
+
+function anilibriaHeaders() {
+    return {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+    };
+}
+
+function anilibriaFetch(fetchPath, fetchQuery) {
+    fetchUrl = anilibriaApiBase() + fetchPath;
+    fetchPaths = {};
+    if (fetchQuery != "") {
+        fetchUrl = fetchUrl + "?" + fetchQuery + "&_=1";
+        fetchPaths = {"&_=1?": ""};
+    }
+    fetchResponse = null;
+    fetchFailure = null;
+    try {
+        fetchResponse = httpGet({
+            "url": fetchUrl,
+            "params": {},
+            "paths": fetchPaths,
+            "headers": anilibriaHeaders(),
+            "throughWeb": false
+        });
+    } catch (e) {
+        fetchFailure = parseString(e);
+    }
+    if (fetchResponse == null) {
+        if (fetchFailure == null) {
+            fetchFailure = "no response";
+        }
+        return {"statusCode": 0, "body": null, "failure": fetchFailure};
+    }
+    return {"statusCode": fetchResponse["statusCode"], "body": fetchResponse["body"], "failure": null};
+}
+
+function anilibriaCheckStatus(checkedResponse, checkedLabel) {
+    checkedStatus = checkedResponse["statusCode"];
+    if (checkedStatus == 200) {
+        return true;
+    }
+    if (checkedStatus == 404) {
+        throwSourceError("notFound", checkedLabel + " is no longer on AniLibria");
+    }
+    if (checkedStatus == 429) {
+        throwSourceError("rateLimited", "AniLibria is rate limiting requests (" + checkedLabel + ")");
+    }
+    if (checkedStatus == 451) {
+        throwSourceError("regionBlocked", "AniLibria is not available in this region (" + checkedLabel + ")");
+    }
+    if (checkedStatus == null || checkedStatus == 0) {
+        checkedFailure = checkedResponse["failure"];
+        if (checkedFailure == null) {
+            checkedFailure = "no response";
+        }
+        throwSourceError("sourceDown", "AniLibria did not answer (" + checkedLabel + "): " + checkedFailure);
+    }
+    if (checkedStatus == 403 || checkedStatus >= 500) {
+        throwSourceError("sourceDown", "AniLibria answered HTTP " + parseString(checkedStatus) + " (" + checkedLabel + ")");
+    }
+    throw "HTTP " + parseString(checkedStatus) + " (AniLibria " + checkedLabel + ")";
+}
+
+function anilibriaDecode(decodedResponse, decodedLabel) {
+    decodedBody = decodedResponse["body"];
+    if (decodedBody == null || decodedBody.trim() == "") {
+        throwSourceError("sourceDown", "AniLibria returned an empty answer (" + decodedLabel + ")");
+    }
+    return jsonDecode(decodedBody);
+}
+
+function anilibriaRequest(requestPath, requestQuery, requestLabel) {
+    requestResponse = anilibriaFetch(requestPath, requestQuery);
+    anilibriaCheckStatus(requestResponse, requestLabel);
+    return anilibriaDecode(requestResponse, requestLabel);
+}
+
+function anilibriaMediaOrigin() {
+    activeMirror = null;
+    try {
+        activeMirror = currentMirror();
+    } catch (e) {
+        activeMirror = null;
+    }
+    if (activeMirror == null || activeMirror == "") {
+        activeMirror = anilibriaApiBase();
+    }
+    mirrorText = parseString(activeMirror);
+    apiIndex = mirrorText.indexOf("/api/");
+    if (apiIndex > 0) {
+        return mirrorText.substring(0, apiIndex);
+    }
+    return "https://anilibria.top";
+}
+
+function anilibriaAbsoluteUrl(rawLink, linkOrigin) {
+    if (rawLink == null) {
+        return null;
+    }
+    linkText = parseString(rawLink).trim();
+    if (linkText == "") {
+        return null;
+    }
+    if (linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if (linkText.startsWith("/")) {
+        return linkOrigin + linkText;
+    }
+    if (linkText.startsWith("http")) {
+        return linkText;
+    }
+    return linkOrigin + "/" + linkText;
+}
+
+function anilibriaPoster(posterSet, posterOrigin) {
+    if (posterSet == null) {
+        return "";
+    }
+    posterPath = null;
+    optimizedSet = posterSet["optimized"];
+    if (optimizedSet != null) {
+        posterPath = optimizedSet["src"];
+        if (posterPath == null) {
+            posterPath = optimizedSet["preview"];
+        }
+    }
+    if (posterPath == null) {
+        posterPath = posterSet["src"];
+    }
+    if (posterPath == null) {
+        posterPath = posterSet["preview"];
+    }
+    posterUrl = anilibriaAbsoluteUrl(posterPath, posterOrigin);
+    if (posterUrl == null) {
+        return "";
+    }
+    return posterUrl;
+}
+
+function anilibriaStatus(statusRelease) {
+    if (statusRelease["is_ongoing"] == true) {
+        return statusOngoing();
+    }
+    if (statusRelease["is_in_production"] == true) {
+        return statusOngoing();
+    }
+    return statusReleased();
+}
+
+function anilibriaGenreNames(genreList) {
+    genreNames = [];
+    if (genreList == null) {
+        return genreNames;
+    }
+    for (gn = 0; gn < genreList.length; gn = gn + 1) {
+        genreEntry = genreList[gn];
+        if (genreEntry == null) {
+            continue;
+        }
+        genreName = genreEntry["name"];
+        if (genreName == null || genreName == "") {
+            continue;
+        }
+        genreNames.push(genreName);
+    }
+    return genreNames;
+}
+
+function anilibriaMainTitle(titleRelease) {
+    nameSet = titleRelease["name"];
+    if (nameSet != null) {
+        if (nameSet["main"] != null && nameSet["main"] != "") {
+            return nameSet["main"];
+        }
+        if (nameSet["english"] != null && nameSet["english"] != "") {
+            return nameSet["english"];
+        }
+    }
+    return parseString(titleRelease["alias"]);
+}
+
+function anilibriaEnglishTitle(englishRelease) {
+    englishSet = englishRelease["name"];
+    if (englishSet == null) {
+        return null;
+    }
+    englishName = englishSet["english"];
+    if (englishName == null || englishName == "") {
+        return null;
+    }
+    return englishName;
+}
+
+function anilibriaRating(ratedRelease) {
+    shikimoriInfo = ratedRelease["shikimori"];
+    if (shikimoriInfo != null) {
+        if (shikimoriInfo["rating"] != null && shikimoriInfo["rating"] > 0) {
+            return shikimoriInfo["rating"];
+        }
+    }
+    malInfo = ratedRelease["mal"];
+    if (malInfo != null) {
+        if (malInfo["rating"] != null && malInfo["rating"] > 0) {
+            return malInfo["rating"];
+        }
+    }
+    return null;
+}
+
+function anilibriaGalleryItem(itemRelease, itemOrigin) {
+    itemUid = parseString(itemRelease["id"]);
+    itemTitle = anilibriaMainTitle(itemRelease);
+    itemCover = anilibriaPoster(itemRelease["poster"], itemOrigin);
+    return buildGallery({
+        "uid": itemUid,
+        "title": itemTitle,
+        "cover": itemCover,
+        "data": {"alias": itemRelease["alias"], "title": itemTitle, "cover": itemCover},
+        "status": anilibriaStatus(itemRelease),
+        "subtitle": anilibriaEnglishTitle(itemRelease),
+        "tags": anilibriaGenreNames(itemRelease["genres"]),
+        "year": itemRelease["year"],
+        "rating": anilibriaRating(itemRelease)
+    });
+}
+
+function anilibriaFeedSorting(sortFeed) {
+    if (sortFeed == "popular") {
+        return "RATING_DESC";
+    }
+    if (sortFeed == "newest") {
+        return "YEAR_DESC";
+    }
+    return "FRESH_AT_DESC";
+}
+
+function anilibriaSelectedValues(selectedEntry) {
+    pickedValues = [];
+    pickedGroups = selectedEntry["selected"];
+    if (pickedGroups == null) {
+        return pickedValues;
+    }
+    for (pg = 0; pg < pickedGroups.length; pg = pg + 1) {
+        pickedGroup = pickedGroups[pg];
+        if (pickedGroup == null) {
+            continue;
+        }
+        for (pv = 0; pv < pickedGroup.length; pv = pv + 1) {
+            pickedValue = parseString(pickedGroup[pv]).trim();
+            if (pickedValue != "" && pickedValues.contains(pickedValue) == false) {
+                pickedValues.push(pickedValue);
+            }
+        }
+    }
+    return pickedValues;
+}
+
+function anilibriaFilterParam(filterKey) {
+    return "f%5B" + filterKey + "%5D";
+}
+
+function anilibriaRangeValue(rangeText) {
+    if (rangeText == null) {
+        return "";
+    }
+    return parseString(rangeText).trim();
+}
+
+function anilibriaFilterParts(partFilters) {
+    filterParts = [];
+    if (partFilters == null) {
+        return filterParts;
+    }
+    for (fp = 0; fp < partFilters.length; fp = fp + 1) {
+        filterEntry = partFilters[fp];
+        if (filterEntry == null) {
+            continue;
+        }
+        filterDefinition = filterEntry["filter"];
+        if (filterDefinition == null) {
+            continue;
+        }
+        filterKind = filterDefinition["type"];
+        filterKey = filterDefinition["param"];
+        if (filterKind == "MULTIPLE_OF_MULTIPLE") {
+            chosenValues = anilibriaSelectedValues(filterEntry);
+            if (chosenValues.isEmpty == false) {
+                encodedValues = [];
+                for (ev = 0; ev < chosenValues.length; ev = ev + 1) {
+                    encodedValues.push(urlEncode(chosenValues[ev]));
+                }
+                filterParts.push(anilibriaFilterParam(filterKey) + "=" + encodedValues.join(","));
+            }
+        } else if (filterKind == "RANGE") {
+            rangeFrom = anilibriaRangeValue(filterEntry["from"]);
+            rangeTo = anilibriaRangeValue(filterEntry["to"]);
+            if (rangeFrom != "") {
+                filterParts.push(anilibriaFilterParam(filterKey) + "%5B" + filterDefinition["paramMin"] + "%5D=" + urlEncode(rangeFrom));
+            }
+            if (rangeTo != "") {
+                filterParts.push(anilibriaFilterParam(filterKey) + "%5B" + filterDefinition["paramMax"] + "%5D=" + urlEncode(rangeTo));
+            }
+        }
+    }
+    return filterParts;
+}
+
+function anilibriaHasFilter(searchedParts, searchedKey) {
+    searchedPrefix = anilibriaFilterParam(searchedKey) + "=";
+    for (sp = 0; sp < searchedParts.length; sp = sp + 1) {
+        if (searchedParts[sp].startsWith(searchedPrefix)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function anilibriaPageSize(requestedSize) {
+    if (requestedSize == null || requestedSize < 1) {
+        return anilibriaDefaultPageSize();
+    }
+    if (requestedSize > anilibriaMaxPageSize()) {
+        return anilibriaMaxPageSize();
+    }
+    return requestedSize;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    galleryPage = page;
+    if (galleryPage == null || galleryPage < 1) {
+        galleryPage = 1;
+    }
+    galleryLimit = anilibriaPageSize(pageSize);
+    galleryParts = ["page=" + parseString(galleryPage), "limit=" + parseString(galleryLimit)];
+    galleryFilterParts = anilibriaFilterParts(filters);
+    for (gp = 0; gp < galleryFilterParts.length; gp = gp + 1) {
+        galleryParts.push(galleryFilterParts[gp]);
+    }
+    searchText = "";
+    if (query != null) {
+        searchText = parseString(query).trim();
+    }
+    if (searchText != "") {
+        galleryParts.push(anilibriaFilterParam("search") + "=" + urlEncode(searchText));
+    } else {
+        galleryFeed = feed;
+        if (galleryFeed == null) {
+            galleryFeed = "";
+        }
+        galleryParts.push(anilibriaFilterParam("sorting") + "=" + anilibriaFeedSorting(galleryFeed));
+        if (galleryFeed == "ongoing" && anilibriaHasFilter(galleryFilterParts, "publish_statuses") == false) {
+            galleryParts.push(anilibriaFilterParam("publish_statuses") + "=IS_ONGOING");
+        }
+    }
+    catalogPage = anilibriaRequest("/anime/catalog/releases", galleryParts.join("&"), "catalogue page " + parseString(galleryPage));
+    catalogReleases = catalogPage["data"];
+    galleryItems = [];
+    if (catalogReleases == null) {
+        return galleryItems;
+    }
+    galleryOrigin = anilibriaMediaOrigin();
+    for (gi = 0; gi < catalogReleases.length; gi = gi + 1) {
+        catalogRelease = catalogReleases[gi];
+        if (catalogRelease == null) {
+            continue;
+        }
+        galleryItems.push(anilibriaGalleryItem(catalogRelease, galleryOrigin));
+    }
+    return galleryItems;
+}
+
+function anilibriaReleasePath(releaseKey) {
+    return "/anime/releases/" + urlEncode(parseString(releaseKey));
+}
+
+function anilibriaNumberText(numberValue) {
+    if (numberValue == null) {
+        return "";
+    }
+    return parseString(numberValue);
+}
+
+function anilibriaEpisodeTitle(titledEpisode) {
+    episodeOrdinal = anilibriaNumberText(titledEpisode["ordinal"]);
+    episodeName = titledEpisode["name"];
+    episodeHeading = "Серия " + episodeOrdinal;
+    if (episodeOrdinal == "") {
+        episodeHeading = "Серия";
+    }
+    if (episodeName == null) {
+        return episodeHeading;
+    }
+    episodeNameText = parseString(episodeName).trim();
+    if (episodeNameText == "") {
+        return episodeHeading;
+    }
+    return episodeHeading + ": " + episodeNameText;
+}
+
+function anilibriaEpisodeLinks(linkedEpisode, linkedOrigin) {
+    episodeLinks = [];
+    qualityKeys = ["1080", "720", "480"];
+    for (qk = 0; qk < qualityKeys.length; qk = qk + 1) {
+        qualityKey = qualityKeys[qk];
+        qualityLink = anilibriaAbsoluteUrl(linkedEpisode["hls_" + qualityKey], linkedOrigin);
+        if (qualityLink != null) {
+            episodeLinks.push({"quality": qualityKey + "p", "url": qualityLink});
+        }
+    }
+    return episodeLinks;
+}
+
+function anilibriaSkipSegment(segmentRange, segmentKind) {
+    if (segmentRange == null) {
+        return null;
+    }
+    segmentStart = segmentRange["start"];
+    segmentStop = segmentRange["stop"];
+    if (segmentStart == null || segmentStop == null) {
+        return null;
+    }
+    if (segmentStart < 0 || segmentStop <= segmentStart) {
+        return null;
+    }
+    return {"type": segmentKind, "start": segmentStart, "end": segmentStop};
+}
+
+function anilibriaSkipMarkers(markedEpisode) {
+    skipMarkers = [];
+    openingMarker = anilibriaSkipSegment(markedEpisode["opening"], "intro");
+    if (openingMarker != null) {
+        skipMarkers.push(openingMarker);
+    }
+    endingMarker = anilibriaSkipSegment(markedEpisode["ending"], "outro");
+    if (endingMarker != null) {
+        skipMarkers.push(endingMarker);
+    }
+    return skipMarkers;
+}
+
+function anilibriaEpisodeData(storedEpisode, storedLinks, storedReleaseId) {
+    return {
+        "episodeId": storedEpisode["id"],
+        "releaseId": storedReleaseId,
+        "links": storedLinks,
+        "skip": anilibriaSkipMarkers(storedEpisode)
+    };
+}
+
+function anilibriaVoiceNames(memberList) {
+    voiceNames = [];
+    if (memberList == null) {
+        return voiceNames;
+    }
+    for (mv = 0; mv < memberList.length; mv = mv + 1) {
+        memberEntry = memberList[mv];
+        if (memberEntry == null) {
+            continue;
+        }
+        memberRole = memberEntry["role"];
+        if (memberRole == null) {
+            continue;
+        }
+        if (memberRole["value"] != "voicing") {
+            continue;
+        }
+        memberNick = memberEntry["nickname"];
+        if (memberNick != null && memberNick != "" && voiceNames.contains(memberNick) == false) {
+            voiceNames.push(memberNick);
+        }
+    }
+    return voiceNames;
+}
+
+function anilibriaCarriageReturn() {
+    return jsonDecode(`"\r"`);
+}
+
+function anilibriaParagraphBreak() {
+    return jsonDecode(`"\n\n"`);
+}
+
+function anilibriaDescription(describedRelease) {
+    descriptionText = describedRelease["description"];
+    if (descriptionText == null) {
+        descriptionText = "";
+    }
+    paragraphBreak = anilibriaParagraphBreak();
+    descriptionText = parseString(descriptionText).split(anilibriaCarriageReturn()).join("").trim();
+    noticeText = describedRelease["notification"];
+    if (noticeText != null && parseString(noticeText).trim() != "") {
+        descriptionText = parseString(noticeText).trim() + paragraphBreak + descriptionText;
+    }
+    voices = anilibriaVoiceNames(describedRelease["members"]);
+    if (voices.isEmpty == false) {
+        descriptionText = descriptionText + paragraphBreak + "Озвучка: " + voices.join(", ");
+    }
+    return descriptionText.trim();
+}
+
+function anilibriaAlternativeTitles(alternativeRelease) {
+    alternativeNames = [];
+    alternativeSet = alternativeRelease["name"];
+    if (alternativeSet == null) {
+        return alternativeNames;
+    }
+    alternativeKeys = ["english", "alternative"];
+    for (ak = 0; ak < alternativeKeys.length; ak = ak + 1) {
+        alternativeName = alternativeSet[alternativeKeys[ak]];
+        if (alternativeName != null && alternativeName != "" && alternativeNames.contains(alternativeName) == false) {
+            alternativeNames.push(alternativeName);
+        }
+    }
+    return alternativeNames;
+}
+
+function anilibriaConcreteTags(taggedRelease) {
+    concreteTagList = anilibriaGenreNames(taggedRelease["genres"]);
+    typeInfo = taggedRelease["type"];
+    if (typeInfo != null) {
+        if (typeInfo["description"] != null && typeInfo["description"] != "") {
+            concreteTagList.push(typeInfo["description"]);
+        }
+    }
+    seasonInfo = taggedRelease["season"];
+    if (seasonInfo != null) {
+        if (seasonInfo["description"] != null && seasonInfo["description"] != "" && taggedRelease["year"] != null) {
+            concreteTagList.push(seasonInfo["description"] + " " + parseString(taggedRelease["year"]));
+        }
+    }
+    ageInfo = taggedRelease["age_rating"];
+    if (ageInfo != null) {
+        if (ageInfo["label"] != null && ageInfo["label"] != "") {
+            concreteTagList.push(ageInfo["label"]);
+        }
+    }
+    return concreteTagList;
+}
+
+function anilibriaPlayableVideos(playableRelease, playableOrigin) {
+    playableVideos = [];
+    releaseEpisodes = playableRelease["episodes"];
+    if (releaseEpisodes == null) {
+        releaseEpisodes = [];
+    }
+    releaseIdText = parseString(playableRelease["id"]);
+    for (re = 0; re < releaseEpisodes.length; re = re + 1) {
+        releaseEpisode = releaseEpisodes[re];
+        if (releaseEpisode == null) {
+            continue;
+        }
+        if (releaseEpisode["id"] == null) {
+            continue;
+        }
+        releaseLinks = anilibriaEpisodeLinks(releaseEpisode, playableOrigin);
+        if (releaseLinks.isEmpty) {
+            continue;
+        }
+        playableVideos.push(buildAnimeVideo({
+            "uid": parseString(releaseEpisode["id"]),
+            "src": releaseLinks[0]["url"],
+            "title": anilibriaEpisodeTitle(releaseEpisode),
+            "timestamp": null,
+            "type": typeDirect(),
+            "data": anilibriaEpisodeData(releaseEpisode, releaseLinks, releaseIdText),
+            "number": releaseEpisode["ordinal"]
+        }));
+    }
+    return playableVideos;
+}
+
+function anilibriaExternalVideos(externalRelease) {
+    externalVideos = [];
+    externalLink = anilibriaAbsoluteUrl(externalRelease["external_player"], "https://aniliberty.top");
+    if (externalLink == null) {
+        return externalVideos;
+    }
+    externalVideos.push(buildAnimeVideo({
+        "uid": "external/" + parseString(externalRelease["id"]),
+        "src": externalLink,
+        "title": "Внешний плеер",
+        "timestamp": null,
+        "type": typeIframe(),
+        "data": {"releaseId": parseString(externalRelease["id"]), "external": true}
+    }));
+    return externalVideos;
+}
+
+function getConcrete(uid, data) {
+    concreteUid = parseString(uid);
+    concreteRelease = anilibriaRequest(anilibriaReleasePath(concreteUid), "", "release " + concreteUid);
+    concreteOrigin = anilibriaMediaOrigin();
+    concreteGroups = [];
+    concreteVideos = anilibriaPlayableVideos(concreteRelease, concreteOrigin);
+    if (concreteVideos.isEmpty) {
+        fallbackVideos = anilibriaExternalVideos(concreteRelease);
+        if (fallbackVideos.isEmpty == false) {
+            concreteGroups.push(buildAnimeVideoGroup({"title": "Внешний плеер", "videos": fallbackVideos}));
+        }
+    } else {
+        concreteGroups.push(buildAnimeVideoGroup({"title": "AniLibria", "videos": concreteVideos}));
+    }
+    concreteAlias = concreteRelease["alias"];
+    concreteLink = null;
+    if (concreteAlias != null && concreteAlias != "") {
+        concreteLink = anilibriaSiteOrigin() + "/anime/releases/release/" + concreteAlias;
+    }
+    return buildConcrete({
+        "uid": concreteUid,
+        "cover": anilibriaPoster(concreteRelease["poster"], concreteOrigin),
+        "title": anilibriaMainTitle(concreteRelease),
+        "alternativeTitles": anilibriaAlternativeTitles(concreteRelease),
+        "status": anilibriaStatus(concreteRelease),
+        "groups": concreteGroups,
+        "tags": anilibriaConcreteTags(concreteRelease),
+        "description": anilibriaDescription(concreteRelease),
+        "year": concreteRelease["year"],
+        "rating": anilibriaRating(concreteRelease),
+        "url": concreteLink
+    });
+}
+
+function anilibriaStoredLinks(storedData) {
+    if (storedData == null) {
+        return [];
+    }
+    storedLinkList = storedData["links"];
+    if (storedLinkList == null) {
+        return [];
+    }
+    return storedLinkList;
+}
+
+function anilibriaStoredSkip(skipData) {
+    if (skipData == null) {
+        return [];
+    }
+    storedSkipList = skipData["skip"];
+    if (storedSkipList == null) {
+        return [];
+    }
+    return storedSkipList;
+}
+
+function anilibriaBuildSources(sourceLinks, sourceSkip) {
+    builtSources = [];
+    for (sl = 0; sl < sourceLinks.length; sl = sl + 1) {
+        sourceLink = sourceLinks[sl];
+        builtSources.push(buildAnimeVideoSource({
+            "url": sourceLink["url"],
+            "quality": sourceLink["quality"],
+            "format": "hls",
+            "headers": {},
+            "subtitles": [],
+            "skip": sourceSkip,
+            "audioLabel": "AniLibria",
+            "preferForDownload": true
+        }));
+    }
+    return builtSources;
+}
+
+function anilibriaBlockedReason(blockedRelease) {
+    if (blockedRelease == null) {
+        return null;
+    }
+    if (blockedRelease["is_blocked_by_geo"] == true) {
+        return "regionBlocked";
+    }
+    if (blockedRelease["is_blocked_by_copyrights"] == true) {
+        return "notFound";
+    }
+    return null;
+}
+
+function getVideoSources(uid, src, data) {
+    sourceUid = parseString(uid);
+    if (sourceUid.startsWith("external/")) {
+        return [];
+    }
+    sourceData = data;
+    if (sourceData == null) {
+        sourceData = {};
+    }
+    episodePath = "/anime/releases/episodes/" + urlEncode(sourceUid);
+    episodeResponse = anilibriaFetch(episodePath, "");
+    episodeStatus = episodeResponse["statusCode"];
+    freshEpisode = null;
+    if (episodeStatus == 200) {
+        freshEpisode = anilibriaDecode(episodeResponse, "episode " + sourceUid);
+    } else if (episodeStatus == 404) {
+        anilibriaCheckStatus(episodeResponse, "episode " + sourceUid);
+    } else if (anilibriaStoredLinks(sourceData).isEmpty) {
+        anilibriaCheckStatus(episodeResponse, "episode " + sourceUid);
+    }
+    if (freshEpisode == null) {
+        return anilibriaBuildSources(anilibriaStoredLinks(sourceData), anilibriaStoredSkip(sourceData));
+    }
+    freshLinks = anilibriaEpisodeLinks(freshEpisode, anilibriaMediaOrigin());
+    if (freshLinks.isEmpty) {
+        blockedKind = anilibriaBlockedReason(freshEpisode["release"]);
+        if (blockedKind == "regionBlocked") {
+            throwSourceError("regionBlocked", "AniLibria blocks this release in your region");
+        }
+        if (blockedKind == "notFound") {
+            throwSourceError("notFound", "AniLibria removed this release at the request of the copyright holder");
+        }
+        throwSourceError("notFound", "AniLibria has no video for this episode yet");
+    }
+    return anilibriaBuildSources(freshLinks, anilibriaSkipMarkers(freshEpisode));
+}
+
+function getRelated(uid, data) {
+    relatedUid = parseString(uid);
+    relatedItems = [];
+    relatedResponse = anilibriaFetch("/anime/franchises/release/" + urlEncode(relatedUid), "");
+    if (relatedResponse["statusCode"] != 200) {
+        return relatedItems;
+    }
+    franchiseList = jsonDecode(relatedResponse["body"]);
+    if (franchiseList == null) {
+        return relatedItems;
+    }
+    relatedOrigin = anilibriaMediaOrigin();
+    seenReleases = [relatedUid];
+    for (fr = 0; fr < franchiseList.length; fr = fr + 1) {
+        franchiseEntry = franchiseList[fr];
+        if (franchiseEntry == null) {
+            continue;
+        }
+        franchiseReleases = franchiseEntry["franchise_releases"];
+        if (franchiseReleases == null) {
+            continue;
+        }
+        for (fe = 0; fe < franchiseReleases.length; fe = fe + 1) {
+            franchiseLink = franchiseReleases[fe];
+            if (franchiseLink == null) {
+                continue;
+            }
+            linkedRelease = franchiseLink["release"];
+            if (linkedRelease == null) {
+                continue;
+            }
+            linkedUid = parseString(linkedRelease["id"]);
+            if (seenReleases.contains(linkedUid)) {
+                continue;
+            }
+            seenReleases.push(linkedUid);
+            relatedItems.push(anilibriaGalleryItem(linkedRelease, relatedOrigin));
+        }
+    }
+    return relatedItems;
+}
