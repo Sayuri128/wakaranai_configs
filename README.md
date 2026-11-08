@@ -32,6 +32,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | Jellyfin | Video | Multi | Your own Jellyfin server: movies and shows with seasons, original-file or converted streams, subtitles and audio tracks; set the address and a username and password or an API key in the extension settings |
 | MangaPill | Manga | English | Latest chapters, trending and browse feeds; type, status and genre filters |
 | MangaNato | Manga | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |
+| Dynasty Scans | Manga (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
 
 ## Structure
 

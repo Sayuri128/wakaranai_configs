@@ -1,0 +1,397 @@
+{
+  "name": "Dynasty Scans",
+  "uid": "246ad76b-64b3-4c0f-b1d2-9189149dd30e",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/dynasty_scans/logo.png?raw=true",
+  "type": 0,
+  "nsfw": true,
+  "language": "English",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "0.4.0",
+  "contentKinds": [
+    "manga",
+    "manhwa",
+    "manhua",
+    "doujinshi"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "latest",
+      "title": "Latest"
+    },
+    {
+      "id": "series",
+      "title": "Series"
+    },
+    {
+      "id": "anthologies",
+      "title": "Anthologies"
+    },
+    {
+      "id": "doujins",
+      "title": "Doujins"
+    },
+    {
+      "id": "issues",
+      "title": "Issues"
+    }
+  ],
+  "preferences": [
+    {
+      "key": "hideNsfw",
+      "type": "toggle",
+      "title": "Hide NSFW works",
+      "summary": "Leaves out works tagged NSFW in Latest, search and filtered results. The directory tabs list everything",
+      "default": false
+    },
+    {
+      "key": "volumeGroups",
+      "type": "toggle",
+      "title": "Group chapters by volume",
+      "summary": "Shows one chapter group per volume instead of a single list",
+      "default": false
+    },
+    {
+      "key": "doujinPages",
+      "type": "select",
+      "title": "Doujins per source",
+      "summary": "How many of the newest doujins a doujin source lists. Each 25 is one more request",
+      "default": "4",
+      "options": [
+        {
+          "value": "1",
+          "label": "25 newest"
+        },
+        {
+          "value": "2",
+          "label": "50 newest"
+        },
+        {
+          "value": "4",
+          "label": "100 newest"
+        },
+        {
+          "value": "10",
+          "label": "250 newest"
+        }
+      ]
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Sort",
+      "param": "sort",
+      "values": [
+        "relevance",
+        "created_at",
+        "released_on",
+        "name"
+      ],
+      "labels": [
+        "Best match",
+        "Date added",
+        "Release date",
+        "Alphabetical"
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Type",
+      "param": "classes",
+      "values": [
+        [
+          "Series",
+          "Anthology",
+          "Doujin",
+          "Issue",
+          "Chapter"
+        ]
+      ],
+      "labels": [
+        [
+          "Series",
+          "Anthology",
+          "Doujin",
+          "Issue",
+          "Single chapter"
+        ]
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Status",
+      "param": "status",
+      "values": [
+        "3667",
+        "3668",
+        "5520",
+        "3669",
+        "3670",
+        "5727"
+      ],
+      "labels": [
+        "Ongoing",
+        "Completed",
+        "Licensed",
+        "Dropped",
+        "Cancelled",
+        "Abandoned"
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "With tags",
+      "param": "with",
+      "values": [
+        [
+          "5192",
+          "5175",
+          "5128",
+          "5162",
+          "5185",
+          "5247",
+          "5414",
+          "5124",
+          "5150",
+          "5114",
+          "18649",
+          "5146",
+          "5473",
+          "5268",
+          "5158",
+          "6800",
+          "18825",
+          "5172",
+          "5166",
+          "5249",
+          "5165",
+          "10830",
+          "19086",
+          "19092",
+          "7173",
+          "21840",
+          "5293",
+          "5182",
+          "8260",
+          "21414",
+          "5446",
+          "6294",
+          "9013",
+          "5167",
+          "5179",
+          "5415",
+          "9838",
+          "5767",
+          "20184",
+          "5197",
+          "5120",
+          "5368",
+          "5147",
+          "5171",
+          "5116",
+          "5227",
+          "5221",
+          "5148",
+          "5217",
+          "13120",
+          "5173",
+          "5138",
+          "5367",
+          "18857",
+          "5254"
+        ]
+      ],
+      "labels": [
+        [
+          "4-koma",
+          "Aaaaaangst",
+          "Action",
+          "Adventure",
+          "Age gap",
+          "Childhood friends",
+          "College",
+          "Comedy",
+          "Drama",
+          "Ecchi",
+          "Elf",
+          "Fantasy",
+          "Food",
+          "Full color",
+          "Gender bender",
+          "Ghost",
+          "Gyaru",
+          "Historical",
+          "Horror",
+          "Idol",
+          "Incest",
+          "Insane amounts of sex",
+          "Isekai",
+          "Kuudere",
+          "Light/Web novel",
+          "Long strip",
+          "Lots of sex",
+          "Love triangle",
+          "Marriage",
+          "Mature",
+          "Moderate amounts of sex",
+          "Monster girl",
+          "Music",
+          "Mystery",
+          "NSFW",
+          "Office lady",
+          "Official",
+          "Pseudo-incest",
+          "Psychological",
+          "Rape",
+          "Romance",
+          "School girl",
+          "School life",
+          "Sci-fi",
+          "Slice of life",
+          "Sports",
+          "Student x Teacher",
+          "Supernatural",
+          "Text",
+          "Time travel",
+          "Tragedy",
+          "Tsundere",
+          "Vampire",
+          "Wholesome",
+          "Yandere"
+        ]
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Without tags",
+      "param": "without",
+      "values": [
+        [
+          "5192",
+          "5175",
+          "5128",
+          "5162",
+          "5185",
+          "5247",
+          "5414",
+          "5124",
+          "5150",
+          "5114",
+          "18649",
+          "5146",
+          "5473",
+          "5268",
+          "5158",
+          "6800",
+          "18825",
+          "5172",
+          "5166",
+          "5249",
+          "5165",
+          "10830",
+          "19086",
+          "19092",
+          "7173",
+          "21840",
+          "5293",
+          "5182",
+          "8260",
+          "21414",
+          "5446",
+          "6294",
+          "9013",
+          "5167",
+          "5179",
+          "5415",
+          "9838",
+          "5767",
+          "20184",
+          "5197",
+          "5120",
+          "5368",
+          "5147",
+          "5171",
+          "5116",
+          "5227",
+          "5221",
+          "5148",
+          "5217",
+          "13120",
+          "5173",
+          "5138",
+          "5367",
+          "18857",
+          "5254"
+        ]
+      ],
+      "labels": [
+        [
+          "4-koma",
+          "Aaaaaangst",
+          "Action",
+          "Adventure",
+          "Age gap",
+          "Childhood friends",
+          "College",
+          "Comedy",
+          "Drama",
+          "Ecchi",
+          "Elf",
+          "Fantasy",
+          "Food",
+          "Full color",
+          "Gender bender",
+          "Ghost",
+          "Gyaru",
+          "Historical",
+          "Horror",
+          "Idol",
+          "Incest",
+          "Insane amounts of sex",
+          "Isekai",
+          "Kuudere",
+          "Light/Web novel",
+          "Long strip",
+          "Lots of sex",
+          "Love triangle",
+          "Marriage",
+          "Mature",
+          "Moderate amounts of sex",
+          "Monster girl",
+          "Music",
+          "Mystery",
+          "NSFW",
+          "Office lady",
+          "Official",
+          "Pseudo-incest",
+          "Psychological",
+          "Rape",
+          "Romance",
+          "School girl",
+          "School life",
+          "Sci-fi",
+          "Slice of life",
+          "Sports",
+          "Student x Teacher",
+          "Supernatural",
+          "Text",
+          "Time travel",
+          "Tragedy",
+          "Tsundere",
+          "Vampire",
+          "Wholesome",
+          "Yandere"
+        ]
+      ]
+    }
+  ]
+}

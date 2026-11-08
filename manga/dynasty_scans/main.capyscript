@@ -1,0 +1,780 @@
+import "http";
+import "json";
+import "converter";
+import "html";
+import "manga_models";
+import "errors";
+import "preferences";
+import "storage";
+
+function dynastyBase() {
+    return "https://dynasty-scans.com";
+}
+
+function dynastyHeaders() {
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Referer": "https://dynasty-scans.com/"
+    };
+}
+
+function dynastyDirectoryKinds() {
+    return ["series", "anthologies", "doujins", "issues"];
+}
+
+function dynastyTitleKinds() {
+    return ["series", "anthologies", "doujins", "issues", "chapters"];
+}
+
+function dynastyKindLabel(kindName) {
+    kindValues = ["series", "anthologies", "doujins", "issues", "chapters"];
+    kindLabels = ["Series", "Anthology", "Doujin", "Issue", "Chapter"];
+    kindIndex = kindValues.indexOf(kindName);
+    if (kindIndex < 0) {
+        return kindName;
+    }
+    return kindLabels[kindIndex];
+}
+
+function dynastyFetch(requestUrl, requestLabel, endOfListOnServerError) {
+    fullUrl = requestUrl;
+    requestPaths = {};
+    if (requestUrl.contains("?")) {
+        fullUrl = requestUrl + "&_=1";
+        requestPaths = {"&_=1?": ""};
+    }
+    siteResponse = httpGet({
+        "url": fullUrl,
+        "params": {},
+        "paths": requestPaths,
+        "headers": dynastyHeaders(),
+        "throughWeb": false
+    });
+    siteStatus = siteResponse["statusCode"];
+    if (siteStatus == 200) {
+        return siteResponse["body"];
+    }
+    if (endOfListOnServerError == true && siteStatus == 500) {
+        return null;
+    }
+    if (siteStatus == 404) {
+        throwSourceError("notFound", requestLabel + " is not on Dynasty Scans");
+    }
+    if (siteStatus == 429) {
+        throwSourceError("rateLimited", "Dynasty Scans is rate limiting requests (" + requestLabel + ")");
+    }
+    if (siteStatus == 0 || siteStatus == 403 || siteStatus >= 500) {
+        throwSourceError("sourceDown", "Dynasty Scans answered HTTP " + parseString(siteStatus) + " (" + requestLabel + ")");
+    }
+    throw "HTTP " + parseString(siteStatus) + " (Dynasty Scans " + requestLabel + ")";
+}
+
+function dynastyJson(sitePath, requestLabel) {
+    responseBody = dynastyFetch(dynastyBase() + sitePath, requestLabel, false);
+    return jsonDecode(responseBody);
+}
+
+function dynastyAbsolute(sitePath) {
+    if (sitePath == null || sitePath == "") {
+        return "";
+    }
+    pathText = parseString(sitePath);
+    if (pathText.startsWith("http")) {
+        return pathText;
+    }
+    if (pathText.startsWith("/")) {
+        return dynastyBase() + pathText;
+    }
+    return dynastyBase() + "/" + pathText;
+}
+
+function dynastyUidFromPath(sitePath) {
+    if (sitePath == null) {
+        return "";
+    }
+    pathText = parseString(sitePath).trim();
+    if (pathText.startsWith(dynastyBase())) {
+        pathText = pathText.substring(dynastyBase().length);
+    }
+    queryIndex = pathText.indexOf("?");
+    if (queryIndex >= 0) {
+        pathText = pathText.substring(0, queryIndex);
+    }
+    if (pathText.endsWith(".json")) {
+        pathText = pathText.substring(0, pathText.length - 5);
+    }
+    if (pathText.startsWith("/")) {
+        pathText = pathText.substring(1);
+    }
+    return pathText;
+}
+
+function dynastyQueryValue(rawValue) {
+    return parseString(rawValue).trim().replaceAll("%", "%25").replaceAll("&", "%26").replaceAll("#", "%23").replaceAll("+", "%2B").replaceAll("?", "%3F").replaceAll("=", "%3D").replaceAll(" ", "%20");
+}
+
+function dynastyHideNsfw() {
+    hideSetting = getPreference("hideNsfw");
+    if (hideSetting == true) {
+        return true;
+    }
+    return false;
+}
+
+function dynastyVolumeGroups() {
+    groupSetting = getPreference("volumeGroups");
+    if (groupSetting == true) {
+        return true;
+    }
+    return false;
+}
+
+function dynastyDoujinPageLimit() {
+    pageSetting = getPreference("doujinPages");
+    pageLimit = 4;
+    if (pageSetting != null && pageSetting != "") {
+        try {
+            pageLimit = parseInt(parseString(pageSetting));
+        } catch (e) {
+            pageLimit = 4;
+        }
+    }
+    if (pageLimit < 1) {
+        pageLimit = 1;
+    }
+    if (pageLimit > 10) {
+        pageLimit = 10;
+    }
+    return pageLimit;
+}
+
+function dynastyCoverKey(titleUid) {
+    return "cover/" + titleUid;
+}
+
+function dynastyCachedCover(titleUid) {
+    cachedCover = storageGet(dynastyCoverKey(titleUid));
+    if (cachedCover == null) {
+        return "";
+    }
+    return parseString(cachedCover);
+}
+
+function dynastyRememberCover(titleUid, coverUrl) {
+    if (coverUrl == null || coverUrl == "") {
+        return null;
+    }
+    if (dynastyCachedCover(titleUid) == coverUrl) {
+        return null;
+    }
+    storageSet(dynastyCoverKey(titleUid), coverUrl, 2592000);
+    return null;
+}
+
+function dynastyTagNames(tagList, tagType) {
+    foundNames = [];
+    if (tagList == null) {
+        return foundNames;
+    }
+    for (tl = 0; tl < tagList.length; tl = tl + 1) {
+        listedTag = tagList[tl];
+        if (listedTag["type"] == tagType) {
+            listedName = listedTag["name"];
+            if (listedName != null && listedName != "" && foundNames.contains(listedName) == false) {
+                foundNames.push(listedName);
+            }
+        }
+    }
+    return foundNames;
+}
+
+function dynastyFirstTag(tagList, tagType) {
+    if (tagList == null) {
+        return null;
+    }
+    for (ft = 0; ft < tagList.length; ft = ft + 1) {
+        if (tagList[ft]["type"] == tagType && tagList[ft]["permalink"] != null) {
+            return tagList[ft];
+        }
+    }
+    return null;
+}
+
+function dynastyHasNsfwTag(tagList) {
+    if (tagList == null) {
+        return false;
+    }
+    for (nt = 0; nt < tagList.length; nt = nt + 1) {
+        if (tagList[nt]["type"] == "General" && tagList[nt]["permalink"] == "nsfw") {
+            return true;
+        }
+    }
+    return false;
+}
+
+function dynastyStatus(tagList) {
+    statusNames = dynastyTagNames(tagList, "Status");
+    if (statusNames.contains("Ongoing")) {
+        return statusOngoing();
+    }
+    if (statusNames.contains("Completed")) {
+        return statusReleased();
+    }
+    if (statusNames.contains("Dropped") || statusNames.contains("Cancelled") || statusNames.contains("Abandoned")) {
+        return statusCanceled();
+    }
+    if (statusNames.contains("Hiatus") || statusNames.contains("On hiatus")) {
+        return statusPaused();
+    }
+    return statusUndefined();
+}
+
+function dynastyPlainText(descriptionHtml) {
+    if (descriptionHtml == null || descriptionHtml == "") {
+        return "";
+    }
+    descriptionDocument = createHTMLParser(parseString(descriptionHtml));
+    return parseString(descriptionDocument.text).trim();
+}
+
+function dynastyGalleryItem(itemUid, itemName, itemCover, itemSubtitle, itemTags, itemLatest) {
+    return buildGallery({
+        "uid": itemUid,
+        "title": itemName,
+        "cover": itemCover,
+        "data": {},
+        "subtitle": itemSubtitle,
+        "tags": itemTags,
+        "latestChapter": itemLatest
+    });
+}
+
+function dynastyOwnerUid(chapterInfo) {
+    chapterTags = chapterInfo["tags"];
+    seriesTag = dynastyFirstTag(chapterTags, "Series");
+    if (seriesTag != null) {
+        return "series/" + seriesTag["permalink"];
+    }
+    if (chapterTags != null) {
+        for (at = 0; at < chapterTags.length; at = at + 1) {
+            anthologyTag = chapterTags[at];
+            if (anthologyTag["type"] == "Anthology" && anthologyTag["permalink"] != null && anthologyTag["permalink"] != "oneshots") {
+                return "anthologies/" + anthologyTag["permalink"];
+            }
+        }
+    }
+    issueTag = dynastyFirstTag(chapterTags, "Issue");
+    if (issueTag != null) {
+        return "issues/" + issueTag["permalink"];
+    }
+    return "chapters/" + chapterInfo["permalink"];
+}
+
+function dynastyShortChapterLabel(chapterTitle, ownerName) {
+    if (chapterTitle == null) {
+        return null;
+    }
+    labelText = parseString(chapterTitle).trim();
+    if (ownerName != null && ownerName != "" && labelText.startsWith(ownerName)) {
+        labelText = labelText.substring(ownerName.length).trim();
+    }
+    colonIndex = labelText.indexOf(":");
+    if (colonIndex > 0) {
+        labelText = labelText.substring(0, colonIndex).trim();
+    }
+    if (labelText == "") {
+        return null;
+    }
+    return labelText;
+}
+
+function dynastyLatestItem(addedChapter, titleUid) {
+    chapterTags = addedChapter["tags"];
+    authorNames = dynastyTagNames(chapterTags, "Author");
+    itemName = parseString(addedChapter["title"]);
+    itemLatest = null;
+    itemSubtitle = authorNames.join(", ");
+    ownerKind = titleUid.split("/")[0];
+    if (ownerKind == "chapters") {
+        doujinNames = dynastyTagNames(chapterTags, "Doujin");
+        if (doujinNames.isEmpty == false) {
+            itemSubtitle = doujinNames.join(", ") + " doujin";
+        }
+    } else {
+        ownerPermalink = titleUid.substring(ownerKind.length + 1);
+        ownerLabel = dynastyKindLabel(ownerKind);
+        for (ot = 0; ot < chapterTags.length; ot = ot + 1) {
+            if (chapterTags[ot]["type"] == ownerLabel && chapterTags[ot]["permalink"] == ownerPermalink && chapterTags[ot]["name"] != null) {
+                itemName = chapterTags[ot]["name"];
+            }
+        }
+        itemLatest = dynastyShortChapterLabel(addedChapter["title"], itemName);
+    }
+    if (itemSubtitle == "") {
+        itemSubtitle = null;
+    }
+    return dynastyGalleryItem(titleUid, itemName, dynastyCachedCover(titleUid), itemSubtitle, dynastyTagNames(chapterTags, "General"), itemLatest);
+}
+
+function dynastyLatestGallery(page) {
+    addedPage = dynastyJson("/chapters/added.json?page=" + parseString(page), "recently added page " + parseString(page));
+    galleryItems = [];
+    addedChapters = addedPage["chapters"];
+    if (addedChapters == null) {
+        return galleryItems;
+    }
+    skipNsfw = dynastyHideNsfw();
+    seenUids = [];
+    for (ac = 0; ac < addedChapters.length; ac = ac + 1) {
+        addedChapter = addedChapters[ac];
+        if (addedChapter["permalink"] == null) {
+            continue;
+        }
+        if (skipNsfw && dynastyHasNsfwTag(addedChapter["tags"])) {
+            continue;
+        }
+        titleUid = dynastyOwnerUid(addedChapter);
+        if (seenUids.contains(titleUid)) {
+            continue;
+        }
+        seenUids.push(titleUid);
+        galleryItems.push(dynastyLatestItem(addedChapter, titleUid));
+    }
+    return galleryItems;
+}
+
+function dynastyDirectoryGallery(directoryKind, page) {
+    pageHtml = dynastyFetch(dynastyBase() + "/" + directoryKind + "?view=cover&page=" + parseString(page), directoryKind + " page " + parseString(page), false);
+    pageDocument = createHTMLParser(pageHtml);
+    thumbnailLinks = pageDocument.querySelectorAll("ul.cover-list a.thumbnail");
+    galleryItems = [];
+    seenUids = [];
+    for (tn = 0; tn < thumbnailLinks.length; tn = tn + 1) {
+        thumbnailLink = thumbnailLinks[tn];
+        linkAttributes = thumbnailLink.attributes;
+        itemUid = dynastyUidFromPath(linkAttributes["href"]);
+        if (itemUid == "" || seenUids.contains(itemUid)) {
+            continue;
+        }
+        seenUids.push(itemUid);
+        itemCover = "";
+        coverNode = thumbnailLink.querySelector("img");
+        if (coverNode != null) {
+            coverAttributes = coverNode.attributes;
+            itemCover = dynastyAbsolute(coverAttributes["src"]);
+        }
+        itemName = "";
+        captionNode = thumbnailLink.querySelector(".caption");
+        if (captionNode != null) {
+            itemName = parseString(captionNode.text).trim();
+        }
+        if (itemName == "") {
+            itemName = itemUid;
+        }
+        galleryItems.push(dynastyGalleryItem(itemUid, itemName, itemCover, null, [], null));
+    }
+    return galleryItems;
+}
+
+function dynastySearchUrl(page, query, filters) {
+    searchParts = ["q=" + dynastyQueryValue(query)];
+    chosenClasses = [];
+    sortChoice = "";
+    if (filters != null) {
+        for (sf = 0; sf < filters.length; sf = sf + 1) {
+            filterData = filters[sf];
+            filterInfo = filterData["filter"];
+            filterParam = filterInfo["param"];
+            filterType = filterInfo["type"];
+            if (filterType == "ONE_OF_MULTIPLE") {
+                singleChoice = filterData["selected"];
+                if (singleChoice == null || singleChoice == "") {
+                    continue;
+                }
+                if (filterParam == "sort") {
+                    sortChoice = singleChoice;
+                }
+                if (filterParam == "status") {
+                    searchParts.push("with%5B%5D=" + dynastyQueryValue(singleChoice));
+                }
+                continue;
+            }
+            if (filterType == "MULTIPLE_OF_MULTIPLE") {
+                chosenGroups = filterData["selected"];
+                for (sg = 0; sg < chosenGroups.length; sg = sg + 1) {
+                    for (sv = 0; sv < chosenGroups[sg].length; sv = sv + 1) {
+                        chosenValue = chosenGroups[sg][sv];
+                        if (filterParam == "classes") {
+                            chosenClasses.push(chosenValue);
+                        }
+                        if (filterParam == "with") {
+                            searchParts.push("with%5B%5D=" + dynastyQueryValue(chosenValue));
+                        }
+                        if (filterParam == "without") {
+                            searchParts.push("without%5B%5D=" + dynastyQueryValue(chosenValue));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (chosenClasses.isEmpty) {
+        chosenClasses = ["Series", "Anthology", "Doujin", "Issue"];
+    }
+    for (sc = 0; sc < chosenClasses.length; sc = sc + 1) {
+        searchParts.push("classes%5B%5D=" + dynastyQueryValue(chosenClasses[sc]));
+    }
+    if (dynastyHideNsfw()) {
+        searchParts.push("without%5B%5D=5179");
+    }
+    if (sortChoice == "relevance") {
+        sortChoice = "";
+    }
+    if (sortChoice == "" && query == "") {
+        sortChoice = "created_at";
+    }
+    if (sortChoice != "") {
+        searchParts.push("sort=" + dynastyQueryValue(sortChoice));
+    }
+    if (page > 1) {
+        searchParts.push("page=" + parseString(page));
+    }
+    return dynastyBase() + "/search?" + searchParts.join("&");
+}
+
+function dynastySearchItem(resultNode, seenUids) {
+    nameLink = resultNode.querySelector("a.name");
+    if (nameLink == null) {
+        return null;
+    }
+    nameAttributes = nameLink.attributes;
+    itemUid = dynastyUidFromPath(nameAttributes["href"]);
+    itemKind = itemUid.split("/")[0];
+    if (dynastyTitleKinds().contains(itemKind) == false || seenUids.contains(itemUid)) {
+        return null;
+    }
+    seenUids.push(itemUid);
+    itemName = parseString(nameLink.text).trim();
+    if (itemName == "") {
+        itemName = itemUid;
+    }
+    tagLinks = resultNode.querySelectorAll("span.tags a");
+    itemTags = [];
+    for (tg = 0; tg < tagLinks.length; tg = tg + 1) {
+        tagText = parseString(tagLinks[tg].text).trim();
+        if (tagText != "" && itemTags.contains(tagText) == false) {
+            itemTags.push(tagText);
+        }
+    }
+    authorNames = [];
+    allLinks = resultNode.querySelectorAll("a");
+    for (al = 0; al < allLinks.length; al = al + 1) {
+        linkAttributes = allLinks[al].attributes;
+        linkTarget = linkAttributes["href"];
+        if (linkTarget != null && parseString(linkTarget).startsWith("/authors/")) {
+            authorName = parseString(allLinks[al].text).trim();
+            if (authorName != "" && authorNames.contains(authorName) == false) {
+                authorNames.push(authorName);
+            }
+        }
+    }
+    itemSubtitle = dynastyKindLabel(itemKind);
+    if (authorNames.isEmpty == false) {
+        itemSubtitle = itemSubtitle + " by " + authorNames.join(", ");
+    }
+    return dynastyGalleryItem(itemUid, itemName, dynastyCachedCover(itemUid), itemSubtitle, itemTags, null);
+}
+
+function dynastySearchGallery(page, query, filters) {
+    pageHtml = dynastyFetch(dynastySearchUrl(page, query, filters), "search page " + parseString(page), page > 1);
+    galleryItems = [];
+    if (pageHtml == null) {
+        return galleryItems;
+    }
+    pageDocument = createHTMLParser(pageHtml);
+    resultNodes = pageDocument.querySelectorAll("dl.chapter-list dd");
+    seenUids = [];
+    for (rn = 0; rn < resultNodes.length; rn = rn + 1) {
+        resultItem = dynastySearchItem(resultNodes[rn], seenUids);
+        if (resultItem == null) {
+            continue;
+        }
+        galleryItems.push(resultItem);
+    }
+    return galleryItems;
+}
+
+function dynastyHasFilters(filters) {
+    if (filters == null) {
+        return false;
+    }
+    return filters.length > 0;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchText = "";
+    if (query != null) {
+        searchText = parseString(query).trim();
+    }
+    galleryPage = page;
+    if (galleryPage == null || galleryPage < 1) {
+        galleryPage = 1;
+    }
+    if (searchText != "" || dynastyHasFilters(filters)) {
+        return dynastySearchGallery(galleryPage, searchText, filters);
+    }
+    if (feed != null && dynastyDirectoryKinds().contains(feed)) {
+        return dynastyDirectoryGallery(feed, galleryPage);
+    }
+    return dynastyLatestGallery(galleryPage);
+}
+
+function dynastyVolumeNumber(headerText) {
+    if (headerText == null) {
+        return null;
+    }
+    volumeText = parseString(headerText).trim();
+    if (volumeText.startsWith("Volume ") == false) {
+        return null;
+    }
+    volumeText = volumeText.substring(7).trim();
+    parsedVolume = null;
+    try {
+        parsedVolume = parseInt(volumeText);
+    } catch (e) {
+        parsedVolume = null;
+    }
+    return parsedVolume;
+}
+
+function dynastyChapterNumber(chapterTitle) {
+    if (chapterTitle == null) {
+        return null;
+    }
+    numberText = parseString(chapterTitle).trim();
+    if (numberText.startsWith("Chapter ") == false) {
+        return null;
+    }
+    numberText = numberText.substring(8).split(":")[0].trim().split(" ")[0];
+    parsedNumber = null;
+    try {
+        parsedNumber = parseDouble(numberText);
+    } catch (e) {
+        parsedNumber = null;
+    }
+    return parsedNumber;
+}
+
+function dynastyChapterLabel(chapterTitle, headerText, volumeNumber, groupedByVolume) {
+    labelText = parseString(chapterTitle).trim();
+    if (labelText == "" || labelText == "null") {
+        labelText = "Chapter";
+    }
+    if (groupedByVolume || headerText == "") {
+        return labelText;
+    }
+    if (volumeNumber != null) {
+        if (labelText.startsWith("Vol")) {
+            return labelText;
+        }
+        return "Vol. " + parseString(volumeNumber) + " " + labelText;
+    }
+    return headerText + " - " + labelText;
+}
+
+function dynastyAllTaggings(titleInfo, titleUid) {
+    collectedTaggings = [];
+    firstTaggings = titleInfo["taggings"];
+    if (firstTaggings != null) {
+        for (ft = 0; ft < firstTaggings.length; ft = ft + 1) {
+            collectedTaggings.push(firstTaggings[ft]);
+        }
+    }
+    totalPages = titleInfo["total_pages"];
+    if (totalPages == null) {
+        return collectedTaggings;
+    }
+    pageLimit = dynastyDoujinPageLimit();
+    if (totalPages < pageLimit) {
+        pageLimit = totalPages;
+    }
+    for (tp = 2; tp <= pageLimit; tp = tp + 1) {
+        morePage = dynastyJson("/" + titleUid + ".json?page=" + parseString(tp), titleUid + " page " + parseString(tp));
+        moreTaggings = morePage["taggings"];
+        if (moreTaggings == null) {
+            continue;
+        }
+        for (mt = 0; mt < moreTaggings.length; mt = mt + 1) {
+            collectedTaggings.push(moreTaggings[mt]);
+        }
+    }
+    oldestFirst = [];
+    for (rv = collectedTaggings.length - 1; rv >= 0; rv = rv - 1) {
+        oldestFirst.push(collectedTaggings[rv]);
+    }
+    return oldestFirst;
+}
+
+function dynastyChapterGroups(taggingList) {
+    groupedByVolume = dynastyVolumeGroups();
+    groupNames = [];
+    groupChapters = [];
+    currentHeader = "";
+    currentVolume = null;
+    for (tg = 0; tg < taggingList.length; tg = tg + 1) {
+        taggingEntry = taggingList[tg];
+        headerValue = taggingEntry["header"];
+        if (headerValue != null) {
+            currentHeader = parseString(headerValue).trim();
+            currentVolume = dynastyVolumeNumber(currentHeader);
+            continue;
+        }
+        chapterPermalink = taggingEntry["permalink"];
+        if (chapterPermalink == null || chapterPermalink == "") {
+            continue;
+        }
+        groupName = "Chapters";
+        if (groupedByVolume && currentHeader != "") {
+            groupName = currentHeader;
+        }
+        groupIndex = groupNames.indexOf(groupName);
+        if (groupIndex < 0) {
+            groupNames.push(groupName);
+            groupChapters.push([]);
+            groupIndex = groupNames.length - 1;
+        }
+        targetGroup = groupChapters[groupIndex];
+        targetGroup.push(buildChapter({
+            "uid": parseString(chapterPermalink),
+            "title": dynastyChapterLabel(taggingEntry["title"], currentHeader, currentVolume, groupedByVolume),
+            "timestamp": taggingEntry["released_on"],
+            "data": {},
+            "number": dynastyChapterNumber(taggingEntry["title"]),
+            "volume": currentVolume
+        }));
+    }
+    builtGroups = [];
+    for (bg = 0; bg < groupNames.length; bg = bg + 1) {
+        builtGroups.push(buildChapterGroups({"title": groupNames[bg], "elements": groupChapters[bg]}));
+    }
+    if (builtGroups.isEmpty) {
+        builtGroups.push(buildChapterGroups({"title": "Chapters", "elements": []}));
+    }
+    return builtGroups;
+}
+
+function dynastyChapterConcrete(titleUid) {
+    chapterPermalink = titleUid.substring(9);
+    chapterInfo = dynastyJson("/chapters/" + chapterPermalink + ".json", "chapter " + chapterPermalink);
+    chapterTags = chapterInfo["tags"];
+    chapterName = chapterInfo["long_title"];
+    if (chapterName == null || chapterName == "") {
+        chapterName = chapterInfo["title"];
+    }
+    chapterCover = "";
+    chapterPages = chapterInfo["pages"];
+    if (chapterPages != null && chapterPages.isEmpty == false) {
+        chapterCover = dynastyAbsolute(chapterPages[0]["url"]);
+    }
+    dynastyRememberCover(titleUid, chapterCover);
+    contextParts = [];
+    contextTypes = ["Series", "Anthology", "Issue", "Doujin", "Pairing", "Scanlator"];
+    for (ct = 0; ct < contextTypes.length; ct = ct + 1) {
+        contextNames = dynastyTagNames(chapterTags, contextTypes[ct]);
+        if (contextNames.isEmpty == false) {
+            contextParts.push(contextTypes[ct] + ": " + contextNames.join(", "));
+        }
+    }
+    singleChapter = buildChapter({
+        "uid": chapterPermalink,
+        "title": chapterName,
+        "timestamp": chapterInfo["released_on"],
+        "data": {}
+    });
+    return buildConcrete({
+        "uid": titleUid,
+        "title": chapterName,
+        "cover": chapterCover,
+        "description": contextParts.join(" · "),
+        "tags": dynastyTagNames(chapterTags, "General"),
+        "status": statusReleased(),
+        "alternativeTitles": [],
+        "authors": dynastyTagNames(chapterTags, "Author"),
+        "url": dynastyBase() + "/" + titleUid,
+        "groups": [buildChapterGroups({"title": "Chapter", "elements": [singleChapter]})]
+    });
+}
+
+function getConcrete(uid, data) {
+    titleUid = dynastyUidFromPath(uid);
+    titleKind = titleUid.split("/")[0];
+    if (titleUid.indexOf("/") < 0 || dynastyTitleKinds().contains(titleKind) == false) {
+        throwSourceError("notFound", titleUid + " is not a Dynasty Scans title");
+    }
+    if (titleKind == "chapters") {
+        return dynastyChapterConcrete(titleUid);
+    }
+    titleInfo = dynastyJson("/" + titleUid + ".json", titleUid);
+    titleTags = titleInfo["tags"];
+    titleCover = dynastyAbsolute(titleInfo["cover"]);
+    dynastyRememberCover(titleUid, titleCover);
+    alternativeNames = [];
+    aliasList = titleInfo["aliases"];
+    if (aliasList != null) {
+        for (an = 0; an < aliasList.length; an = an + 1) {
+            if (aliasList[an] != null && aliasList[an] != "" && alternativeNames.contains(aliasList[an]) == false) {
+                alternativeNames.push(aliasList[an]);
+            }
+        }
+    }
+    titleTagNames = dynastyTagNames(titleTags, "General");
+    pairingNames = dynastyTagNames(titleTags, "Pairing");
+    for (pn = 0; pn < pairingNames.length; pn = pn + 1) {
+        if (titleTagNames.contains(pairingNames[pn]) == false) {
+            titleTagNames.push(pairingNames[pn]);
+        }
+    }
+    titleName = titleInfo["name"];
+    if (titleName == null || titleName == "") {
+        titleName = titleUid;
+    }
+    return buildConcrete({
+        "uid": titleUid,
+        "title": titleName,
+        "cover": titleCover,
+        "description": dynastyPlainText(titleInfo["description"]),
+        "tags": titleTagNames,
+        "status": dynastyStatus(titleTags),
+        "alternativeTitles": alternativeNames,
+        "authors": dynastyTagNames(titleTags, "Author"),
+        "url": dynastyBase() + "/" + titleUid,
+        "groups": dynastyChapterGroups(dynastyAllTaggings(titleInfo, titleUid))
+    });
+}
+
+function getPages(uid, data) {
+    chapterPermalink = dynastyUidFromPath(uid);
+    if (chapterPermalink.startsWith("chapters/")) {
+        chapterPermalink = chapterPermalink.substring(9);
+    }
+    chapterInfo = dynastyJson("/chapters/" + chapterPermalink + ".json", "chapter " + chapterPermalink);
+    chapterPages = chapterInfo["pages"];
+    if (chapterPages == null || chapterPages.isEmpty) {
+        throwSourceError("notFound", "Dynasty Scans has no pages for chapter " + chapterPermalink);
+    }
+    pageLinks = [];
+    for (cp = 0; cp < chapterPages.length; cp = cp + 1) {
+        pageLink = dynastyAbsolute(chapterPages[cp]["url"]);
+        if (pageLink != "") {
+            pageLinks.push(pageLink);
+        }
+    }
+    return buildPages({
+        "uid": chapterPermalink,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return dynastyHeaders();
+}
