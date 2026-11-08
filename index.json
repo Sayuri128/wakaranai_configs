@@ -1301,7 +1301,7 @@
     {
       "category": "manga",
       "path": "manga/kavita",
-      "revision": "8c1a8d9ed9f26e1c",
+      "revision": "915d9deaf695ac9f",
       "apiVersion": 2,
       "config": {
         "name": "Kavita",
@@ -1309,6 +1309,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/kavita/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
+        "sourceType": "self-hosted",
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
@@ -1403,7 +1404,7 @@
     {
       "category": "manga",
       "path": "manga/komga",
-      "revision": "3dbea1be21857592",
+      "revision": "71b946ca43a8c245",
       "apiVersion": 2,
       "config": {
         "name": "Komga",
@@ -1411,6 +1412,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/komga/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
+        "sourceType": "self-hosted",
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
@@ -2911,7 +2913,7 @@
     {
       "category": "manga",
       "path": "manga/opds",
-      "revision": "aaba7c739bba1ccb",
+      "revision": "7001b4f26a8226ca",
       "apiVersion": 2,
       "config": {
         "name": "OPDS",
@@ -2919,6 +2921,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/opds/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
+        "sourceType": "self-hosted",
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
@@ -3362,7 +3365,7 @@
     {
       "category": "manga",
       "path": "manga/suwayomi",
-      "revision": "4c70293cc42a9329",
+      "revision": "361373dc5b5a5cfe",
       "apiVersion": 2,
       "config": {
         "name": "Suwayomi",
@@ -3370,6 +3373,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/suwayomi/logo.png?raw=true",
         "type": 0,
         "nsfw": false,
+        "sourceType": "self-hosted",
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,
@@ -4904,7 +4908,7 @@
     {
       "category": "anime",
       "path": "anime/jellyfin",
-      "revision": "e0f0d8290ce10f45",
+      "revision": "7f3c6e8359aad0da",
       "apiVersion": 2,
       "config": {
         "name": "Jellyfin",
@@ -4912,6 +4916,7 @@
         "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/jellyfin/logo.png?raw=true",
         "type": 1,
         "nsfw": false,
+        "sourceType": "self-hosted",
         "language": "Multi",
         "version": 1,
         "apiVersion": 2,

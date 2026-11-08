@@ -4,6 +4,7 @@
   "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/suwayomi/logo.png?raw=true",
   "type": 0,
   "nsfw": false,
+  "sourceType": "self-hosted",
   "language": "Multi",
   "version": 1,
   "apiVersion": 2,
