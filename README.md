@@ -35,6 +35,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 | Dynasty Scans | Manga (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
 | Ficbook | Novel | Russian | Fanfiction and originals; direction, rating, status, fandom and genre filters; NC-17/NC-21 hidden unless enabled |
 | Anime365 | Anime (paid) | Russian | Watching needs an Anime365 subscription (sign in through the in-app browser); browsing is free; subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |
+| LibriVox | Audiobook | Multi | Public domain audiobooks; new releases and catalog feeds; each section is a track streamed from archive.org at 64 or 128 kbps |
 
 ## Structure
 
@@ -42,6 +43,7 @@ The official extension repository for the [Wakaranai](https://github.com/Sayuri1
 manga/<extension>/   config.json, main.capyscript, logo.png
 anime/<extension>/   same layout
 novel/<extension>/   same layout, for light novels and web novels
+audio/<extension>/   same layout, for audiobooks
 shared/              Capyscript code imported by several extensions
 index.json           generated list of all configs, read by the app
 tool/                index generator and local dev server

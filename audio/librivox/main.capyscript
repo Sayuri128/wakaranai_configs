@@ -1,0 +1,316 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "audio_models";
+
+function librivoxApiUrl() {
+    return "https://librivox.org/api/feed/audiobooks";
+}
+
+function librivoxDefaultPageSize() {
+    return 40;
+}
+
+function librivoxGalleryFields() {
+    return "{id,title,authors,coverart_thumbnail,totaltime,language}";
+}
+
+function librivoxRequest(requestParams, requestLabel) {
+    requestResponse = null;
+    requestFailure = null;
+    try {
+        requestResponse = httpGet({
+            "url": librivoxApiUrl(),
+            "params": requestParams,
+            "paths": {},
+            "headers": {},
+            "throughWeb": false
+        });
+    } catch (e) {
+        requestFailure = parseString(e);
+    }
+    if (requestResponse == null) {
+        if (requestFailure == null) {
+            requestFailure = "no response";
+        }
+        throwSourceError("sourceDown", "LibriVox did not answer (" + requestLabel + "): " + requestFailure);
+    }
+    requestStatus = requestResponse["statusCode"];
+    if (requestStatus == 404) {
+        return [];
+    }
+    if (requestStatus == 429) {
+        throwSourceError("rateLimited", "LibriVox is rate limiting requests (" + requestLabel + ")");
+    }
+    if (requestStatus != 200) {
+        throwSourceError("sourceDown", "LibriVox answered " + parseString(requestStatus) + " (" + requestLabel + ")");
+    }
+    requestDecoded = jsonDecode(requestResponse["body"]);
+    if (requestDecoded == null) {
+        return [];
+    }
+    requestBooks = requestDecoded["books"];
+    if (requestBooks == null) {
+        return [];
+    }
+    return requestBooks;
+}
+
+function librivoxPageSizeOf(requestedSize) {
+    if (requestedSize == null || requestedSize < 1) {
+        return librivoxDefaultPageSize();
+    }
+    return requestedSize;
+}
+
+function librivoxGalleryParams(galleryPage, gallerySize) {
+    return {
+        "format": "json",
+        "coverart": "1",
+        "fields": librivoxGalleryFields(),
+        "limit": parseString(gallerySize),
+        "offset": parseString(gallerySize * (galleryPage - 1))
+    };
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    size = librivoxPageSizeOf(pageSize);
+    if (query != null && query.trim() != "") {
+        return librivoxSearch(page, query.trim(), size);
+    }
+    params = librivoxGalleryParams(page, size);
+    if (feed == "" || feed == "latest") {
+        params["sort_field"] = "id";
+        params["sort_order"] = "desc";
+        params["since"] = "1";
+    }
+    return librivoxGalleryItems(librivoxRequest(params, "catalog"));
+}
+
+function librivoxSearch(searchPage, searchQuery, searchSize) {
+    titleParams = librivoxGalleryParams(searchPage, searchSize);
+    titleParams["title"] = "^" + searchQuery;
+    titleBooks = librivoxRequest(titleParams, "title search");
+    if (titleBooks.length > 0) {
+        return librivoxGalleryItems(titleBooks);
+    }
+    if (searchPage > 1 && librivoxHasTitleMatches(searchQuery)) {
+        return [];
+    }
+    authorParams = librivoxGalleryParams(searchPage, searchSize);
+    authorParams["author"] = "^" + searchQuery;
+    return librivoxGalleryItems(librivoxRequest(authorParams, "author search"));
+}
+
+function librivoxHasTitleMatches(probeQuery) {
+    probeParams = librivoxGalleryParams(1, 1);
+    probeParams["fields"] = "{id}";
+    probeParams["title"] = "^" + probeQuery;
+    probeBooks = librivoxRequest(probeParams, "title search");
+    return probeBooks.length > 0;
+}
+
+function librivoxGalleryItems(galleryBooks) {
+    items = [];
+    for (g = 0; g < galleryBooks.length; g = g + 1) {
+        galleryBook = galleryBooks[g];
+        if (librivoxText(galleryBook["totaltime"]) == "") {
+            continue;
+        }
+        items.push(buildGallery({
+            "uid": parseString(galleryBook["id"]),
+            "title": librivoxText(galleryBook["title"]),
+            "cover": librivoxHttps(galleryBook["coverart_thumbnail"]),
+            "data": {"id": parseString(galleryBook["id"])},
+            "subtitle": librivoxAuthorLine(galleryBook["authors"])
+        }));
+    }
+    return items;
+}
+
+function librivoxText(textValue) {
+    if (textValue == null) {
+        return "";
+    }
+    return parseString(textValue).trim();
+}
+
+function librivoxHttps(linkValue) {
+    if (linkValue == null) {
+        return "";
+    }
+    link = parseString(linkValue).trim();
+    if (link.startsWith("http://")) {
+        link = "https://" + link.substring(7);
+    }
+    if (link.startsWith("https://www.archive.org/")) {
+        link = "https://archive.org/" + link.substring(24);
+    }
+    return link;
+}
+
+function librivoxAuthorNames(authorList) {
+    names = [];
+    if (authorList == null) {
+        return names;
+    }
+    for (a = 0; a < authorList.length; a = a + 1) {
+        author = authorList[a];
+        name = librivoxText(author["first_name"]) + " " + librivoxText(author["last_name"]);
+        name = name.trim();
+        if (name != "") {
+            names.push(name);
+        }
+    }
+    return names;
+}
+
+function librivoxAuthorLine(lineAuthors) {
+    return librivoxAuthorNames(lineAuthors).join(", ");
+}
+
+function librivoxPlainText(htmlText) {
+    pieces = librivoxText(htmlText).split("<");
+    plain = pieces[0];
+    for (t = 1; t < pieces.length; t = t + 1) {
+        piece = pieces[t];
+        tagEnd = piece.indexOf(">");
+        if (tagEnd < 0) {
+            plain = plain + "<" + piece;
+            continue;
+        }
+        tagName = piece.substring(0, tagEnd).trim().toLowerCase();
+        if (tagName.startsWith("br") || tagName == "/p") {
+            plain = plain + "\n";
+        }
+        plain = plain + piece.substring(tagEnd + 1);
+    }
+    plain = plain.replaceAll("&amp;", "&");
+    plain = plain.replaceAll("&quot;", "'");
+    plain = plain.replaceAll("&#039;", "'");
+    plain = plain.replaceAll("&nbsp;", " ");
+    plain = plain.replaceAll("\n\n\n", "\n\n");
+    return plain.trim();
+}
+
+function librivoxGenres(genreList) {
+    genres = [];
+    if (genreList == null) {
+        return genres;
+    }
+    for (n = 0; n < genreList.length; n = n + 1) {
+        genreName = librivoxText(genreList[n]["name"]);
+        if (genreName != "") {
+            genres.push(genreName);
+        }
+    }
+    return genres;
+}
+
+function getConcrete(uid, data) {
+    books = librivoxRequest({
+        "format": "json",
+        "id": uid,
+        "extended": "1",
+        "coverart": "1"
+    }, "audiobook " + uid);
+    if (books.length == 0) {
+        throwSourceError("notFound", "LibriVox has no audiobook " + uid);
+    }
+    book = books[0];
+    tags = librivoxGenres(book["genres"]);
+    language = librivoxText(book["language"]);
+    if (language != "") {
+        tags.push(language);
+    }
+    return buildConcrete({
+        "uid": uid,
+        "cover": librivoxHttps(book["coverart_jpg"]),
+        "title": librivoxText(book["title"]),
+        "description": librivoxPlainText(book["description"]),
+        "tags": tags,
+        "groups": [buildChapterGroups({
+            "title": "Sections",
+            "elements": librivoxSections(uid, book["sections"])
+        })],
+        "status": statusReleased(),
+        "alternativeTitles": [],
+        "authors": librivoxAuthorNames(book["authors"]),
+        "url": librivoxText(book["url_librivox"])
+    });
+}
+
+function librivoxSections(bookUid, sectionList) {
+    tracks = [];
+    if (sectionList == null) {
+        return tracks;
+    }
+    for (s = 0; s < sectionList.length; s = s + 1) {
+        section = sectionList[s];
+        listenUrl = librivoxHttps(section["listen_url"]);
+        if (listenUrl == "") {
+            continue;
+        }
+        sectionNumber = librivoxText(section["section_number"]);
+        sectionTitle = librivoxText(section["title"]);
+        if (sectionTitle == "") {
+            sectionTitle = "Section " + sectionNumber;
+        }
+        tracks.push(buildChapter({
+            "uid": bookUid + "/" + librivoxText(section["id"]),
+            "title": sectionTitle,
+            "timestamp": null,
+            "data": {
+                "url": listenUrl,
+                "playtime": librivoxText(section["playtime"]),
+                "readers": librivoxReaders(section["readers"])
+            },
+            "number": sectionNumber
+        }));
+    }
+    return tracks;
+}
+
+function librivoxReaders(readerList) {
+    readers = [];
+    if (readerList == null) {
+        return "";
+    }
+    for (r = 0; r < readerList.length; r = r + 1) {
+        readerName = librivoxText(readerList[r]["display_name"]);
+        if (readerName != "") {
+            readers.push(readerName);
+        }
+    }
+    return readers.join(", ");
+}
+
+function getAudioSources(uid, data) {
+    lowUrl = librivoxHttps(data["url"]);
+    if (lowUrl == "") {
+        return [];
+    }
+    playtime = librivoxText(data["playtime"]);
+    low = buildAudioSource({
+        "url": lowUrl,
+        "format": "mp3",
+        "quality": "64 kbps",
+        "duration": playtime
+    });
+    if (lowUrl.endsWith("_64kb.mp3") == false) {
+        return [low];
+    }
+    highUrl = lowUrl.substring(0, lowUrl.length - 9) + ".mp3";
+    high = buildAudioSource({
+        "url": highUrl,
+        "format": "mp3",
+        "quality": "128 kbps",
+        "duration": playtime
+    });
+    if (getPreference("quality") == "128") {
+        return [high, low];
+    }
+    return [low, high];
+}

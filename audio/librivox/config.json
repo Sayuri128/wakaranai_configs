@@ -1,0 +1,63 @@
+{
+  "name": "LibriVox",
+  "uid": "5816c4b9-ead7-40b0-88b5-83b9c491c4b2",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/audio/librivox/logo.png?raw=true",
+  "type": 3,
+  "nsfw": false,
+  "language": "English",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "0.4.0",
+  "contentKinds": [
+    "audiobook"
+  ],
+  "feeds": [
+    {
+      "id": "latest",
+      "title": "New releases"
+    },
+    {
+      "id": "catalog",
+      "title": "Catalog"
+    }
+  ],
+  "pagination": {
+    "pageSizes": [
+      20,
+      40,
+      60
+    ],
+    "defaultPageSize": 40
+  },
+  "preferences": [
+    {
+      "key": "quality",
+      "type": "select",
+      "title": "Preferred audio quality",
+      "summary": "The other quality stays available in the player",
+      "default": "64",
+      "options": [
+        {
+          "value": "64",
+          "label": "64 kbps (smaller)"
+        },
+        {
+          "value": "128",
+          "label": "128 kbps"
+        }
+      ]
+    }
+  ],
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    },
+    "defaultHeaders": {
+      "Accept": "application/json"
+    }
+  },
+  "filters": [],
+  "protectorConfig": null,
+  "searchAvailable": true
+}
