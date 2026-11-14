@@ -53,6 +53,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | RanobeLib | Russian | Light and web novels; chapters grouped by translation branch; shares the MangaLib login |
 | Ficbook | Russian | Fanfiction and originals; direction, rating, status, fandom and genre filters; NC-17/NC-21 hidden unless enabled |
 | RanobeHub | Russian | Light and web novels; updates, popular, best and new feeds; genre, status and country filters |
+| Royal Road | English | Original web fiction; popular, best rated, trending, latest and new feeds; genre, tag, warning, status and type filters; paid and unpublished chapters hidden; author notes optional |
 
 ### Audiobooks
 

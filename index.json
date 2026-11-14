@@ -8294,6 +8294,335 @@
       }
     },
     {
+      "category": "novel",
+      "path": "novel/royal_road",
+      "revision": "d0d2ec61a63b2ba3",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Royal Road",
+        "uid": "1f15e8e5-f8f6-41df-a06e-269ccf5301c3",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/novel/royal_road/logo.png?raw=true",
+        "type": 2,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "novel"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "weekly-popular",
+            "title": "Popular"
+          },
+          {
+            "id": "best-rated",
+            "title": "Best Rated"
+          },
+          {
+            "id": "trending",
+            "title": "Trending"
+          },
+          {
+            "id": "latest-updates",
+            "title": "Latest"
+          },
+          {
+            "id": "new",
+            "title": "New"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "authorNotes",
+            "type": "toggle",
+            "title": "Author notes",
+            "summary": "Show the author's notes before and after a chapter",
+            "default": true
+          }
+        ],
+        "filters": [
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Genres",
+            "param": "genres",
+            "values": [
+              [
+                "action",
+                "adventure",
+                "comedy",
+                "contemporary",
+                "drama",
+                "fantasy",
+                "historical",
+                "horror",
+                "mystery",
+                "psychological",
+                "romance_main",
+                "satire",
+                "sci_fi",
+                "thriller",
+                "tragedy"
+              ]
+            ],
+            "labels": [
+              [
+                "Action",
+                "Adventure",
+                "Comedy",
+                "Contemporary",
+                "Drama",
+                "Fantasy",
+                "Historical",
+                "Horror",
+                "Mystery",
+                "Psychological",
+                "Romance",
+                "Satire",
+                "Sci-fi",
+                "Thriller",
+                "Tragedy"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Tags",
+            "param": "tags",
+            "values": [
+              [
+                "anti-hero_lead",
+                "antivillain_lead",
+                "apocalypse",
+                "artificial_intelligence",
+                "attractive_lead",
+                "chivalry",
+                "competing_love",
+                "cozy",
+                "crafting",
+                "cultivation",
+                "cyberpunk",
+                "deck_building",
+                "dungeon_core",
+                "dungeon_crawler",
+                "dystopia",
+                "female_lead",
+                "first_contact",
+                "gamelit",
+                "gender_bender",
+                "genetically_engineered",
+                "grimdark",
+                "hard_sci-fi",
+                "high_fantasy",
+                "kingdom_building",
+                "lesbian_romance",
+                "litrpg",
+                "local_protagonist",
+                "low_fantasy",
+                "magic",
+                "magical_girl",
+                "magitech",
+                "gay_romance",
+                "male_lead",
+                "martial_arts",
+                "mecha",
+                "modern_knowledge",
+                "monster_evolution",
+                "multiple_lead",
+                "harem",
+                "mythos",
+                "non-human_lead",
+                "nonhumanoid_lead",
+                "otome",
+                "summoned_hero",
+                "post_apocalyptic",
+                "progression",
+                "reader_interactive",
+                "reincarnation",
+                "romance",
+                "ruling_class",
+                "school_life",
+                "secret_identity",
+                "slice_of_life",
+                "soft_sci-fi",
+                "space_opera",
+                "sports",
+                "steampunk",
+                "strategy",
+                "strong_lead",
+                "super_heroes",
+                "supernatural",
+                "survival",
+                "system_invasion",
+                "technologically_engineered",
+                "loop",
+                "time_travel",
+                "tower",
+                "urban_fantasy",
+                "villainous_lead",
+                "virtual_reality",
+                "war_and_military",
+                "wuxia"
+              ]
+            ],
+            "labels": [
+              [
+                "Anti-Hero Lead",
+                "Anti-Villain Lead",
+                "Apocalypse",
+                "Artificial Intelligence",
+                "Attractive Lead",
+                "Chivalry",
+                "Competing Love Interest",
+                "Cozy",
+                "Crafting",
+                "Cultivation",
+                "Cyberpunk",
+                "Deck Building",
+                "Dungeon Core",
+                "Dungeon Crawler",
+                "Dystopia",
+                "Female Lead",
+                "First Contact",
+                "GameLit",
+                "Gender Bender",
+                "Genetically Engineered",
+                "Grimdark",
+                "Hard Sci-fi",
+                "High Fantasy",
+                "Kingdom Building",
+                "Lesbian Romance",
+                "LitRPG",
+                "Local Protagonist",
+                "Low Fantasy",
+                "Magic",
+                "Magical Girl",
+                "Magitech",
+                "Male Gay Romance",
+                "Male Lead",
+                "Martial Arts",
+                "Mecha",
+                "Modern Knowledge",
+                "Monster Evolution",
+                "Multiple Lead Characters",
+                "Multiple Lovers",
+                "Mythos",
+                "Non-Human Lead",
+                "Non-Humanoid Lead",
+                "Otome",
+                "Portal Fantasy / Isekai",
+                "Post Apocalyptic",
+                "Progression",
+                "Reader Interactive",
+                "Reincarnation",
+                "Romance Subplot",
+                "Ruling Class",
+                "School Life",
+                "Secret Identity",
+                "Slice of Life",
+                "Soft Sci-fi",
+                "Space Opera",
+                "Sports",
+                "Steampunk",
+                "Strategy",
+                "Strong Lead",
+                "Super Heroes",
+                "Supernatural",
+                "Survival",
+                "System Invasion",
+                "Technologically Engineered",
+                "Time Loop",
+                "Time Travel",
+                "Tower",
+                "Urban Fantasy",
+                "Villainous Lead",
+                "Virtual Reality",
+                "War and Military",
+                "Wuxia"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Content warnings",
+            "param": "warnings",
+            "values": [
+              [
+                "one_shot",
+                "ai_assisted",
+                "ai_translated",
+                "ai_generated",
+                "graphic_violence",
+                "profanity",
+                "sensitive",
+                "sexuality"
+              ]
+            ],
+            "labels": [
+              [
+                "Short Story",
+                " AI-Assisted Content",
+                "AI Translated",
+                "AI-Generated Content",
+                "Graphic Violence",
+                "Profanity",
+                "Sensitive Content",
+                "Sexual Content"
+              ]
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status",
+            "values": [
+              "ALL",
+              "ONGOING",
+              "COMPLETED",
+              "HIATUS",
+              "DROPPED",
+              "INACTIVE",
+              "STUB"
+            ],
+            "labels": [
+              "All",
+              "Ongoing",
+              "Completed",
+              "Hiatus",
+              "Dropped",
+              "Inactive",
+              "Stub"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Type",
+            "param": "type",
+            "values": [
+              "ALL",
+              "original",
+              "fanfiction"
+            ],
+            "labels": [
+              "All",
+              "Original",
+              "Fan Fiction"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "category": "audio",
       "path": "audio/librivox",
       "revision": "4bab742649c30a73",

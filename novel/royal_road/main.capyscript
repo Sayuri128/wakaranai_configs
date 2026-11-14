@@ -1,0 +1,459 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "novel_models";
+
+function royalRoadBaseUrl() {
+    return "https://www.royalroad.com";
+}
+
+function royalRoadRequest(url, paths, label) {
+    response = httpGet({
+        "url": url,
+        "params": {},
+        "paths": paths,
+        "headers": {
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Royal Road has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Royal Road asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Royal Road answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function royalRoadPage(pathWithQuery, label) {
+    return createHTMLParser(royalRoadRequest(royalRoadBaseUrl() + pathWithQuery + "&_=1", {"&_=1?": ""}, label));
+}
+
+function royalRoadFeedOrder(feedId) {
+    if(feedId == "best-rated") {
+        return "rating";
+    }
+    if(feedId == "latest-updates") {
+        return "last_update";
+    }
+    if(feedId == "new") {
+        return "release_date";
+    }
+    return "popularity";
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    feedId = "weekly-popular";
+    if(feed != null && feed != "") {
+        feedId = feed;
+    }
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    searchParts = royalRoadFilterParts(filters);
+    if(trimmedQuery == "" && searchParts.isEmpty) {
+        if(feedId == "trending" && page > 1) {
+            return [];
+        }
+        return royalRoadListItems(royalRoadPage("/fictions/" + feedId + "?page=" + parseString(page), "royal road " + feedId));
+    }
+    if(trimmedQuery != "") {
+        searchParts.push("title=" + urlEncode(trimmedQuery));
+    } else {
+        searchParts.push("orderBy=" + royalRoadFeedOrder(feedId));
+        searchParts.push("dir=desc");
+    }
+    searchParts.push("page=" + parseString(page));
+    document = royalRoadPage("/fictions/search?" + searchParts.join("&"), "royal road search");
+    if(royalRoadPastLastPage(document, page)) {
+        return [];
+    }
+    return royalRoadListItems(document);
+}
+
+function royalRoadPastLastPage(document, page) {
+    if(page <= 1) {
+        return false;
+    }
+    pageLinks = document.querySelectorAll("ul.pagination a");
+    highestPage = 1;
+    for(l = 0; l < pageLinks.length; l = l + 1) {
+        pageNumber = royalRoadAttribute(pageLinks[l], "data-page");
+        if(pageNumber != "") {
+            if(parseInt(pageNumber) > highestPage) {
+                highestPage = parseInt(pageNumber);
+            }
+        }
+    }
+    return page > highestPage;
+}
+
+function royalRoadFilterParts(filters) {
+    parts = [];
+    if(filters == null) {
+        return parts;
+    }
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filterInfo = filterData["filter"];
+        if(filterInfo == null) {
+            continue;
+        }
+        filterParam = filterInfo["param"];
+        chosen = filterData["selected"];
+        if(chosen == null) {
+            continue;
+        }
+        if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+            if(chosen != "" && chosen != "ALL") {
+                parts.push(filterParam + "=" + urlEncode(parseString(chosen)));
+            }
+            continue;
+        }
+        for(g = 0; g < chosen.length; g = g + 1) {
+            chosenGroup = chosen[g];
+            for(v = 0; v < chosenGroup.length; v = v + 1) {
+                parts.push("tagsAdd=" + urlEncode(parseString(chosenGroup[v])));
+            }
+        }
+    }
+    return parts;
+}
+
+function royalRoadAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function royalRoadFictionId(href) {
+    trimmedHref = href.trim();
+    if(trimmedHref.startsWith(royalRoadBaseUrl())) {
+        trimmedHref = trimmedHref.substring(royalRoadBaseUrl().length);
+    }
+    if(trimmedHref.startsWith("/fiction/") == false) {
+        return "";
+    }
+    return trimmedHref.substring(9).split("/")[0];
+}
+
+function royalRoadCover(imageElement) {
+    if(imageElement == null) {
+        return "";
+    }
+    coverUrl = royalRoadAttribute(imageElement, "src");
+    if(coverUrl.contains("nocover")) {
+        return "";
+    }
+    if(coverUrl.startsWith("/")) {
+        return royalRoadBaseUrl() + coverUrl;
+    }
+    return coverUrl;
+}
+
+function royalRoadStatus(labelTexts) {
+    for(l = 0; l < labelTexts.length; l = l + 1) {
+        labelText = labelTexts[l].trim().toUpperCase();
+        if(labelText == "ONGOING") {
+            return statusOngoing();
+        }
+        if(labelText == "COMPLETED") {
+            return statusReleased();
+        }
+        if(labelText == "HIATUS") {
+            return statusPaused();
+        }
+        if(labelText == "DROPPED" || labelText == "INACTIVE") {
+            return statusCanceled();
+        }
+    }
+    return statusUndefined();
+}
+
+function royalRoadTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function royalRoadListItems(document) {
+    entries = document.querySelectorAll(".fiction-list-item");
+    items = [];
+    for(e = 0; e < entries.length; e = e + 1) {
+        entry = entries[e];
+        titleLink = entry.querySelector(".fiction-title a");
+        if(titleLink == null) {
+            continue;
+        }
+        fictionId = royalRoadFictionId(royalRoadAttribute(titleLink, "href"));
+        if(fictionId == "") {
+            continue;
+        }
+        items.push(buildGallery({
+            "uid": fictionId,
+            "title": titleLink.text.trim(),
+            "cover": royalRoadCover(entry.querySelector("img")),
+            "data": {},
+            "status": royalRoadStatus(royalRoadTexts(entry, "span.bg-blue-hoki")),
+            "tags": royalRoadTexts(entry, "a.fiction-tag")
+        }));
+    }
+    return items;
+}
+
+function royalRoadTextBetween(haystack, startMarker, endMarker) {
+    startAt = haystack.indexOf(startMarker);
+    if(startAt < 0) {
+        return null;
+    }
+    rest = haystack.substring(startAt + startMarker.length);
+    endAt = rest.indexOf(endMarker);
+    if(endAt < 0) {
+        return null;
+    }
+    return rest.substring(0, endAt);
+}
+
+function royalRoadNewline() {
+    lineBreak = `
+`;
+    if(lineBreak.length > 1) {
+        lineBreak = lineBreak.substring(lineBreak.length - 1);
+    }
+    return lineBreak;
+}
+
+function royalRoadDescription(document) {
+    descriptionBlock = document.querySelector(".description .hidden-content");
+    if(descriptionBlock == null) {
+        return "";
+    }
+    paragraphs = royalRoadTexts(descriptionBlock, "p");
+    if(paragraphs.isEmpty) {
+        return descriptionBlock.text.trim();
+    }
+    return paragraphs.join(royalRoadNewline());
+}
+
+function getConcrete(uid, data) {
+    body = royalRoadRequest(royalRoadBaseUrl() + "/fiction/" + uid, {}, "royal road fiction");
+    document = createHTMLParser(body);
+    heading = document.querySelector(".fic-title h1");
+    if(heading == null) {
+        throw "Royal Road returned an unexpected page (royal road fiction)";
+    }
+    canonicalUrl = royalRoadBaseUrl() + "/fiction/" + uid;
+    canonicalLink = document.querySelector("link[rel='canonical']");
+    if(canonicalLink != null) {
+        canonicalUrl = royalRoadAttribute(canonicalLink, "href");
+    }
+    chapters = royalRoadChapters(uid, body);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    tags = royalRoadTexts(document, ".fiction-info span.bg-blue-hoki");
+    statusLabels = tags;
+    fictionTags = royalRoadTexts(document, ".fiction-info a.fiction-tag");
+    shownTags = [];
+    for(t = 0; t < tags.length; t = t + 1) {
+        if(tags[t].toUpperCase() != tags[t]) {
+            shownTags.push(tags[t]);
+        }
+    }
+    for(f = 0; f < fictionTags.length; f = f + 1) {
+        shownTags.push(fictionTags[f]);
+    }
+    rating = null;
+    ratingMeta = document.querySelector("meta[property='books:rating:value']");
+    if(ratingMeta != null) {
+        rating = parseDouble(royalRoadAttribute(ratingMeta, "content"));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": royalRoadCover(document.querySelector(".cover-art-container img")),
+        "description": royalRoadDescription(document),
+        "tags": shownTags,
+        "status": royalRoadStatus(statusLabels),
+        "alternativeTitles": [],
+        "authors": royalRoadTexts(document, ".fic-title h4 a"),
+        "rating": rating,
+        "url": canonicalUrl,
+        "groups": groups
+    });
+}
+
+function royalRoadChapters(fictionId, body) {
+    chaptersJson = royalRoadTextBetween(body, "window.chapters = ", ";" + royalRoadNewline());
+    if(chaptersJson == null) {
+        return [];
+    }
+    chapterList = jsonDecode(chaptersJson.trim());
+    chapters = [];
+    for(c = chapterList.length - 1; c >= 0; c = c - 1) {
+        chapterInfo = chapterList[c];
+        if(chapterInfo["isUnlocked"] == false) {
+            continue;
+        }
+        if(chapterInfo["visible"] != null && chapterInfo["visible"] != 1) {
+            continue;
+        }
+        chapterTime = chapterInfo["date"];
+        if(chapterTime != null) {
+            chapterTime = parseString(chapterTime);
+            if(chapterTime.length >= 16) {
+                chapterTime = chapterTime.substring(0, 16).replaceFirst("T", " ");
+            }
+        }
+        chapters.push(buildChapter({
+            "uid": fictionId + "/" + parseString(chapterInfo["id"]),
+            "title": parseString(chapterInfo["title"]).trim(),
+            "timestamp": chapterTime,
+            "data": {},
+            "number": chapterInfo["order"] + 1
+        }));
+    }
+    return chapters;
+}
+
+function royalRoadHiddenClasses(body) {
+    hiddenClasses = [];
+    styleBlocks = body.split("<style>");
+    for(s = 1; s < styleBlocks.length; s = s + 1) {
+        styleText = styleBlocks[s].split("</style>")[0];
+        if(styleText.contains("display: none") == false && styleText.contains("display:none") == false) {
+            continue;
+        }
+        rules = styleText.split("}");
+        for(r = 0; r < rules.length; r = r + 1) {
+            rule = rules[r];
+            if(rule.contains("display: none") == false && rule.contains("display:none") == false) {
+                continue;
+            }
+            selectorText = rule.split("{")[0].trim();
+            if(selectorText.startsWith(".") && selectorText.contains(" ") == false && selectorText.contains(",") == false) {
+                hiddenClasses.push(selectorText.substring(1));
+            }
+        }
+    }
+    return hiddenClasses;
+}
+
+function royalRoadInnerHtml(element) {
+    markup = element.outerHtml;
+    start = markup.indexOf(">") + 1;
+    end = markup.length;
+    if(markup.endsWith("</div>")) {
+        end = end - 6;
+    }
+    if(end < start) {
+        return "";
+    }
+    return markup.substring(start, end);
+}
+
+function royalRoadVisibleHtml(element, hiddenClasses) {
+    visibleHtml = royalRoadInnerHtml(element);
+    for(h = 0; h < hiddenClasses.length; h = h + 1) {
+        hiddenElements = element.querySelectorAll("." + hiddenClasses[h]);
+        for(e = 0; e < hiddenElements.length; e = e + 1) {
+            visibleHtml = visibleHtml.replaceAll(hiddenElements[e].outerHtml, "");
+        }
+    }
+    return visibleHtml.trim();
+}
+
+function royalRoadNoteHtml(noteElement, hiddenClasses) {
+    noteBody = noteElement.querySelector(".author-note");
+    if(noteBody == null) {
+        return "";
+    }
+    noteHtml = royalRoadVisibleHtml(noteBody, hiddenClasses);
+    if(noteHtml == "") {
+        return "";
+    }
+    return "<blockquote><p><strong>Author's note</strong></p>" + noteHtml + "</blockquote>";
+}
+
+function getChapterText(uid, data) {
+    chapterId = uid.split("/")[1];
+    body = royalRoadRequest(royalRoadBaseUrl() + "/fiction/chapter/" + chapterId, {}, "royal road chapter");
+    document = createHTMLParser(body);
+    content = document.querySelector(".chapter-inner.chapter-content");
+    if(content == null) {
+        if(body.contains("This chapter is locked") || body.contains("premium")) {
+            throwSourceError("loginRequired", "Royal Road keeps this chapter for paying readers");
+        }
+        throw "Royal Road returned an unexpected page (royal road chapter)";
+    }
+    hiddenClasses = royalRoadHiddenClasses(body);
+    chapterHtml = royalRoadVisibleHtml(content, hiddenClasses);
+    if(chapterHtml == "") {
+        throw "the chapter has no text (royal road chapter)";
+    }
+    if(getPreference("authorNotes") != false) {
+        contentAt = body.indexOf("chapter-inner chapter-content");
+        noteMarker = 'class="portlet solid author-note-portlet';
+        noteChunks = body.split(noteMarker);
+        notePositions = [];
+        notePosition = 0;
+        for(k = 0; k < noteChunks.length - 1; k = k + 1) {
+            notePosition = notePosition + noteChunks[k].length;
+            notePositions.push(notePosition);
+            notePosition = notePosition + noteMarker.length;
+        }
+        notes = document.querySelectorAll(".author-note-portlet");
+        beforeNotes = "";
+        afterNotes = "";
+        for(n = 0; n < notes.length; n = n + 1) {
+            noteHtml = royalRoadNoteHtml(notes[n], hiddenClasses);
+            if(noteHtml == "") {
+                continue;
+            }
+            noteAt = -1;
+            if(n < notePositions.length) {
+                noteAt = notePositions[n];
+            }
+            if(noteAt >= 0 && noteAt < contentAt) {
+                beforeNotes = beforeNotes + noteHtml + "<hr>";
+            } else {
+                afterNotes = afterNotes + "<hr>" + noteHtml;
+            }
+        }
+        chapterHtml = beforeNotes + chapterHtml + afterNotes;
+    }
+    chapterTitle = "";
+    titleElement = document.querySelector(".fic-header h1");
+    if(titleElement != null) {
+        chapterTitle = titleElement.text.trim();
+    }
+    if(chapterTitle == "") {
+        return buildNovelChapter({"html": chapterHtml});
+    }
+    return buildNovelChapter({"html": chapterHtml, "title": chapterTitle});
+}
