@@ -62,6 +62,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | Anitube.in.ua | Ukrainian | Player and dub preferences; opening and ending skips |
 | UAFlix | Ukrainian | Movies, series, cartoons and anime; section filter |
 | KinoUkr | Ukrainian | Movies, series and cartoons; section filter; Ashdi players resolved natively, series split into seasons with one audio track per dub; no search (the site guards it with a Cloudflare challenge) |
+| AnimeUA | Ukrainian | animeua.club; new, ongoing, series, films, ONA and OVA feeds, genre filter, search; Ashdi players resolved natively |
 | Цікава Ідея | Ukrainian | Dub team catalogue: movies, series, animation |
 
 ### Novels

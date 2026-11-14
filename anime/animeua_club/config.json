@@ -1,0 +1,97 @@
+{
+  "name": "AnimeUA",
+  "uid": "3be3cbc6-6813-4306-bf27-577096ce7260",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/animeua_club/logo.png?raw=true",
+  "type": 1,
+  "nsfw": false,
+  "language": "Українська",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "anime"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "new",
+      "title": "Новинки"
+    },
+    {
+      "id": "ongoing",
+      "title": "Онґоїнґи"
+    },
+    {
+      "id": "anime",
+      "title": "Серіали"
+    },
+    {
+      "id": "film",
+      "title": "Повнометражки"
+    },
+    {
+      "id": "ona",
+      "title": "ONA"
+    },
+    {
+      "id": "ova",
+      "title": "OVA"
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Жанр",
+      "param": "genre",
+      "values": [
+        "any",
+        "boyovik",
+        "boivie",
+        "voenne",
+        "garems",
+        "demons",
+        "detektiv",
+        "drama",
+        "echhi",
+        "komik",
+        "weird",
+        "posyardnevnist",
+        "adventures",
+        "psih",
+        "meha",
+        "romantik",
+        "fantastika",
+        "fentezi",
+        "classes"
+      ],
+      "labels": [
+        "Будь-який",
+        "Бойовики",
+        "Бойові мистецтва",
+        "Воєнні",
+        "Гарем",
+        "Демони",
+        "Детектив",
+        "Драми",
+        "Еччі",
+        "Комедії",
+        "Надприродні",
+        "Повсякденність",
+        "Пригоди",
+        "Психологічні",
+        "Роботи",
+        "Романтика",
+        "Фантастика",
+        "Фентезі",
+        "Школа"
+      ]
+    }
+  ]
+}

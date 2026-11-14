@@ -1,0 +1,316 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "anime_models";
+import "../../shared/playerjs";
+
+function auaBaseUrl() {
+    return "https://animeua.club";
+}
+
+function auaRequest(path, label, missingIsEmpty) {
+    response = httpGet({
+        "url": auaBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": pjUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "uk-UA,uk;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404 && missingIsEmpty) {
+        return "";
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "AnimeUA has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "AnimeUA asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "AnimeUA answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function auaAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function auaPath(href) {
+    path = href.trim();
+    if(path.startsWith(auaBaseUrl())) {
+        path = path.substring(auaBaseUrl().length);
+    }
+    if(path.startsWith("/")) {
+        path = path.substring(1);
+    }
+    return path.split("?")[0].split("#")[0];
+}
+
+function auaAbsolute(link) {
+    if(link == "" || link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    if(link.startsWith("/")) {
+        return auaBaseUrl() + link;
+    }
+    return auaBaseUrl() + "/" + link;
+}
+
+function auaImage(image) {
+    if(image == null) {
+        return "";
+    }
+    imageUrl = auaAttribute(image, "data-src");
+    if(imageUrl == "") {
+        imageUrl = auaAttribute(image, "src");
+    }
+    return auaAbsolute(imageUrl);
+}
+
+function auaListPath(page, filters, feed) {
+    section = "";
+    if(feed != null && feed != "" && feed != "new") {
+        section = feed;
+    }
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            selected = filters[i]["selected"];
+            if(filterInfo != null && filterInfo["param"] == "genre" && selected != null && selected != "" && selected != "any") {
+                section = parseString(selected);
+            }
+        }
+    }
+    listPath = "";
+    if(section != "") {
+        listPath = "/" + section;
+    }
+    if(page > 1) {
+        return listPath + "/page/" + parseString(page) + "/";
+    }
+    return listPath + "/";
+}
+
+function auaCards(body) {
+    items = [];
+    if(body == "") {
+        return items;
+    }
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll("#dle-content a.poster");
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        uid = auaPath(auaAttribute(cards[c], "href"));
+        if(uid == "" || uid.endsWith(".html") == false || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        title = "";
+        heading = cards[c].querySelector(".poster__title");
+        if(heading != null) {
+            title = heading.text.trim();
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": title,
+            "cover": auaImage(cards[c].querySelector(".poster__img img")),
+            "data": {},
+            "status": statusUndefined()
+        }));
+    }
+    return items;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if(query != null && parseString(query).trim() != "") {
+        searchPath = "/index.php?do=search&subaction=search&story=" + urlEncode(parseString(query).trim());
+        if(page > 1) {
+            searchPath = searchPath + "&search_start=" + parseString(page);
+        }
+        return auaCards(auaRequest(searchPath, "animeua search", true));
+    }
+    return auaCards(auaRequest(auaListPath(page, filters, feed), "animeua list", true));
+}
+
+function auaHeaderValue(document, label) {
+    entries = document.querySelectorAll(".pmovie__header-list li");
+    for(e = 0; e < entries.length; e = e + 1) {
+        heading = entries[e].querySelector("div");
+        if(heading == null || heading.text.trim() != label) {
+            continue;
+        }
+        return entries[e].text.trim().substring(label.length).trim();
+    }
+    return "";
+}
+
+function auaIsDigits(word) {
+    if(word == "") {
+        return false;
+    }
+    for(k = 0; k < word.length; k = k + 1) {
+        if("0123456789".contains(word.substring(k, k + 1)) == false) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function auaYear(text) {
+    words = text.split(" ");
+    for(w = 0; w < words.length; w = w + 1) {
+        word = words[w].trim();
+        if(word.length == 4 && auaIsDigits(word)) {
+            return parseInt(word);
+        }
+    }
+    return null;
+}
+
+function auaPlayers(document) {
+    players = [];
+    frames = document.querySelectorAll(".pmovie__player iframe");
+    for(f = 0; f < frames.length; f = f + 1) {
+        frameUrl = pjAbsolute(auaAttribute(frames[f], "data-src"));
+        if(frameUrl == "") {
+            frameUrl = pjAbsolute(auaAttribute(frames[f], "src"));
+        }
+        if(pjHostOf(frameUrl).contains("ashdi") && players.contains(frameUrl) == false) {
+            players.push(frameUrl);
+        }
+    }
+    return players;
+}
+
+function getConcrete(uid, data) {
+    body = auaRequest("/" + uid, "animeua title", false);
+    document = createHTMLParser(body);
+    heading = document.querySelector(".pmovie h1");
+    if(heading == null) {
+        throw "AnimeUA returned an unexpected page (animeua title)";
+    }
+    shownTitle = heading.text.trim();
+    alternativeTitles = [];
+    originalElement = document.querySelector(".pmovie__original-title");
+    if(originalElement != null && originalElement.text.trim() != "") {
+        alternativeTitles.push(originalElement.text.trim());
+    }
+    description = "";
+    descriptionElement = document.querySelector(".pmovie .full-text");
+    if(descriptionElement != null) {
+        description = descriptionElement.text.trim();
+    }
+    tags = [];
+    statusValue = statusUndefined();
+    genreLinks = document.querySelectorAll(".pmovie__genres a");
+    for(g = 0; g < genreLinks.length; g = g + 1) {
+        href = auaAttribute(genreLinks[g], "href");
+        if(href.endsWith("/ongoing/")) {
+            statusValue = statusOngoing();
+            continue;
+        }
+        genreName = genreLinks[g].text.trim();
+        if(genreName != "" && tags.contains(genreName) == false) {
+            tags.push(genreName);
+        }
+    }
+    translation = auaHeaderValue(document, "Переклад:");
+    if(translation != "") {
+        tags.push("Переклад: " + translation);
+    }
+    authors = [];
+    studio = auaHeaderValue(document, "Студія:");
+    if(studio != "") {
+        authors.push(studio);
+    }
+    director = auaHeaderValue(document, "Режисер:");
+    if(director != "" && authors.contains(director) == false) {
+        authors.push(director);
+    }
+    year = null;
+    yearElement = document.querySelector(".pmovie__year");
+    if(yearElement != null) {
+        year = auaYear(yearElement.text);
+    }
+    groups = [];
+    players = auaPlayers(document);
+    for(p = 0; p < players.length; p = p + 1) {
+        if(groups.isEmpty && players[p].contains("/serial/")) {
+            groups = pjSerialGroups(players[p], auaBaseUrl() + "/");
+        }
+    }
+    if(groups.isEmpty && players.isEmpty == false) {
+        groups.push(buildAnimeVideoGroup({
+            "title": "Фільм",
+            "videos": [buildAnimeVideo({
+                "uid": uid,
+                "src": players[0],
+                "title": shownTitle,
+                "timestamp": null,
+                "type": typeIframe(),
+                "data": {"players": players},
+                "number": 1,
+                "season": null
+            })]
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": auaImage(document.querySelector(".pmovie__poster img")),
+        "description": description,
+        "tags": tags,
+        "status": statusValue,
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "url": auaBaseUrl() + "/" + uid,
+        "groups": groups
+    });
+}
+
+function getVideoSources(uid, src, data) {
+    players = [src];
+    if(data != null && data["players"] != null) {
+        players = data["players"];
+    }
+    sources = [];
+    for(p = 0; p < players.length; p = p + 1) {
+        playerSources = [];
+        try {
+            playerSources = pjSources(players[p], auaBaseUrl() + "/");
+        } catch (e) {
+            playerSources = [];
+        }
+        for(s = 0; s < playerSources.length; s = s + 1) {
+            sources.push(playerSources[s]);
+        }
+    }
+    if(sources.isEmpty) {
+        throwSourceError("unsupported", "AnimeUA has no Ashdi stream for this video");
+    }
+    return sources;
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": pjUserAgent(),
+        "Referer": auaBaseUrl() + "/"
+    };
+}
