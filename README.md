@@ -24,6 +24,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | WeebCentral | English | Popular, latest, new and most subscribed feeds; type, status, official, anime and adult filters; full chapter lists |
 | MangaKatana | English | Latest, new, most chapters and A-Z feeds; genre include/exclude and status filters |
 | Asura Scans (partly paid) | English | Public api.asurascans.com API; latest, popular and A-Z feeds; genre, status and type filters, search; early-access chapters hidden |
+| Flame Comics | English | Next.js page data; popular, latest and A-Z feeds; genre, status and type filters and search over the catalog |
 | Kingofshojo | English | MangaThemesia engine; latest, popular, new and A-Z feeds; status, type and genre filters |
 | Sushiscan | French | MangaThemesia engine; volumes and chapters, same feeds and filters |
 | MangaNato | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |

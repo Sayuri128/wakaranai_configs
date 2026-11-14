@@ -1524,6 +1524,190 @@
     },
     {
       "category": "manga",
+      "path": "manga/flame_comics",
+      "revision": "901bd92afead0a59",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Flame Comics",
+        "uid": "cec28702-aa1e-4c70-89af-5d0be88a7fc0",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/flame_comics/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "manhwa",
+          "manhua",
+          "manga"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 3,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "popular",
+            "title": "Popular"
+          },
+          {
+            "id": "latest",
+            "title": "Latest"
+          },
+          {
+            "id": "title",
+            "title": "A-Z"
+          }
+        ],
+        "filters": [
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Genres",
+            "param": "categories",
+            "values": [
+              [
+                "Academy",
+                "Action",
+                "Adventure",
+                "Apocalypse",
+                "Comedy",
+                "Cultivation",
+                "Drama",
+                "Dungeons",
+                "Fantasy",
+                "Harem",
+                "Historical",
+                "Horror",
+                "Hunter",
+                "Isekai",
+                "Leveling",
+                "Magic",
+                "Martial Arts",
+                "Mature",
+                "Modern Fantasy",
+                "Murim",
+                "Mystery",
+                "Psychological",
+                "Regression",
+                "Reincarnation",
+                "Revenge",
+                "Romance",
+                "School Life",
+                "Sci-fi",
+                "Seinen",
+                "Shoujo",
+                "Shounen",
+                "Slice of Life",
+                "Supernatural",
+                "Survival",
+                "System",
+                "Thriller",
+                "Time Travel",
+                "Tragedy",
+                "Transmigration",
+                "Video Games"
+              ]
+            ],
+            "labels": [
+              [
+                "Academy",
+                "Action",
+                "Adventure",
+                "Apocalypse",
+                "Comedy",
+                "Cultivation",
+                "Drama",
+                "Dungeons",
+                "Fantasy",
+                "Harem",
+                "Historical",
+                "Horror",
+                "Hunter",
+                "Isekai",
+                "Leveling",
+                "Magic",
+                "Martial Arts",
+                "Mature",
+                "Modern Fantasy",
+                "Murim",
+                "Mystery",
+                "Psychological",
+                "Regression",
+                "Reincarnation",
+                "Revenge",
+                "Romance",
+                "School Life",
+                "Sci-fi",
+                "Seinen",
+                "Shoujo",
+                "Shounen",
+                "Slice of Life",
+                "Supernatural",
+                "Survival",
+                "System",
+                "Thriller",
+                "Time Travel",
+                "Tragedy",
+                "Transmigration",
+                "Video Games"
+              ]
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status",
+            "values": [
+              "any",
+              "Ongoing",
+              "Completed",
+              "Hiatus",
+              "Dropped",
+              "Cancelled",
+              "Coming Soon"
+            ],
+            "labels": [
+              "Any",
+              "Ongoing",
+              "Completed",
+              "Hiatus",
+              "Dropped",
+              "Cancelled",
+              "Coming soon"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Type",
+            "param": "type",
+            "values": [
+              "any",
+              "Manhwa",
+              "Manhua",
+              "Manga",
+              "Comic",
+              "Russian"
+            ],
+            "labels": [
+              "Any",
+              "Manhwa",
+              "Manhua",
+              "Manga",
+              "Comic",
+              "Russian"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/hentai_lib",
       "revision": "495aea97718b519c",
       "apiVersion": 2,

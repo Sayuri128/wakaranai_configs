@@ -1,0 +1,416 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "storage";
+import "manga_models";
+
+function flameBaseUrl() {
+    return "https://flamecomics.xyz";
+}
+
+function flameCdnUrl() {
+    return "https://cdn.flamecomics.xyz/uploads/images/series/";
+}
+
+function flameUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function flamePageSize() {
+    return 30;
+}
+
+function flameRawGet(path) {
+    return httpGet({
+        "url": flameBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": flameUserAgent(),
+            "Referer": flameBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+}
+
+function flameFailure(statusCode, label) {
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Flame Comics asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Flame Comics answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function flameFreshBuildId() {
+    response = flameRawGet("/404");
+    body = parseString(response["body"]);
+    marker = '"buildId":"';
+    markerAt = body.indexOf(marker);
+    if(markerAt < 0) {
+        flameFailure(response["statusCode"], "flame build id");
+    }
+    buildId = body.substring(markerAt + marker.length).split('"')[0];
+    storageSet("buildId", buildId, 86400);
+    return buildId;
+}
+
+function flameBuildId() {
+    cached = storageGet("buildId");
+    if(cached != null && parseString(cached) != "") {
+        return parseString(cached);
+    }
+    return flameFreshBuildId();
+}
+
+function flameData(path, label) {
+    response = flameRawGet("/_next/data/" + flameBuildId() + path + ".json");
+    if(response["statusCode"] == 404) {
+        response = flameRawGet("/_next/data/" + flameFreshBuildId() + path + ".json");
+        if(response["statusCode"] == 404) {
+            throwSourceError("notFound", "Flame Comics has no such page (" + label + ")");
+        }
+    }
+    if(response["statusCode"] != 200) {
+        flameFailure(response["statusCode"], label);
+    }
+    pageData = jsonDecode(response["body"]);
+    if(pageData["pageProps"] == null) {
+        throw "Flame Comics returned an unexpected answer (" + label + ")";
+    }
+    if(pageData["pageProps"]["__N_REDIRECT"] != null || pageData["notFound"] == true) {
+        throwSourceError("notFound", "Flame Comics has no such page (" + label + ")");
+    }
+    return pageData["pageProps"];
+}
+
+function flameText(value) {
+    if(value == null) {
+        return "";
+    }
+    return parseString(value).trim();
+}
+
+function flameCover(series) {
+    seriesId = flameText(series["series_id"]);
+    coverName = flameText(series["cover"]);
+    if(seriesId == "" || coverName == "") {
+        return "";
+    }
+    return flameCdnUrl() + seriesId + "/" + coverName + "?" + flameText(series["last_edit"]);
+}
+
+function flameSelections(filters) {
+    selections = {"categories": [], "status": "", "type": ""};
+    if(filters == null) {
+        return selections;
+    }
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterInfo = filters[i]["filter"];
+        chosen = filters[i]["selected"];
+        if(filterInfo == null || chosen == null) {
+            continue;
+        }
+        if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+            if(chosen != "any") {
+                selections[filterInfo["param"]] = parseString(chosen);
+            }
+            continue;
+        }
+        chosenValues = [];
+        for(g = 0; g < chosen.length; g = g + 1) {
+            for(v = 0; v < chosen[g].length; v = v + 1) {
+                chosenValues.push(parseString(chosen[g][v]));
+            }
+        }
+        selections[filterInfo["param"]] = chosenValues;
+    }
+    return selections;
+}
+
+function flameHasSelections(selections) {
+    return selections["categories"].length > 0 || selections["status"] != "" || selections["type"] != "";
+}
+
+function flameMatchesQuery(series, loweredQuery) {
+    if(loweredQuery == "") {
+        return true;
+    }
+    if(flameText(series["title"]).toLowerCase().contains(loweredQuery)) {
+        return true;
+    }
+    altTitles = series["altTitles"];
+    if(altTitles == null) {
+        return false;
+    }
+    for(a = 0; a < altTitles.length; a = a + 1) {
+        if(flameText(altTitles[a]).toLowerCase().contains(loweredQuery)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function flameMatchesSelections(series, selections) {
+    if(selections["status"] != "" && flameText(series["status"]) != selections["status"]) {
+        return false;
+    }
+    if(selections["type"] != "" && flameText(series["type"]) != selections["type"]) {
+        return false;
+    }
+    wanted = selections["categories"];
+    if(wanted.length == 0) {
+        return true;
+    }
+    categories = series["categories"];
+    if(categories == null) {
+        return false;
+    }
+    for(w = 0; w < wanted.length; w = w + 1) {
+        if(categories.contains(wanted[w]) == false) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function flameByPopularity(seriesList) {
+    ranked = [];
+    for(r = 0; r <= seriesList.length; r = r + 1) {
+        ranked.push(null);
+    }
+    unranked = [];
+    for(s = 0; s < seriesList.length; s = s + 1) {
+        rank = seriesList[s]["popularityRank"];
+        if(rank == null || rank < 1 || rank > seriesList.length || ranked[rank] != null) {
+            unranked.push(seriesList[s]);
+        } else {
+            ranked[rank] = seriesList[s];
+        }
+    }
+    ordered = [];
+    for(r = 1; r < ranked.length; r = r + 1) {
+        if(ranked[r] != null) {
+            ordered.push(ranked[r]);
+        }
+    }
+    for(u = 0; u < unranked.length; u = u + 1) {
+        ordered.push(unranked[u]);
+    }
+    return ordered;
+}
+
+function flameLatestSeries() {
+    home = flameData("/index", "flame latest");
+    if(home["latestEntries"] == null || home["latestEntries"]["blocks"] == null) {
+        return [];
+    }
+    blocks = home["latestEntries"]["blocks"];
+    for(b = 0; b < blocks.length; b = b + 1) {
+        if(blocks[b]["series"] != null) {
+            return blocks[b]["series"];
+        }
+    }
+    return [];
+}
+
+function flameCatalog(feed) {
+    browse = flameData("/browse", "flame browse");
+    catalog = [];
+    if(browse["series"] == null) {
+        return catalog;
+    }
+    for(s = 0; s < browse["series"].length; s = s + 1) {
+        if(browse["series"][s]["series_id"] != null) {
+            catalog.push(browse["series"][s]);
+        }
+    }
+    if(feed == "title") {
+        return catalog;
+    }
+    return flameByPopularity(catalog);
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    selections = flameSelections(filters);
+    loweredQuery = "";
+    if(query != null) {
+        loweredQuery = parseString(query).trim().toLowerCase();
+    }
+    candidates = [];
+    if(feed == "latest" && loweredQuery == "" && flameHasSelections(selections) == false) {
+        if(page > 1) {
+            return [];
+        }
+        candidates = flameLatestSeries();
+    } else {
+        candidates = flameCatalog(feed);
+    }
+    matching = [];
+    for(c = 0; c < candidates.length; c = c + 1) {
+        if(flameMatchesQuery(candidates[c], loweredQuery) && flameMatchesSelections(candidates[c], selections)) {
+            matching.push(candidates[c]);
+        }
+    }
+    items = [];
+    firstIndex = (page - 1) * flamePageSize();
+    for(m = firstIndex; m < matching.length && m < firstIndex + flamePageSize(); m = m + 1) {
+        items.push(buildGallery({
+            "uid": flameText(matching[m]["series_id"]),
+            "title": flameText(matching[m]["title"]),
+            "cover": flameCover(matching[m]),
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function flameStatus(statusText) {
+    if(statusText == "Ongoing") {
+        return statusOngoing();
+    }
+    if(statusText == "Completed") {
+        return statusReleased();
+    }
+    if(statusText == "Hiatus") {
+        return statusPaused();
+    }
+    if(statusText == "Dropped" || statusText == "Cancelled") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function flamePlainText(markup) {
+    if(markup == "") {
+        return "";
+    }
+    return parseString(createHTMLParser(markup.replaceAll("</p>", "</p>\n")).text).trim();
+}
+
+function flameChapterNumber(numberText) {
+    if(numberText.endsWith(".00")) {
+        return numberText.substring(0, numberText.length - 3);
+    }
+    if(numberText.contains(".") && numberText.endsWith("0")) {
+        return numberText.substring(0, numberText.length - 1);
+    }
+    return numberText;
+}
+
+function flameAddNames(target, names) {
+    if(names == null) {
+        names = [];
+    }
+    for(n = 0; n < names.length; n = n + 1) {
+        name = flameText(names[n]);
+        if(name != "" && target.contains(name) == false) {
+            target.push(name);
+        }
+    }
+}
+
+function getConcrete(uid, data) {
+    pageProps = flameData("/series/" + uid, "flame series");
+    series = pageProps["series"];
+    if(series == null) {
+        throw "Flame Comics returned an unexpected answer (flame series)";
+    }
+    alternativeTitles = [];
+    flameAddNames(alternativeTitles, series["altTitles"]);
+    authors = [];
+    flameAddNames(authors, series["author"]);
+    flameAddNames(authors, series["artist"]);
+    tags = [];
+    typeText = flameText(series["type"]);
+    if(typeText != "") {
+        tags.push(typeText);
+    }
+    flameAddNames(tags, series["tags"]);
+    chapters = [];
+    chapterList = pageProps["chapters"];
+    if(chapterList != null) {
+        for(c = 0; c < chapterList.length; c = c + 1) {
+            chapterInfo = chapterList[c];
+            token = flameText(chapterInfo["token"]);
+            if(token == "") {
+                continue;
+            }
+            numberText = flameChapterNumber(flameText(chapterInfo["chapter"]));
+            chapterTitle = "Chapter " + numberText;
+            extraTitle = flameText(chapterInfo["title"]);
+            if(extraTitle != "") {
+                chapterTitle = chapterTitle + ": " + extraTitle;
+            }
+            chapterTime = null;
+            if(chapterInfo["release_date"] != null) {
+                chapterTime = parseString(chapterInfo["release_date"] * 1000);
+            }
+            chapters.push(buildChapter({
+                "uid": uid + "/" + token,
+                "title": chapterTitle,
+                "timestamp": chapterTime,
+                "data": {},
+                "number": numberText
+            }));
+        }
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": flameText(series["title"]),
+        "cover": flameCover(series),
+        "description": flamePlainText(flameText(series["description"])),
+        "tags": tags,
+        "status": flameStatus(flameText(series["status"])),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "url": flameBaseUrl() + "/series/" + uid,
+        "groups": groups
+    });
+}
+
+function getPages(uid, data) {
+    uidParts = uid.split("/");
+    pageProps = flameData("/series/" + uidParts[0] + "/" + uidParts[1], "flame chapter");
+    chapterInfo = pageProps["chapter"];
+    pageLinks = [];
+    if(chapterInfo != null && chapterInfo["images"] != null) {
+        images = chapterInfo["images"];
+        version = flameText(chapterInfo["edit_time"]);
+        imageCount = images.keys.length;
+        for(i = 0; i < imageCount + 1; i = i + 1) {
+            image = images[parseString(i)];
+            if(image == null) {
+                continue;
+            }
+            imageName = flameText(image["name"]);
+            if(imageName != "") {
+                pageLinks.push(flameCdnUrl() + uidParts[0] + "/" + uidParts[1] + "/" + urlEncode(imageName) + "?" + version);
+            }
+        }
+    }
+    if(pageLinks.isEmpty) {
+        throwSourceError("notFound", "Flame Comics shows no pages for this chapter");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": flameUserAgent(),
+        "Referer": flameBaseUrl() + "/"
+    };
+}
