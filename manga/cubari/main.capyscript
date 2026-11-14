@@ -1,0 +1,356 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function cubariBaseUrl() {
+    return "https://cubari.moe";
+}
+
+function cubariSources() {
+    return ["gist", "imgur", "reddit", "imgchest", "catbox", "mangadex", "weebcentral"];
+}
+
+function cubariGetJson(path, label) {
+    response = httpGet({
+        "url": cubariBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "Accept": "application/json"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return jsonDecode(response["body"]);
+    }
+    if(statusCode == 404 || statusCode == 400) {
+        throwSourceError("notFound", "Cubari could not open this link (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Cubari asks to slow down (" + label + ")");
+    }
+    if(statusCode >= 500) {
+        throwSourceError("sourceDown", "Cubari answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function cubariSegmentAfter(text, marker) {
+    markerAt = text.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    rest = text.substring(markerAt + marker.length);
+    return rest.split("/")[0].split("?")[0].split("#")[0];
+}
+
+function cubariBase64Url(plainText) {
+    encoded = base64Encode(plainText);
+    return encoded.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function cubariUidFromLink(rawText) {
+    text = rawText.trim();
+    if(text.contains("cubari.moe/read/")) {
+        afterRead = text.substring(text.indexOf("cubari.moe/read/") + 16);
+        readParts = afterRead.split("/");
+        if(readParts.length >= 2) {
+            if(readParts[0] == "api" && readParts.length >= 4) {
+                return readParts[1] + "/" + readParts[3];
+            }
+            return readParts[0] + "/" + readParts[1];
+        }
+        return "";
+    }
+    if(text.contains("imgur")) {
+        albumId = cubariSegmentAfter(text, "/a/");
+        if(albumId == "") {
+            albumId = cubariSegmentAfter(text, "/gallery/");
+        }
+        if(albumId.contains("-")) {
+            albumParts = albumId.split("-");
+            albumId = albumParts[albumParts.length - 1];
+        }
+        if(albumId == "") {
+            return "";
+        }
+        return "imgur/" + albumId;
+    }
+    if(text.contains("git.io/")) {
+        return "gist/" + cubariSegmentAfter(text, "git.io/");
+    }
+    if(text.contains("raw.githubusercontent") || text.contains("gist.githubusercontent")) {
+        withoutScheme = text;
+        if(withoutScheme.contains("://")) {
+            withoutScheme = withoutScheme.split("://")[1];
+        }
+        hostName = withoutScheme.split("/")[0];
+        pathName = withoutScheme.substring(hostName.length).split("?")[0];
+        return "gist/" + cubariBase64Url(hostName.split(".")[0] + pathName);
+    }
+    if(text.contains("mangadex.org/title/")) {
+        return "mangadex/" + cubariSegmentAfter(text, "mangadex.org/title/");
+    }
+    if(text.contains("weebcentral.com/series/")) {
+        return "weebcentral/" + cubariSegmentAfter(text, "weebcentral.com/series/");
+    }
+    if(text.contains("reddit.com")) {
+        postId = cubariSegmentAfter(text, "/comments/");
+        if(postId == "") {
+            postId = cubariSegmentAfter(text, "/gallery/");
+        }
+        if(postId == "") {
+            return "";
+        }
+        return "reddit/" + postId;
+    }
+    if(text.contains("imgchest.com/p/")) {
+        return "imgchest/" + cubariSegmentAfter(text, "imgchest.com/p/");
+    }
+    if(text.contains("catbox.moe/c/")) {
+        return "catbox/" + cubariSegmentAfter(text, "catbox.moe/c/");
+    }
+    if(text.contains("/") && text.contains(" ") == false) {
+        plainParts = text.split("/");
+        if(plainParts.length == 2 && cubariSources().contains(plainParts[0])) {
+            return text;
+        }
+    }
+    return "";
+}
+
+function cubariSeries(uid) {
+    uidParts = uid.split("/");
+    if(uidParts.length < 2) {
+        throwSourceError("notFound", "this is not a Cubari series");
+    }
+    return cubariGetJson("/read/api/" + uidParts[0] + "/series/" + uidParts[1] + "/", "series " + uid);
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if(page > 1 || query == null) {
+        return [];
+    }
+    queryText = parseString(query).trim();
+    if(queryText == "") {
+        return [];
+    }
+    uid = cubariUidFromLink(queryText);
+    if(uid == "") {
+        throwSourceError("unsupported", "paste a gist, imgur, reddit, imgchest, catbox, MangaDex, WeebCentral or cubari.moe link");
+    }
+    series = cubariSeries(uid);
+    return [buildGallery({
+        "uid": uid,
+        "title": cubariTitle(series),
+        "cover": cubariCover(series),
+        "data": {}
+    })];
+}
+
+function cubariTitle(series) {
+    if(series["title"] != null && parseString(series["title"]).trim() != "") {
+        return parseString(series["title"]).trim();
+    }
+    if(series["series_name"] != null) {
+        return parseString(series["series_name"]);
+    }
+    return parseString(series["slug"]);
+}
+
+function cubariCover(series) {
+    if(series["cover"] == null) {
+        return "";
+    }
+    return parseString(series["cover"]);
+}
+
+function cubariPeople(series, key) {
+    people = [];
+    if(series[key] != null) {
+        personText = parseString(series[key]).trim();
+        if(personText != "") {
+            people.push(personText);
+        }
+    }
+    return people;
+}
+
+function cubariMapKeys(sourceMap) {
+    mapKeys = [];
+    if(sourceMap == null) {
+        return mapKeys;
+    }
+    remaining = jsonDecode(jsonEncode(sourceMap));
+    keyCount = remaining.keys.length;
+    for(i = 0; i < keyCount; i = i + 1) {
+        nextKey = remaining.keys.first;
+        mapKeys.push(nextKey);
+        remaining.remove(nextKey);
+    }
+    return mapKeys;
+}
+
+function cubariSortedKeys(chapterMap) {
+    sortedKeys = [];
+    sortedNumbers = [];
+    chapterKeyList = cubariMapKeys(chapterMap);
+    for(ck = 0; ck < chapterKeyList.length; ck = ck + 1) {
+        chapterKey = chapterKeyList[ck];
+        keyNumber = parseDouble(chapterKey);
+        if(keyNumber == null) {
+            keyNumber = 0;
+        }
+        insertAt = sortedKeys.length;
+        for(s = sortedKeys.length - 1; s >= 0; s = s - 1) {
+            if(keyNumber > sortedNumbers[s]) {
+                insertAt = s;
+            }
+        }
+        sortedKeys.insert(insertAt, chapterKey);
+        sortedNumbers.insert(insertAt, keyNumber);
+    }
+    return sortedKeys;
+}
+
+function cubariGroupName(series, groupId) {
+    groupNames = series["groups"];
+    if(groupNames != null && groupNames[groupId] != null) {
+        return parseString(groupNames[groupId]);
+    }
+    return "Chapters";
+}
+
+function getConcrete(uid, data) {
+    series = cubariSeries(uid);
+    chapterMap = series["chapters"];
+    groupIds = [];
+    groupElements = {};
+    if(chapterMap != null) {
+        chapterKeys = cubariSortedKeys(chapterMap);
+        for(k = 0; k < chapterKeys.length; k = k + 1) {
+            chapterKey = chapterKeys[k];
+            chapterInfo = chapterMap[chapterKey];
+            chapterGroups = chapterInfo["groups"];
+            if(chapterGroups == null) {
+                continue;
+            }
+            chapterGroupIds = cubariMapKeys(chapterGroups);
+            for(cg = 0; cg < chapterGroupIds.length; cg = cg + 1) {
+                groupId = chapterGroupIds[cg];
+                if(groupIds.contains(groupId) == false) {
+                    groupIds.push(groupId);
+                    groupElements[groupId] = [];
+                }
+                groupChapters = groupElements[groupId];
+                groupChapters.push(cubariChapter(uid, chapterKey, groupId, chapterInfo));
+            }
+        }
+    }
+    groups = [];
+    for(g = 0; g < groupIds.length; g = g + 1) {
+        groups.push(buildChapterGroups({
+            "title": cubariGroupName(series, groupIds[g]),
+            "elements": groupElements[groupIds[g]]
+        }));
+    }
+    description = "";
+    if(series["description"] != null) {
+        description = parseString(series["description"]);
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": cubariTitle(series),
+        "cover": cubariCover(series),
+        "description": description,
+        "tags": [],
+        "status": statusUndefined(),
+        "alternativeTitles": [],
+        "authors": cubariPeople(series, "author"),
+        "artists": cubariPeople(series, "artist"),
+        "url": cubariBaseUrl() + "/read/" + uid + "/",
+        "groups": groups
+    });
+}
+
+function cubariChapter(uid, chapterKey, groupId, chapterInfo) {
+    chapterTitle = "Chapter " + chapterKey;
+    if(chapterInfo["title"] != null) {
+        namedTitle = parseString(chapterInfo["title"]).trim();
+        if(namedTitle != "") {
+            if(namedTitle.contains(chapterKey)) {
+                chapterTitle = namedTitle;
+            } else {
+                chapterTitle = chapterTitle + ": " + namedTitle;
+            }
+        }
+    }
+    chapterTime = null;
+    releaseDates = chapterInfo["release_date"];
+    if(releaseDates != null) {
+        if(releaseDates[groupId] != null) {
+            chapterTime = parseString(releaseDates[groupId] * 1000);
+        }
+    }
+    return buildChapter({
+        "uid": uid + "/" + chapterKey + "/" + groupId,
+        "title": chapterTitle,
+        "timestamp": chapterTime,
+        "data": {},
+        "number": chapterKey,
+        "volume": chapterInfo["volume"]
+    });
+}
+
+function cubariPageUrl(pageEntry) {
+    if(pageEntry == null) {
+        return "";
+    }
+    if(parseString(pageEntry).startsWith("{")) {
+        if(pageEntry["src"] != null) {
+            return parseString(pageEntry["src"]);
+        }
+        return "";
+    }
+    return parseString(pageEntry);
+}
+
+function getPages(uid, data) {
+    uidParts = uid.split("/");
+    series = cubariSeries(uidParts[0] + "/" + uidParts[1]);
+    chapterInfo = series["chapters"][uidParts[2]];
+    if(chapterInfo == null) {
+        throwSourceError("notFound", "this chapter is no longer on Cubari");
+    }
+    pageSource = chapterInfo["groups"][uidParts[3]];
+    if(pageSource == null) {
+        throwSourceError("notFound", "this chapter is no longer on Cubari");
+    }
+    pageEntries = pageSource;
+    if(parseString(pageSource).startsWith("/")) {
+        pageEntries = cubariGetJson(parseString(pageSource), "chapter " + uid);
+    }
+    pageLinks = [];
+    for(p = 0; p < pageEntries.length; p = p + 1) {
+        pageUrl = cubariPageUrl(pageEntries[p]);
+        if(pageUrl != "") {
+            pageLinks.push(pageUrl);
+        }
+    }
+    if(pageLinks.isEmpty) {
+        throwSourceError("notFound", "Cubari returned no pages for this chapter");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": cubariBaseUrl() + "/"
+    };
+}

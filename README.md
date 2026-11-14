@@ -20,6 +20,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | AComics | Russian | Webcomics; updates, popular and longest feeds; genre, age, type and publication filters; every 24 issues form one chapter; R and NC-17 comics are left out (the site asks for age confirmation) |
 | MangaPill | English | Latest chapters, trending and browse feeds; type, status and genre filters |
 | MangaNato | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |
+| Cubari | English | No catalog: paste a gist, imgur, reddit, imgchest, catbox, MangaDex, WeebCentral or cubari.moe link into search; chapters grouped by scanlation group |
 | MangaRead | English | Madara engine |
 | Mangasushi | English | Madara engine |
 | LHTranslation | English | Madara engine |

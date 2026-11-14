@@ -1,0 +1,24 @@
+{
+  "name": "Cubari",
+  "uid": "26fa0287-6fad-450d-b658-119f1a9a10d4",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/cubari/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "language": "English",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "manga",
+    "comic"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "filters": []
+}
