@@ -1,0 +1,436 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function desuBaseUrl() {
+    return "https://desu.uno";
+}
+
+function desuHeaders(acceptText) {
+    return {
+        "Accept": acceptText,
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Referer": desuBaseUrl() + "/"
+    };
+}
+
+function desuCheckStatus(response, label) {
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Desu has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Desu asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Desu answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function desuGetHtml(path, requestParams, label) {
+    response = httpGet({
+        "url": desuBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": desuHeaders("text/html,application/xhtml+xml"),
+        "throughWeb": false
+    });
+    return desuCheckStatus(response, label);
+}
+
+function desuGetJson(path, label) {
+    response = httpGet({
+        "url": desuBaseUrl() + "/api" + path,
+        "params": {},
+        "paths": {},
+        "headers": desuHeaders("application/json"),
+        "throughWeb": false
+    });
+    return jsonDecode(desuCheckStatus(response, label));
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        if(page > 1) {
+            return [];
+        }
+        return desuSearch(trimmedQuery);
+    }
+    catalogParams = desuCatalogParams(filters, feed);
+    if(page > 1) {
+        catalogParams["page"] = parseString(page);
+    }
+    body = desuGetHtml("/manga/", catalogParams, "desu catalog");
+    return desuCatalogItems(body);
+}
+
+function desuFeedOrder(feedId) {
+    if(feedId == "popular") {
+        return "popular";
+    }
+    if(feedId == "new") {
+        return "id";
+    }
+    return "";
+}
+
+function desuCatalogParams(filters, feed) {
+    selections = desuFilterSelections(filters);
+    catalogParams = {};
+    filterParams = ["kinds", "status", "genres"];
+    for(f = 0; f < filterParams.length; f = f + 1) {
+        chosenValues = selections[filterParams[f]];
+        if(chosenValues.length > 0) {
+            chosenValues.sort();
+            catalogParams[filterParams[f]] = chosenValues.join(",");
+        }
+    }
+    orderBy = desuFeedOrder(feed);
+    if(orderBy != "") {
+        catalogParams["order_by"] = orderBy;
+    }
+    return catalogParams;
+}
+
+function desuFilterSelections(filters) {
+    selections = {
+        "kinds": [],
+        "status": [],
+        "genres": []
+    };
+    if(filters == null) {
+        return selections;
+    }
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filterInfo = filterData["filter"];
+        if(filterInfo == null) {
+            continue;
+        }
+        chosenValues = selections[filterInfo["param"]];
+        if(chosenValues == null) {
+            continue;
+        }
+        chosenGroups = filterData["selected"];
+        if(chosenGroups == null) {
+            continue;
+        }
+        for(g = 0; g < chosenGroups.length; g = g + 1) {
+            chosenGroup = chosenGroups[g];
+            for(v = 0; v < chosenGroup.length; v = v + 1) {
+                chosenValues.push(parseString(chosenGroup[v]));
+            }
+        }
+    }
+    return selections;
+}
+
+function desuAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function desuTitleId(href) {
+    trimmedHref = href.trim();
+    if(trimmedHref.endsWith("/")) {
+        trimmedHref = trimmedHref.substring(0, trimmedHref.length - 1);
+    }
+    pathParts = trimmedHref.split("/");
+    slugPart = pathParts[pathParts.length - 1];
+    if(slugPart.contains(".") == false) {
+        return "";
+    }
+    slugParts = slugPart.split(".");
+    return slugParts[slugParts.length - 1];
+}
+
+function desuBackgroundUrl(styleText) {
+    urlStart = styleText.indexOf("url('");
+    if(urlStart < 0) {
+        return "";
+    }
+    afterStart = styleText.substring(urlStart + 5);
+    urlEnd = afterStart.indexOf("'");
+    if(urlEnd < 0) {
+        return "";
+    }
+    return afterStart.substring(0, urlEnd);
+}
+
+function desuCatalogItems(body) {
+    document = createHTMLParser(body);
+    entries = document.querySelectorAll("li.memberListItem");
+    items = [];
+    for(e = 0; e < entries.length; e = e + 1) {
+        entry = entries[e];
+        titleLink = entry.querySelector("a.animeTitle");
+        if(titleLink == null) {
+            continue;
+        }
+        titleId = desuTitleId(desuAttribute(titleLink, "href"));
+        if(titleId == "") {
+            continue;
+        }
+        shownTitle = titleLink.text.trim();
+        russianTitle = entry.querySelector("[itemprop='title']");
+        if(russianTitle != null) {
+            if(russianTitle.text.trim() != "") {
+                shownTitle = russianTitle.text.trim();
+            }
+        }
+        coverUrl = "";
+        coverElement = entry.querySelector("span.img");
+        if(coverElement != null) {
+            coverUrl = desuBackgroundUrl(desuAttribute(coverElement, "style"));
+        }
+        items.push(buildGallery({
+            "uid": titleId,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function desuSearch(searchText) {
+    response = httpPost({
+        "url": desuBaseUrl() + "/manga/search/",
+        "params": {},
+        "paths": {},
+        "body": {
+            "q": searchText,
+            "type": "manga",
+            "_xfToken": "",
+            "_xfResponseType": "json",
+            "_xfNoRedirect": "1"
+        },
+        "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": desuBaseUrl() + "/manga/"
+        },
+        "throughWeb": false
+    });
+    searchResult = jsonDecode(desuCheckStatus(response, "desu search"));
+    templateHtml = searchResult["templateHtml"];
+    if(templateHtml == null) {
+        return [];
+    }
+    document = createHTMLParser(templateHtml);
+    cards = document.querySelectorAll("li.AniMangaSearchCard");
+    items = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        cardLink = cards[c].querySelector("a.AniMangaSearchCard__link");
+        if(cardLink == null) {
+            continue;
+        }
+        titleId = desuTitleId(desuAttribute(cardLink, "href"));
+        if(titleId == "") {
+            continue;
+        }
+        cardTitle = cards[c].querySelector(".AniMangaSearchCard__title");
+        cardCover = cards[c].querySelector("img.AniMangaSearchCard__cover");
+        shownTitle = "";
+        if(cardTitle != null) {
+            shownTitle = cardTitle.text.trim();
+        }
+        coverUrl = "";
+        if(cardCover != null) {
+            coverUrl = desuAttribute(cardCover, "src").replaceFirst("/covers/x120/", "/covers/preview/");
+        }
+        items.push(buildGallery({
+            "uid": titleId,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function desuStatus(titleStatus, translationStatus) {
+    if(titleStatus == "ongoing") {
+        return statusOngoing();
+    }
+    if(titleStatus == "released") {
+        if(translationStatus == "continued") {
+            return statusOngoing();
+        }
+        return statusReleased();
+    }
+    if(titleStatus == "anons") {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function desuKindLabel(kindSlug) {
+    kindLabels = {
+        "manga": "Манга",
+        "manhwa": "Манхва",
+        "manhua": "Маньхуа",
+        "one_shot": "Ваншот",
+        "comics": "Комикс"
+    };
+    if(kindLabels[kindSlug] == null) {
+        return null;
+    }
+    return kindLabels[kindSlug];
+}
+
+function desuYear(epochSeconds) {
+    if(epochSeconds == null) {
+        return null;
+    }
+    yearText = parseString(1970 + (epochSeconds + 43200) / 31556952).split(".")[0];
+    return parseInt(yearText);
+}
+
+function getConcrete(uid, data) {
+    titleInfo = desuGetJson("/manga/" + uid, "desu title")["manga"];
+    chapterList = desuGetJson("/manga/" + uid + "/chapters", "desu chapters")["chapters"];
+    chapters = [];
+    if(chapterList != null) {
+        for(c = 0; c < chapterList.length; c = c + 1) {
+            if(chapterList[c]["is_readable"] == false) {
+                continue;
+            }
+            chapters.push(desuChapter(uid, chapterList[c]));
+        }
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Главы",
+            "elements": chapters
+        }));
+    }
+    shownTitle = titleInfo["russian"];
+    if(shownTitle == null || shownTitle == "") {
+        shownTitle = titleInfo["name"];
+    }
+    alternativeTitles = [];
+    if(titleInfo["name"] != null && titleInfo["name"] != shownTitle) {
+        alternativeTitles.push(titleInfo["name"]);
+    }
+    if(titleInfo["synonyms"] != null) {
+        for(s = 0; s < titleInfo["synonyms"].length; s = s + 1) {
+            if(alternativeTitles.contains(titleInfo["synonyms"][s]) == false) {
+                alternativeTitles.push(titleInfo["synonyms"][s]);
+            }
+        }
+    }
+    tags = [];
+    kindLabel = desuKindLabel(titleInfo["kind"]);
+    if(kindLabel != null) {
+        tags.push(kindLabel);
+    }
+    if(titleInfo["genres"] != null) {
+        for(g = 0; g < titleInfo["genres"].length; g = g + 1) {
+            tags.push(titleInfo["genres"][g]["name"]);
+        }
+    }
+    authors = [];
+    if(titleInfo["authors"] != null) {
+        for(a = 0; a < titleInfo["authors"].length; a = a + 1) {
+            authorName = titleInfo["authors"][a]["name"];
+            if(authorName != null) {
+                authors.push(authorName);
+            }
+        }
+    }
+    coverUrl = "";
+    if(titleInfo["cover"] != null) {
+        coverUrl = titleInfo["cover"]["preview"];
+    }
+    rating = null;
+    if(titleInfo["score"] != null) {
+        rating = titleInfo["score"]["value"];
+    }
+    description = titleInfo["description"];
+    if(description == null) {
+        description = "";
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": desuStatus(titleInfo["status"], titleInfo["trans_status"]),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": desuYear(titleInfo["aired_on"]),
+        "rating": rating,
+        "url": titleInfo["view_url"],
+        "groups": groups
+    });
+}
+
+function desuChapter(titleId, chapterInfo) {
+    volumeText = parseString(chapterInfo["volume"]);
+    numberText = parseString(chapterInfo["number"]);
+    chapterLabel = "";
+    if(volumeText != "" && volumeText != "0" && volumeText != "null") {
+        chapterLabel = "Том " + volumeText + " ";
+    }
+    chapterLabel = chapterLabel + "Глава " + numberText;
+    chapterName = chapterInfo["title"];
+    if(chapterName != null) {
+        if(parseString(chapterName).trim() != "") {
+            chapterLabel = chapterLabel + " - " + parseString(chapterName).trim();
+        }
+    }
+    chapterTime = null;
+    if(chapterInfo["publish_date"] != null) {
+        chapterTime = parseString(chapterInfo["publish_date"] * 1000);
+    }
+    return buildChapter({
+        "uid": titleId + "/" + parseString(chapterInfo["id"]),
+        "title": chapterLabel,
+        "timestamp": chapterTime,
+        "data": {},
+        "number": numberText,
+        "volume": volumeText
+    });
+}
+
+function getPages(uid, data) {
+    uidParts = uid.split("/");
+    chapterInfo = desuGetJson("/manga/" + uidParts[0] + "/chapters/" + uidParts[1], "desu chapter")["chapter"];
+    chapterPages = chapterInfo["pages"];
+    if(chapterPages == null || chapterPages.isEmpty) {
+        throwSourceError("notFound", "Desu has no pages for this chapter yet");
+    }
+    pageLinks = [];
+    for(p = 0; p < chapterPages.length; p = p + 1) {
+        pageLinks.push(chapterPages[p]["url"]);
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": desuBaseUrl() + "/"
+    };
+}

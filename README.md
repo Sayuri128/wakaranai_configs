@@ -13,6 +13,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | MangaDex | Multi | Popular and latest feeds; chapter languages and page size in the extension settings; status, demographic and content-rating filters |
 | MangaLib | Russian | Requires login; shares the session with HentaiLib and RanobeLib |
 | ReManga | Russian | Translation branches; type, status, genre and age filters; paid chapters hidden |
+| Desu | Russian | desu.uno; popular, updates and new feeds; type, status and genre filters |
 | Honey Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
 | Zenko | Ukrainian | Type, status and genre filters; chapters grouped by team |
 | Manga/in/UA | Ukrainian | |
