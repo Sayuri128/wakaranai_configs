@@ -1,0 +1,24 @@
+import "../../shared/madara";
+
+function madaraSettings() {
+    return {
+        "baseUrl": "https://mangadistrict.com",
+        "pageExclude": ["/assets/publication/media/"]
+    };
+}
+
+function getGallery(page, query, filters) {
+    return madaraGetGallery(madaraSettings(), page, query, filters);
+}
+
+function getConcrete(uid, data) {
+    return madaraGetConcrete(madaraSettings(), uid);
+}
+
+function getPages(uid, data) {
+    return madaraGetPages(madaraSettings(), uid);
+}
+
+function getImageHeaders(uid, data) {
+    return madaraGetImageHeaders(madaraSettings());
+}
