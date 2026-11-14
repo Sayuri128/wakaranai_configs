@@ -44,6 +44,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | Extension | Language | Notes |
 |---|---|---|
 | AniLibria | Russian | AniLibria (AniLiberty) dubs; updates, popular, ongoing and new feeds; genre, type, season, year and status filters; 1080/720/480 HLS with opening and ending skips |
+| AniDub | Russian | AniDub dubs from its own player (HLS); section filter (ongoing, series, movies, OVA, ONA, dramas, cartoons, dubbing); search |
 | AnimeLib | Russian | Requires login, shares the MangaLib session; popular, new episodes and new feeds; genre, type, status, year and rating filters; Kodik dubs play natively, the most watched or preferred teams first (count and team names in the extension settings) |
 | AnimeVost | Russian | Latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
 | YummyAnime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; an optional application token can be set in the extension settings |

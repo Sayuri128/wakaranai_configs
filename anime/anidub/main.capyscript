@@ -1,0 +1,365 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "anime_models";
+
+function anidubBaseUrl() {
+    return "https://anidub.com";
+}
+
+function anidubUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function anidubFetch(url, requestParams, referer, label, missingIsEmpty) {
+    response = httpGet({
+        "url": url,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": anidubUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9",
+            "Referer": referer
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404 && missingIsEmpty) {
+        return "";
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "AniDub has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "AniDub asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "AniDub answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function anidubAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function anidubAbsolute(link) {
+    if(link == "" || link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    if(link.startsWith("/")) {
+        return anidubBaseUrl() + link;
+    }
+    return anidubBaseUrl() + "/" + link;
+}
+
+function anidubPath(href) {
+    path = href.trim();
+    if(path.startsWith(anidubBaseUrl())) {
+        path = path.substring(anidubBaseUrl().length);
+    }
+    if(path.startsWith("/")) {
+        path = path.substring(1);
+    }
+    return path.split("?")[0].split("#")[0];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    body = "";
+    if(query != null && parseString(query).trim() != "") {
+        body = anidubFetch(anidubBaseUrl() + "/index.php", {
+            "do": "search",
+            "subaction": "search",
+            "search_start": parseString(page),
+            "full_search": "0",
+            "result_from": parseString((page - 1) * 20 + 1),
+            "story": parseString(query).trim()
+        }, anidubBaseUrl() + "/", "anidub search", true);
+    } else {
+        section = "";
+        if(filters != null) {
+            for(i = 0; i < filters.length; i = i + 1) {
+                filterInfo = filters[i]["filter"];
+                if(filterInfo != null && filterInfo["param"] == "section" && filters[i]["selected"] != null) {
+                    section = parseString(filters[i]["selected"]);
+                }
+            }
+        }
+        listPath = "/";
+        if(section != "") {
+            listPath = "/" + section + "/";
+        }
+        if(page > 1) {
+            listPath = listPath + "page/" + parseString(page) + "/";
+        }
+        body = anidubFetch(anidubBaseUrl() + listPath, {}, anidubBaseUrl() + "/", "anidub list", true);
+    }
+    if(body == "") {
+        return [];
+    }
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll("#dle-content .th-item");
+    items = [];
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        link = cards[c].querySelector("a.th-in");
+        if(link == null) {
+            continue;
+        }
+        uid = anidubPath(anidubAttribute(link, "href"));
+        if(uid.endsWith(".html") == false || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        titleElement = cards[c].querySelector(".th-title");
+        coverElement = cards[c].querySelector(".th-img img");
+        shownTitle = uid;
+        if(titleElement != null) {
+            shownTitle = titleElement.text.trim();
+        }
+        coverUrl = "";
+        if(coverElement != null) {
+            coverUrl = anidubAbsolute(anidubAttribute(coverElement, "src"));
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {},
+            "status": statusUndefined()
+        }));
+    }
+    return items;
+}
+
+function anidubListLine(document, label) {
+    lines = document.querySelectorAll("ul.flist li");
+    for(l = 0; l < lines.length; l = l + 1) {
+        heading = lines[l].querySelector("span");
+        if(heading == null) {
+            continue;
+        }
+        if(heading.text.trim().startsWith(label)) {
+            return lines[l];
+        }
+    }
+    return null;
+}
+
+function anidubLinkTexts(line) {
+    texts = [];
+    if(line == null) {
+        return texts;
+    }
+    links = line.querySelectorAll("a");
+    for(a = 0; a < links.length; a = a + 1) {
+        linkText = links[a].text.trim();
+        if(linkText != "" && texts.contains(linkText) == false) {
+            texts.push(linkText);
+        }
+    }
+    return texts;
+}
+
+function anidubBetween(haystack, startMarker, endMarker) {
+    startAt = haystack.indexOf(startMarker);
+    if(startAt < 0) {
+        return null;
+    }
+    rest = haystack.substring(startAt + startMarker.length);
+    endAt = rest.indexOf(endMarker);
+    if(endAt < 0) {
+        return null;
+    }
+    return rest.substring(0, endAt);
+}
+
+function anidubPlayerOrigin(playerUrl) {
+    afterScheme = playerUrl.split("://")[1];
+    return "https://" + afterScheme.split("/")[0];
+}
+
+function anidubEpisodeNumber(episodeLabel) {
+    firstWord = episodeLabel.trim().split(" ")[0];
+    episodeNumber = null;
+    try {
+        episodeNumber = parseDouble(firstWord);
+    } catch (e) {
+        episodeNumber = null;
+    }
+    return episodeNumber;
+}
+
+function anidubEpisodes(playerUrl, shownTitle, titleUrl) {
+    playerPage = anidubFetch(playerUrl, {}, titleUrl, "anidub player", true);
+    if(playerPage == "") {
+        return [];
+    }
+    contextText = anidubBetween(playerPage, "window.PLAYER_CONTEXT = ", ";" + `
+`);
+    if(contextText == null) {
+        return [];
+    }
+    context = jsonDecode(contextText.trim());
+    origin = anidubPlayerOrigin(playerUrl);
+    episodes = context["episodes"];
+    videos = [];
+    if(episodes == null || episodes.isEmpty) {
+        currentLink = context["currentLink"];
+        if(currentLink == null) {
+            return videos;
+        }
+        episodes = [{"link": currentLink, "label": shownTitle}];
+    }
+    for(e = 0; e < episodes.length; e = e + 1) {
+        episode = episodes[e];
+        streamUrl = origin + "/vid.php?v=" + urlEncode(episode["link"]);
+        episodeLabel = parseString(episode["label"]).trim();
+        videos.push(buildAnimeVideo({
+            "uid": streamUrl,
+            "src": streamUrl,
+            "title": episodeLabel,
+            "timestamp": null,
+            "type": typeDirect(),
+            "data": {"referer": origin + "/"},
+            "number": anidubEpisodeNumber(episodeLabel),
+            "season": null
+        }));
+    }
+    return videos;
+}
+
+function getConcrete(uid, data) {
+    titleUrl = anidubBaseUrl() + "/" + uid;
+    body = anidubFetch(titleUrl, {}, anidubBaseUrl() + "/", "anidub title", false);
+    document = createHTMLParser(body);
+    heading = document.querySelector(".fright h1");
+    if(heading == null) {
+        heading = document.querySelector("h1");
+    }
+    if(heading == null) {
+        throw "AniDub returned an unexpected page (anidub title)";
+    }
+    shownTitle = heading.text.trim();
+    alternativeTitles = [];
+    originalElement = document.querySelector(".fright h3");
+    if(originalElement != null && originalElement.text.trim() != "") {
+        alternativeTitles.push(originalElement.text.trim());
+    }
+    coverUrl = "";
+    coverImage = document.querySelector(".fposter img");
+    if(coverImage != null) {
+        coverUrl = anidubAbsolute(anidubAttribute(coverImage, "src"));
+    }
+    descriptionParts = [];
+    paragraphs = document.querySelectorAll(".fdesc p");
+    for(p = 0; p < paragraphs.length; p = p + 1) {
+        paragraphText = paragraphs[p].text.trim();
+        if(paragraphText != "") {
+            descriptionParts.push(paragraphText);
+        }
+    }
+    tags = anidubLinkTexts(anidubListLine(document, "Жанр"));
+    metaLinks = document.querySelectorAll(".fmeta a");
+    year = null;
+    for(m = 0; m < metaLinks.length; m = m + 1) {
+        metaText = metaLinks[m].text.trim();
+        if(metaText.length == 4 && "12".contains(metaText.substring(0, 1))) {
+            year = parseInt(metaText);
+        } else {
+            if(metaText != "" && tags.contains(metaText) == false) {
+                tags.push(metaText);
+            }
+        }
+    }
+    authors = anidubLinkTexts(anidubListLine(document, "Режисс"));
+    dubbers = anidubLinkTexts(anidubListLine(document, "Озвуч"));
+    statusValue = statusUndefined();
+    progressElement = document.querySelector(".fright h4");
+    if(progressElement != null) {
+        progressText = progressElement.text.toLowerCase();
+        if(progressText.contains("серии") && progressText.contains("из")) {
+            progressParts = progressText.split("из");
+            doneText = progressParts[0].trim().split(" ");
+            totalText = progressParts[1].trim().split(" ")[0];
+            if(doneText[doneText.length - 1] == totalText) {
+                statusValue = statusReleased();
+            } else {
+                statusValue = statusOngoing();
+            }
+        }
+    }
+    if(tags.contains("Аниме Ongoing")) {
+        statusValue = statusOngoing();
+    }
+    videos = [];
+    playerFrame = document.querySelector("iframe#playeriframe");
+    if(playerFrame != null) {
+        playerUrl = anidubAbsolute(anidubAttribute(playerFrame, "src").replaceAll("&amp;", "&"));
+        if(playerUrl != "") {
+            videos = anidubEpisodes(playerUrl, shownTitle, titleUrl);
+        }
+    }
+    groups = [];
+    if(videos.length > 0) {
+        groupTitle = "Серии";
+        if(dubbers.length > 0) {
+            groupTitle = "Озвучка: " + dubbers.join(", ");
+        }
+        groups.push(buildAnimeVideoGroup({
+            "title": groupTitle,
+            "videos": videos
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": coverUrl,
+        "description": descriptionParts.join(`
+`),
+        "tags": tags,
+        "status": statusValue,
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "url": titleUrl,
+        "groups": groups
+    });
+}
+
+function getVideoSources(uid, src, data) {
+    referer = anidubBaseUrl() + "/";
+    if(data != null && data["referer"] != null) {
+        referer = data["referer"];
+    }
+    return [{
+        "url": src,
+        "quality": "Auto",
+        "format": "hls",
+        "headers": {
+            "User-Agent": anidubUserAgent(),
+            "Referer": referer
+        },
+        "audioLabel": "AniDub"
+    }];
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": anidubUserAgent(),
+        "Referer": anidubBaseUrl() + "/"
+    };
+}

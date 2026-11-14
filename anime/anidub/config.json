@@ -1,0 +1,53 @@
+{
+  "name": "AniDub",
+  "uid": "ad3894da-76f5-4911-959f-09b5f7aec876",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/anidub/logo.png?raw=true",
+  "type": 1,
+  "nsfw": false,
+  "language": "Русский",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "anime",
+    "series",
+    "cartoon"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Раздел",
+      "param": "section",
+      "values": [
+        "",
+        "anime_ongoing",
+        "full",
+        "anime_movie",
+        "anime_ova",
+        "anime_ona",
+        "dorama",
+        "animation",
+        "adubbing"
+      ],
+      "labels": [
+        "Всё",
+        "Онгоинги",
+        "Аниме сериалы",
+        "Фильмы",
+        "OVA",
+        "ONA",
+        "Дорамы",
+        "Мультфильмы",
+        "Дубляж"
+      ]
+    }
+  ]
+}

@@ -7576,6 +7576,66 @@
     },
     {
       "category": "anime",
+      "path": "anime/anidub",
+      "revision": "c0d944b5b1bbf5bd",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "AniDub",
+        "uid": "ad3894da-76f5-4911-959f-09b5f7aec876",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/anidub/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Русский",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "anime",
+          "series",
+          "cartoon"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Раздел",
+            "param": "section",
+            "values": [
+              "",
+              "anime_ongoing",
+              "full",
+              "anime_movie",
+              "anime_ova",
+              "anime_ona",
+              "dorama",
+              "animation",
+              "adubbing"
+            ],
+            "labels": [
+              "Всё",
+              "Онгоинги",
+              "Аниме сериалы",
+              "Фильмы",
+              "OVA",
+              "ONA",
+              "Дорамы",
+              "Мультфильмы",
+              "Дубляж"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/anihub",
       "revision": "63f584b32b5b9022",
       "apiVersion": 2,
@@ -9387,7 +9447,7 @@
     {
       "category": "anime",
       "path": "anime/yummyanime",
-      "revision": "8b1f056fa9648207",
+      "revision": "75a47b9f0d6602d9",
       "apiVersion": 2,
       "minAppVersion": "1.0.0",
       "config": {
