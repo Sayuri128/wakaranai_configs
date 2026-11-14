@@ -1,0 +1,347 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "storage";
+import "manga_models";
+
+function ehBaseUrl() {
+    return "https://e-hentai.org";
+}
+
+function ehPagesPerChapter() {
+    return 20;
+}
+
+function ehUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function ehGet(url, requestParams, label) {
+    response = httpGet({
+        "url": url,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": ehUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Cookie": "nw=1"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    body = parseString(response["body"]);
+    if(statusCode == 200 && body.startsWith("Your IP address has been temporarily banned")) {
+        throwSourceError("rateLimited", "E-Hentai temporarily banned this IP for too many requests (" + label + ")");
+    }
+    if(statusCode == 200) {
+        return body;
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "E-Hentai has no such page (" + label + ")");
+    }
+    if(statusCode == 429 || statusCode == 509) {
+        throwSourceError("rateLimited", "E-Hentai asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "E-Hentai answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function ehAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function ehGalleryUid(href) {
+    marker = "/g/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    parts = href.substring(markerAt + marker.length).split("/");
+    if(parts.length < 2) {
+        return "";
+    }
+    return parts[0] + "/" + parts[1];
+}
+
+function ehSearchParams(query, filters) {
+    searchParams = {};
+    searchText = "";
+    if(query != null) {
+        searchText = parseString(query).trim();
+    }
+    language = getPreference("language");
+    if(language != null && language != "") {
+        searchText = (searchText + " language:" + language).trim();
+    }
+    if(searchText != "") {
+        searchParams["f_search"] = searchText;
+    }
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            chosen = filters[i]["selected"];
+            if(filterInfo == null || chosen == null || filterInfo["param"] != "categories") {
+                continue;
+            }
+            shown = 0;
+            chosenCount = 0;
+            for(g = 0; g < chosen.length; g = g + 1) {
+                for(v = 0; v < chosen[g].length; v = v + 1) {
+                    shown = shown + parseInt(parseString(chosen[g][v]));
+                    chosenCount = chosenCount + 1;
+                }
+            }
+            if(chosenCount > 0) {
+                searchParams["f_cats"] = parseString(1023 - shown);
+            }
+        }
+    }
+    return searchParams;
+}
+
+function ehCursorKey(searchParams, page) {
+    return "next:" + base64Encode(jsonEncode(searchParams)) + ":" + parseString(page);
+}
+
+function ehNextCursor(body) {
+    marker = 'id="unext" href="';
+    markerAt = body.indexOf(marker);
+    if(markerAt < 0) {
+        return null;
+    }
+    nextHref = body.substring(markerAt + marker.length).split('"')[0].replaceAll("&amp;", "&");
+    nextAt = nextHref.indexOf("next=");
+    if(nextAt < 0) {
+        return null;
+    }
+    return nextHref.substring(nextAt + 5).split("&")[0];
+}
+
+function ehListPage(searchParams, page) {
+    startPage = page;
+    cursor = null;
+    if(page > 1) {
+        cursor = storageGet(ehCursorKey(searchParams, page));
+        if(cursor == null || cursor == "") {
+            startPage = 1;
+        }
+    }
+    body = null;
+    for(current = startPage; current <= page; current = current + 1) {
+        if(current > startPage && body == null) {
+            continue;
+        }
+        pageParams = jsonDecode(jsonEncode(searchParams));
+        if(current > 1) {
+            pageParams["next"] = cursor;
+        }
+        body = ehGet(ehBaseUrl() + "/", pageParams, "e-hentai list");
+        cursor = ehNextCursor(body);
+        if(cursor != null) {
+            storageSet(ehCursorKey(searchParams, current + 1), cursor, 3600);
+        } else {
+            if(current < page) {
+                body = null;
+            }
+        }
+    }
+    return body;
+}
+
+function ehListItems(body) {
+    if(body == null) {
+        return [];
+    }
+    document = createHTMLParser(body);
+    rows = document.querySelectorAll("table.itg tr");
+    items = [];
+    seen = [];
+    for(r = 0; r < rows.length; r = r + 1) {
+        link = rows[r].querySelector(".glname a");
+        if(link == null) {
+            continue;
+        }
+        uid = ehGalleryUid(ehAttribute(link, "href"));
+        if(uid == "" || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        titleElement = link.querySelector(".glink");
+        shownTitle = link.text.trim();
+        if(titleElement != null) {
+            shownTitle = titleElement.text.trim();
+        }
+        coverUrl = "";
+        coverImage = rows[r].querySelector(".glthumb img");
+        if(coverImage != null) {
+            coverUrl = ehAttribute(coverImage, "data-src");
+            if(coverUrl == "") {
+                coverUrl = ehAttribute(coverImage, "src");
+            }
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchParams = ehSearchParams(query, filters);
+    hasQuery = query != null && parseString(query).trim() != "";
+    if(feed == "popular" && hasQuery == false) {
+        if(page > 1) {
+            return [];
+        }
+        return ehListItems(ehGet(ehBaseUrl() + "/popular", {}, "e-hentai popular"));
+    }
+    return ehListItems(ehListPage(searchParams, page));
+}
+
+function ehMetadata(uid) {
+    uidParts = uid.split("/");
+    response = httpPost({
+        "url": "https://api.e-hentai.org/api.php",
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": ehUserAgent(),
+            "Content-Type": "application/json"
+        },
+        "body": jsonEncode({"method": "gdata", "gidlist": [[parseInt(uidParts[0]), uidParts[1]]], "namespace": 1}),
+        "throughWeb": false
+    });
+    if(response["statusCode"] != 200) {
+        throwSourceError("sourceDown", "the E-Hentai API answered HTTP " + parseString(response["statusCode"]));
+    }
+    result = jsonDecode(response["body"]);
+    metadata = result["gmetadata"];
+    if(metadata == null || metadata.isEmpty || metadata[0]["error"] != null) {
+        throwSourceError("notFound", "E-Hentai has no such gallery");
+    }
+    return metadata[0];
+}
+
+function ehDecode(text) {
+    return parseString(text).replaceAll("&#039;", "'").replaceAll("&quot;", '"').replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+}
+
+function getConcrete(uid, data) {
+    gallery = ehMetadata(uid);
+    fileCount = parseInt(parseString(gallery["filecount"]));
+    chapters = [];
+    blockSize = ehPagesPerChapter();
+    blockCount = 0;
+    for(counted = 0; counted < fileCount; counted = counted + blockSize) {
+        blockCount = blockCount + 1;
+    }
+    postedTime = parseString(parseInt(parseString(gallery["posted"])) * 1000);
+    for(b = 0; b < blockCount; b = b + 1) {
+        firstPage = b * blockSize + 1;
+        lastPage = (b + 1) * blockSize;
+        if(lastPage > fileCount) {
+            lastPage = fileCount;
+        }
+        chapterTitle = "Pages " + parseString(firstPage) + "–" + parseString(lastPage);
+        if(blockCount == 1) {
+            chapterTitle = "Gallery";
+        }
+        chapters.push(buildChapter({
+            "uid": uid + "/" + parseString(b),
+            "title": chapterTitle,
+            "timestamp": postedTime,
+            "data": {},
+            "number": b + 1
+        }));
+    }
+    tags = [parseString(gallery["category"])];
+    authors = [];
+    rawTags = gallery["tags"];
+    if(rawTags != null) {
+        for(t = 0; t < rawTags.length; t = t + 1) {
+            tagText = parseString(rawTags[t]);
+            if(tagText.startsWith("artist:")) {
+                authors.push(tagText.substring(7));
+            }
+            tags.push(tagText);
+        }
+    }
+    alternativeTitles = [];
+    if(gallery["title_jpn"] != null && gallery["title_jpn"] != "") {
+        alternativeTitles.push(ehDecode(gallery["title_jpn"]));
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": parseString(fileCount) + " pages",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": ehDecode(gallery["title"]),
+        "cover": gallery["thumb"],
+        "description": "Uploaded by " + parseString(gallery["uploader"]),
+        "tags": tags,
+        "status": statusReleased(),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "rating": parseDouble(parseString(gallery["rating"])),
+        "url": ehBaseUrl() + "/g/" + uid + "/",
+        "groups": groups
+    });
+}
+
+function getPages(uid, data) {
+    uidParts = uid.split("/");
+    galleryUrl = ehBaseUrl() + "/g/" + uidParts[0] + "/" + uidParts[1] + "/";
+    thumbParams = {};
+    if(uidParts[2] != "0") {
+        thumbParams["p"] = uidParts[2];
+    }
+    galleryBody = ehGet(galleryUrl, thumbParams, "e-hentai gallery");
+    viewerLinks = [];
+    pieces = galleryBody.split('href="' + ehBaseUrl() + "/s/");
+    for(p = 1; p < pieces.length; p = p + 1) {
+        viewerPath = pieces[p].split('"')[0];
+        viewerUrl = ehBaseUrl() + "/s/" + viewerPath;
+        if(viewerLinks.contains(viewerUrl) == false) {
+            viewerLinks.push(viewerUrl);
+        }
+    }
+    if(viewerLinks.isEmpty) {
+        throwSourceError("notFound", "E-Hentai shows no pages here");
+    }
+    pageLinks = [];
+    for(v = 0; v < viewerLinks.length; v = v + 1) {
+        viewerBody = ehGet(viewerLinks[v], {}, "e-hentai page");
+        imageMarker = '<img id="img" src="';
+        imageAt = viewerBody.indexOf(imageMarker);
+        if(imageAt >= 0) {
+            pageLinks.push(ehDecode(viewerBody.substring(imageAt + imageMarker.length).split('"')[0]));
+        }
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": ehUserAgent(),
+        "Referer": ehBaseUrl() + "/"
+    };
+}

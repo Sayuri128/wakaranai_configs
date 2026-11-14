@@ -38,6 +38,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | HentaiLib (NSFW) | Russian | Requires login |
 | SlashLib (NSFW) | Russian | Requires login, shares the MangaLib session; BL manga, manhwa and comics; popular, updates and new feeds; genre, tag, type, format, status and range filters |
 | NHentai (NSFW) | Multi | |
+| E-Hentai (NSFW) | Multi | Latest and popular feeds, category filter, language setting; galleries split into 20-page chapters (each page is one request to the site); no ExHentai login yet |
 
 ### Video
 

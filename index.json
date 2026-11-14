@@ -1233,6 +1233,128 @@
     },
     {
       "category": "manga",
+      "path": "manga/e_hentai",
+      "revision": "47d4de9ce74d95fc",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "E-Hentai",
+        "uid": "29361f8b-1476-48a2-937d-40eca66bc9e5",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/e_hentai/logo.png?raw=true",
+        "type": 0,
+        "nsfw": true,
+        "language": "Multi",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "doujinshi",
+          "manga"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 3,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "latest",
+            "title": "Latest"
+          },
+          {
+            "id": "popular",
+            "title": "Popular"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "language",
+            "type": "select",
+            "title": "Language",
+            "summary": "Only list galleries in this language",
+            "default": "",
+            "options": [
+              {
+                "value": "",
+                "label": "Any"
+              },
+              {
+                "value": "english",
+                "label": "English"
+              },
+              {
+                "value": "japanese",
+                "label": "Japanese"
+              },
+              {
+                "value": "chinese",
+                "label": "Chinese"
+              },
+              {
+                "value": "korean",
+                "label": "Korean"
+              },
+              {
+                "value": "russian",
+                "label": "Russian"
+              },
+              {
+                "value": "spanish",
+                "label": "Spanish"
+              },
+              {
+                "value": "french",
+                "label": "French"
+              },
+              {
+                "value": "german",
+                "label": "German"
+              }
+            ]
+          }
+        ],
+        "filters": [
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Categories",
+            "param": "categories",
+            "values": [
+              [
+                "2",
+                "4",
+                "8",
+                "16",
+                "512",
+                "256",
+                "32",
+                "64",
+                "128",
+                "1"
+              ]
+            ],
+            "labels": [
+              [
+                "Doujinshi",
+                "Manga",
+                "Artist CG",
+                "Game CG",
+                "Western",
+                "Non-H",
+                "Image Set",
+                "Cosplay",
+                "Asian Porn",
+                "Misc"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/hentai_lib",
       "revision": "495aea97718b519c",
       "apiVersion": 2,
