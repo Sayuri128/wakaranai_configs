@@ -1,0 +1,307 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "preferences";
+import "novel_models";
+
+function rulateBaseUrl() {
+    return "https://tl.rulate.ru";
+}
+
+function rulateUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function rulateGet(path, requestParams, label) {
+    response = httpGet({
+        "url": rulateBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": rulateUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Rulate has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Rulate asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Rulate answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function rulateAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function rulateAbsolute(link) {
+    if(link == "" || link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    return rulateBaseUrl() + link;
+}
+
+function rulateBookId(href) {
+    marker = "/book/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("?")[0].split("/")[0];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchParams = {"t": "", "sort": "6", "Book_page": parseString(page)};
+    if(feed != null && feed != "") {
+        searchParams["sort"] = feed;
+    }
+    if(query != null && parseString(query).trim() != "") {
+        searchParams["t"] = parseString(query).trim();
+    }
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            if(filterInfo != null && filterInfo["param"] == "cat" && filters[i]["selected"] != null && filters[i]["selected"] != "") {
+                searchParams["cat"] = parseString(filters[i]["selected"]);
+            }
+        }
+    }
+    body = rulateGet("/search", searchParams, "rulate search");
+    document = createHTMLParser(body);
+    if(page > 1) {
+        activePage = document.querySelector(".books-pagination li.active");
+        if(activePage != null && parseInt(activePage.text.trim()) != page) {
+            return [];
+        }
+    }
+    entries = document.querySelectorAll("ul.search-results > li");
+    items = [];
+    seen = [];
+    for(e = 0; e < entries.length; e = e + 1) {
+        link = entries[e].querySelector("p.book-tooltip a");
+        if(link == null) {
+            continue;
+        }
+        bookId = rulateBookId(rulateAttribute(link, "href"));
+        if(bookId == "" || seen.contains(bookId)) {
+            continue;
+        }
+        seen.push(bookId);
+        coverUrl = "";
+        coverImage = entries[e].querySelector(".th img");
+        if(coverImage != null) {
+            coverUrl = rulateAbsolute(rulateAttribute(coverImage, "src"));
+        }
+        items.push(buildGallery({
+            "uid": bookId,
+            "title": link.text.trim(),
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function rulateInfoLinks(document, label) {
+    names = [];
+    paragraphs = document.querySelectorAll("#Info p");
+    for(p = 0; p < paragraphs.length; p = p + 1) {
+        heading = paragraphs[p].querySelector("strong");
+        if(heading == null || heading.text.trim() != label) {
+            continue;
+        }
+        links = paragraphs[p].querySelectorAll("a");
+        for(l = 0; l < links.length; l = l + 1) {
+            linkText = links[l].text.trim();
+            if(linkText != "" && names.contains(linkText) == false) {
+                names.push(linkText);
+            }
+        }
+    }
+    return names;
+}
+
+function rulateChapterRows(document, bookId, showPaid, chapters, seen) {
+    rows = document.querySelectorAll("tr.chapter_row");
+    for(r = 0; r < rows.length; r = r + 1) {
+        chapterId = rulateAttribute(rows[r], "data-id");
+        if(chapterId == "" || seen.contains(chapterId)) {
+            continue;
+        }
+        readLink = rows[r].querySelector("a.btn-info");
+        titleLink = rows[r].querySelector("td.t a");
+        priceInput = rows[r].querySelector("input[data-price]");
+        isPaid = false;
+        if(priceInput != null && rulateAttribute(priceInput, "data-price") != "" && rulateAttribute(priceInput, "data-price") != "0") {
+            isPaid = readLink == null;
+        }
+        if(isPaid && showPaid == false) {
+            continue;
+        }
+        seen.push(chapterId);
+        chapterTitle = "Глава";
+        if(titleLink != null) {
+            chapterTitle = titleLink.text.trim();
+        }
+        if(isPaid) {
+            chapterTitle = chapterTitle + " (платная)";
+        }
+        chapterTime = null;
+        timeElement = rows[r].querySelector("time");
+        if(timeElement != null) {
+            chapterTime = rulateAttribute(timeElement, "datetime");
+            if(chapterTime.length >= 16) {
+                chapterTime = chapterTime.substring(0, 16).replaceFirst("T", " ");
+            }
+        }
+        chapters.push(buildChapter({
+            "uid": bookId + "/" + chapterId,
+            "title": chapterTitle,
+            "timestamp": chapterTime,
+            "data": {},
+            "number": null
+        }));
+    }
+}
+
+function rulateLastChapterPage(document) {
+    lastLink = document.querySelector(".pagination li.last a");
+    if(lastLink == null) {
+        return 1;
+    }
+    href = rulateAttribute(lastLink, "href");
+    marker = "Chapter_page=";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return 1;
+    }
+    return parseInt(href.substring(markerAt + marker.length).split("&")[0]);
+}
+
+function getConcrete(uid, data) {
+    body = rulateGet("/book/" + uid, {}, "rulate book");
+    document = createHTMLParser(body);
+    heading = document.querySelector("h1 [itemprop='name']");
+    if(heading == null) {
+        heading = document.querySelector("h1");
+    }
+    if(heading == null) {
+        throw "Rulate returned an unexpected page (rulate book)";
+    }
+    alternativeTitles = [];
+    originalElement = document.querySelector("h1 + div");
+    if(originalElement != null && originalElement.text.trim() != "") {
+        alternativeTitles.push(originalElement.text.trim());
+    }
+    coverUrl = "";
+    coverImage = document.querySelector("#Info .images img");
+    if(coverImage != null) {
+        coverUrl = rulateAbsolute(rulateAttribute(coverImage, "src"));
+    }
+    description = "";
+    descriptionMeta = document.querySelector("meta[property='og:description']");
+    if(descriptionMeta == null) {
+        descriptionMeta = document.querySelector("meta[name='description']");
+    }
+    if(descriptionMeta != null) {
+        description = rulateAttribute(descriptionMeta, "content").trim();
+    }
+    tags = rulateInfoLinks(document, "Жанры:");
+    tagNames = rulateInfoLinks(document, "Тэги:");
+    for(t = 0; t < tagNames.length; t = t + 1) {
+        tags.push(tagNames[t]);
+    }
+    showPaid = getPreference("showPaid") == true;
+    chapters = [];
+    seen = [];
+    rulateChapterRows(document, uid, showPaid, chapters, seen);
+    lastPage = rulateLastChapterPage(document);
+    for(p = 2; p <= lastPage; p = p + 1) {
+        pageBody = rulateGet("/book/" + uid, {"Chapter_page": parseString(p)}, "rulate chapters");
+        rulateChapterRows(createHTMLParser(pageBody), uid, showPaid, chapters, seen);
+    }
+    ordered = [];
+    for(c = chapters.length - 1; c >= 0; c = c - 1) {
+        ordered.push(chapters[c]);
+    }
+    groups = [];
+    if(ordered.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Главы",
+            "elements": ordered
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": statusUndefined(),
+        "alternativeTitles": alternativeTitles,
+        "authors": [],
+        "url": rulateBaseUrl() + "/book/" + uid,
+        "groups": groups
+    });
+}
+
+function rulateInnerHtml(element) {
+    markup = element.outerHtml;
+    start = markup.indexOf(">") + 1;
+    end = markup.length;
+    if(markup.endsWith("</div>")) {
+        end = end - 6;
+    }
+    if(end < start) {
+        return "";
+    }
+    return markup.substring(start, end);
+}
+
+function getChapterText(uid, data) {
+    uidParts = uid.split("/");
+    body = rulateGet("/book/" + uidParts[0] + "/" + uidParts[1] + "/ready_new", {}, "rulate chapter");
+    document = createHTMLParser(body);
+    content = document.querySelector(".content-text");
+    if(content == null) {
+        throwSourceError("loginRequired", "Rulate only shows this chapter after purchase or sign-in");
+    }
+    chapterHtml = rulateInnerHtml(content).trim();
+    if(chapterHtml == "") {
+        throwSourceError("loginRequired", "Rulate only shows this chapter after purchase or sign-in");
+    }
+    chapterTitle = "";
+    titleElement = document.querySelector(".chapter-title, h1");
+    if(titleElement != null) {
+        chapterTitle = titleElement.text.trim();
+    }
+    if(chapterTitle == "") {
+        return buildNovelChapter({"html": chapterHtml});
+    }
+    return buildNovelChapter({"html": chapterHtml, "title": chapterTitle});
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": rulateUserAgent(),
+        "Referer": rulateBaseUrl() + "/"
+    };
+}

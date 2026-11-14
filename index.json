@@ -11600,6 +11600,92 @@
     },
     {
       "category": "novel",
+      "path": "novel/rulate",
+      "revision": "e779e6e88da1ad54",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Rulate",
+        "uid": "c8723b5b-87fd-4cf3-82ca-87107006abd0",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/novel/rulate/logo.png?raw=true",
+        "type": 2,
+        "nsfw": false,
+        "pricing": "partial",
+        "language": "Русский",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "novel"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "6",
+            "title": "По рейтингу"
+          },
+          {
+            "id": "4",
+            "title": "Обновления"
+          },
+          {
+            "id": "3",
+            "title": "Новинки"
+          },
+          {
+            "id": "5",
+            "title": "По просмотрам"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "showPaid",
+            "type": "toggle",
+            "title": "Показывать платные главы",
+            "summary": "Платные главы откроются только после покупки на сайте",
+            "default": false
+          }
+        ],
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Категория",
+            "param": "cat",
+            "values": [
+              "",
+              "5",
+              "7",
+              "6",
+              "28",
+              "18",
+              "19",
+              "51",
+              "44"
+            ],
+            "labels": [
+              "Все",
+              "Китайские",
+              "Корейские",
+              "Японские",
+              "Английские",
+              "Авторские",
+              "Переводы фанфиков",
+              "Авторские фанфики",
+              "AI-переводы"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "novel",
       "path": "novel/wattpad",
       "revision": "9cffe78774264fbd",
       "apiVersion": 2,
