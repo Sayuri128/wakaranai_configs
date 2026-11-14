@@ -1,0 +1,188 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "novel_models";
+
+function wattpadBaseUrl() {
+    return "https://www.wattpad.com";
+}
+
+function wattpadPageSize() {
+    return 30;
+}
+
+function wattpadGet(path, requestParams, label) {
+    response = httpGet({
+        "url": wattpadBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "application/json, text/html"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Wattpad has no such story (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Wattpad asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Wattpad answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function wattpadStatus(story) {
+    if(story["completed"] == true) {
+        return statusReleased();
+    }
+    return statusOngoing();
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    listParams = {
+        "limit": parseString(wattpadPageSize()),
+        "offset": parseString((page - 1) * wattpadPageSize()),
+        "fields": "stories(id,title,cover,completed,mature,isPaywalled)"
+    };
+    searchText = "";
+    if(query != null) {
+        searchText = parseString(query).trim();
+    }
+    tag = "";
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            if(filterInfo != null && filterInfo["param"] == "tag" && filters[i]["selected"] != null) {
+                tag = parseString(filters[i]["selected"]);
+            }
+        }
+    }
+    if(tag != "") {
+        searchText = (searchText + " #" + tag).trim();
+    }
+    if(searchText != "") {
+        listParams["query"] = searchText;
+    }
+    if(searchText == "" || tag != "") {
+        listParams["filter"] = "hot";
+        if(feed != null && feed != "") {
+            listParams["filter"] = feed;
+        }
+    }
+    if(getPreference("showMature") == true) {
+        listParams["mature"] = "1";
+    }
+    result = jsonDecode(wattpadGet("/api/v3/stories", listParams, "wattpad list"));
+    stories = result["stories"];
+    items = [];
+    if(stories == null) {
+        return items;
+    }
+    hidePaid = getPreference("hidePaid") == true;
+    showMature = getPreference("showMature") == true;
+    for(s = 0; s < stories.length; s = s + 1) {
+        story = stories[s];
+        if(hidePaid && story["isPaywalled"] == true) {
+            continue;
+        }
+        if(showMature == false && story["mature"] == true) {
+            continue;
+        }
+        items.push(buildGallery({
+            "uid": parseString(story["id"]),
+            "title": story["title"],
+            "cover": story["cover"],
+            "data": {},
+            "status": wattpadStatus(story)
+        }));
+    }
+    return items;
+}
+
+function getConcrete(uid, data) {
+    story = jsonDecode(wattpadGet("/api/v3/stories/" + uid, {
+        "fields": "id,title,description,cover,completed,mature,isPaywalled,tags,user(name),parts(id,title,createDate,draft,deleted)"
+    }, "wattpad story"));
+    chapters = [];
+    parts = story["parts"];
+    if(parts != null) {
+        for(p = parts.length - 1; p >= 0; p = p - 1) {
+            part = parts[p];
+            if(part["draft"] == true || part["deleted"] == true) {
+                continue;
+            }
+            partTime = part["createDate"];
+            if(partTime != null) {
+                partTime = parseString(partTime);
+                if(partTime.length >= 16) {
+                    partTime = partTime.substring(0, 16).replaceFirst("T", " ");
+                }
+            }
+            chapters.push(buildChapter({
+                "uid": parseString(part["id"]),
+                "title": part["title"],
+                "timestamp": partTime,
+                "data": {},
+                "number": p + 1
+            }));
+        }
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Parts",
+            "elements": chapters
+        }));
+    }
+    tags = [];
+    if(story["isPaywalled"] == true) {
+        tags.push("Paid Story");
+    }
+    if(story["mature"] == true) {
+        tags.push("Mature");
+    }
+    if(story["tags"] != null) {
+        for(t = 0; t < story["tags"].length; t = t + 1) {
+            tags.push(story["tags"][t]);
+        }
+    }
+    authors = [];
+    if(story["user"] != null && story["user"]["name"] != null) {
+        authors.push(story["user"]["name"]);
+    }
+    description = story["description"];
+    if(description == null) {
+        description = "";
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": story["title"],
+        "cover": story["cover"],
+        "description": description,
+        "tags": tags,
+        "status": wattpadStatus(story),
+        "alternativeTitles": [],
+        "authors": authors,
+        "url": wattpadBaseUrl() + "/story/" + uid,
+        "groups": groups
+    });
+}
+
+function getChapterText(uid, data) {
+    chapterHtml = wattpadGet("/apiv2/storytext", {"id": uid}, "wattpad part");
+    if(chapterHtml.contains("part of the Paid Stories program") && chapterHtml.length < 2000) {
+        throwSourceError("loginRequired", "This part is in Wattpad's Paid Stories program");
+    }
+    if(chapterHtml.trim() == "") {
+        throw "the part has no text (wattpad part)";
+    }
+    return buildNovelChapter({"html": chapterHtml});
+}

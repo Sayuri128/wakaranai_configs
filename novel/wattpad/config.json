@@ -1,0 +1,102 @@
+{
+  "name": "Wattpad",
+  "uid": "e5dae570-d837-4547-99ab-c0e035276b09",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/novel/wattpad/logo.png?raw=true",
+  "type": 2,
+  "nsfw": false,
+  "pricing": "partial",
+  "language": "Multi",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "novel"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 3,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "hot",
+      "title": "Hot"
+    },
+    {
+      "id": "new",
+      "title": "New"
+    }
+  ],
+  "preferences": [
+    {
+      "key": "showMature",
+      "type": "toggle",
+      "title": "Show mature stories",
+      "summary": "Include stories marked as mature in lists and search",
+      "default": false
+    },
+    {
+      "key": "hidePaid",
+      "type": "toggle",
+      "title": "Hide Paid Stories",
+      "summary": "Leave out stories from the Paid Stories program",
+      "default": false
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Tag",
+      "param": "tag",
+      "values": [
+        "",
+        "romance",
+        "fantasy",
+        "fanfiction",
+        "teenfiction",
+        "mystery",
+        "horror",
+        "paranormal",
+        "adventure",
+        "sciencefiction",
+        "action",
+        "humor",
+        "werewolf",
+        "vampire",
+        "lgbt",
+        "historicalfiction",
+        "thriller",
+        "shortstory",
+        "poetry",
+        "newadult",
+        "chicklit"
+      ],
+      "labels": [
+        "Any",
+        "Romance",
+        "Fantasy",
+        "Fanfiction",
+        "Teen Fiction",
+        "Mystery",
+        "Horror",
+        "Paranormal",
+        "Adventure",
+        "Science Fiction",
+        "Action",
+        "Humor",
+        "Werewolf",
+        "Vampire",
+        "LGBTQ+",
+        "Historical Fiction",
+        "Thriller",
+        "Short Story",
+        "Poetry",
+        "New Adult",
+        "Chick Lit"
+      ]
+    }
+  ]
+}
