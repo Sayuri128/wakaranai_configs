@@ -1,0 +1,374 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "novel_models";
+
+function ranobeHubBaseUrl() {
+    return "https://ranobehub.org";
+}
+
+function ranobeHubChapterPageSize() {
+    return 250;
+}
+
+function ranobeHubRequest(url, paths, acceptText, label) {
+    response = httpGet({
+        "url": url,
+        "params": {},
+        "paths": paths,
+        "headers": {
+            "Accept": acceptText,
+            "Accept-Language": "ru-RU,ru;q=0.9",
+            "Referer": ranobeHubBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "RanobeHub has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "RanobeHub asks to slow down (" + label + ")");
+    }
+    if(statusCode == 401 || statusCode == 402) {
+        throwSourceError("loginRequired", "RanobeHub shows this to signed-in readers only (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "RanobeHub answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function ranobeHubJson(pathWithQuery, label) {
+    return jsonDecode(ranobeHubRequest(ranobeHubBaseUrl() + pathWithQuery + "&_=1", {"&_=1?": ""}, "application/json", label));
+}
+
+function ranobeHubAbsolute(link) {
+    if(link == null) {
+        return "";
+    }
+    linkText = parseString(link);
+    if(linkText.startsWith("http")) {
+        return linkText;
+    }
+    if(linkText.startsWith("//")) {
+        return "https:" + linkText;
+    }
+    if(linkText.startsWith("/")) {
+        return ranobeHubBaseUrl() + linkText;
+    }
+    return linkText;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        if(page > 1) {
+            return [];
+        }
+        searchResult = ranobeHubJson("/api/search?q=" + urlEncode(trimmedQuery) + "&rh_client=modern", "ranobehub search");
+        return ranobeHubGalleryItems(searchResult["books"]);
+    }
+    catalogQuery = ranobeHubCatalogQuery(filters, feed);
+    if(page > 1) {
+        catalogQuery = catalogQuery + "&page=" + parseString(page);
+    }
+    catalog = ranobeHubJson("/api/catalog?" + catalogQuery, "ranobehub catalog");
+    if(catalog["pages"] != null && page > catalog["pages"]) {
+        return [];
+    }
+    return ranobeHubGalleryItems(catalog["items"]);
+}
+
+function ranobeHubCatalogQuery(filters, feed) {
+    queryParts = [];
+    sortId = "updated";
+    if(feed != null && feed != "") {
+        sortId = feed;
+    }
+    queryParts.push("sort=" + sortId);
+    if(filters == null) {
+        return queryParts.join("&");
+    }
+    knownParams = ["tag", "status", "country"];
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filterInfo = filterData["filter"];
+        if(filterInfo == null) {
+            continue;
+        }
+        filterParam = filterInfo["param"];
+        if(knownParams.contains(filterParam) == false) {
+            continue;
+        }
+        chosenGroups = filterData["selected"];
+        if(chosenGroups == null) {
+            continue;
+        }
+        for(g = 0; g < chosenGroups.length; g = g + 1) {
+            chosenGroup = chosenGroups[g];
+            for(v = 0; v < chosenGroup.length; v = v + 1) {
+                queryParts.push(filterParam + "=" + urlEncode(parseString(chosenGroup[v])));
+            }
+        }
+    }
+    return queryParts.join("&");
+}
+
+function ranobeHubGalleryItems(books) {
+    items = [];
+    if(books == null) {
+        return items;
+    }
+    for(b = 0; b < books.length; b = b + 1) {
+        book = books[b];
+        items.push(buildGallery({
+            "uid": parseString(book["id"]),
+            "title": book["title"],
+            "cover": ranobeHubAbsolute(book["posterUrl"]),
+            "data": {},
+            "status": ranobeHubStatus(book["status"]),
+            "tags": book["tags"],
+            "year": book["year"],
+            "rating": book["rating"]
+        }));
+    }
+    return items;
+}
+
+function ranobeHubStatus(statusText) {
+    if(statusText == null) {
+        return statusUndefined();
+    }
+    loweredStatus = parseString(statusText).toLowerCase();
+    if(loweredStatus.contains("процесс")) {
+        return statusOngoing();
+    }
+    if(loweredStatus.contains("заверш")) {
+        return statusReleased();
+    }
+    if(loweredStatus.contains("заморож")) {
+        return statusPaused();
+    }
+    return statusUndefined();
+}
+
+function ranobeHubAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function ranobeHubText(document, selector) {
+    element = document.querySelector(selector);
+    if(element == null) {
+        return "";
+    }
+    return element.text.trim();
+}
+
+function ranobeHubCover(document) {
+    coverImage = document.querySelector("img.book-cover-image");
+    if(coverImage == null) {
+        return "";
+    }
+    imageSource = ranobeHubAttribute(coverImage, "src");
+    marker = "url=";
+    markerAt = imageSource.indexOf(marker);
+    if(markerAt < 0) {
+        return ranobeHubAbsolute(imageSource);
+    }
+    encodedTarget = imageSource.substring(markerAt + marker.length).split("&")[0];
+    return ranobeHubAbsolute(urlDecode(encodedTarget));
+}
+
+function ranobeHubDescription(document) {
+    descriptionBlock = document.querySelector(".book-description-copy");
+    if(descriptionBlock == null) {
+        return ranobeHubText(document, ".book-hero-summary");
+    }
+    paragraphs = descriptionBlock.querySelectorAll("p");
+    lines = [];
+    for(p = 0; p < paragraphs.length; p = p + 1) {
+        lineText = paragraphs[p].text.trim();
+        if(lineText != "") {
+            lines.push(lineText);
+        }
+    }
+    if(lines.isEmpty) {
+        return descriptionBlock.text.trim();
+    }
+    return lines.join(ranobeHubNewline());
+}
+
+function ranobeHubNewline() {
+    lineBreak = `
+`;
+    if(lineBreak.length > 1) {
+        lineBreak = lineBreak.substring(lineBreak.length - 1);
+    }
+    return lineBreak;
+}
+
+function ranobeHubTexts(document, selector) {
+    elements = document.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function getConcrete(uid, data) {
+    body = ranobeHubRequest(ranobeHubBaseUrl() + "/ranobe/" + uid, {}, "text/html,application/xhtml+xml", "ranobehub title");
+    document = createHTMLParser(body);
+    shownTitle = ranobeHubText(document, ".book-copy h1");
+    if(shownTitle == "") {
+        throw "RanobeHub returned an unexpected page (ranobehub title)";
+    }
+    alternativeTitles = [];
+    originalTitle = ranobeHubText(document, ".book-original-title");
+    if(originalTitle != "") {
+        alternativeTitles.push(originalTitle);
+    }
+    yearText = ranobeHubText(document, ".book-kicker-year");
+    year = null;
+    if(yearText != "") {
+        year = parseInt(yearText);
+    }
+    chapters = ranobeHubChapters(uid);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Главы",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": ranobeHubCover(document),
+        "description": ranobeHubDescription(document),
+        "tags": ranobeHubTexts(document, ".book-hero-taxonomy nav a"),
+        "status": ranobeHubStatus(ranobeHubText(document, ".book-kicker-status")),
+        "alternativeTitles": alternativeTitles,
+        "authors": ranobeHubTexts(document, ".book-author-byline a.book-credit-chip strong"),
+        "year": year,
+        "url": ranobeHubBaseUrl() + "/ranobe/" + uid,
+        "groups": groups
+    });
+}
+
+function ranobeHubChapters(bookId) {
+    chapters = [];
+    nextOffset = 0;
+    for(round = 0; round < 80; round = round + 1) {
+        if(nextOffset == null) {
+            continue;
+        }
+        chapterPage = ranobeHubJson("/api/books/" + bookId + "/chapters?sort=desc&limit=" + parseString(ranobeHubChapterPageSize()) + "&offset=" + parseString(nextOffset), "ranobehub chapters");
+        pageItems = chapterPage["items"];
+        if(pageItems == null || pageItems.isEmpty) {
+            nextOffset = null;
+            continue;
+        }
+        for(c = 0; c < pageItems.length; c = c + 1) {
+            chapterInfo = pageItems[c];
+            if(chapterInfo["isDraft"] == true || chapterInfo["scheduledFor"] != null) {
+                continue;
+            }
+            chapters.push(ranobeHubChapter(bookId, chapterInfo));
+        }
+        nextOffset = chapterPage["nextOffset"];
+    }
+    return chapters;
+}
+
+function ranobeHubChapter(bookId, chapterInfo) {
+    numberText = parseString(chapterInfo["number"]);
+    chapterTitle = "";
+    if(chapterInfo["title"] != null) {
+        chapterTitle = parseString(chapterInfo["title"]).trim();
+    }
+    if(chapterTitle == "") {
+        chapterTitle = "Глава " + numberText;
+    }
+    if(chapterInfo["volume"] != null) {
+        chapterTitle = "Том " + parseString(chapterInfo["volume"]) + ". " + chapterTitle;
+    }
+    chapterTime = chapterInfo["publishedAt"];
+    if(chapterTime != null) {
+        chapterTime = parseString(chapterTime);
+        if(chapterTime.length >= 16) {
+            chapterTime = chapterTime.substring(0, 16).replaceFirst("T", " ");
+        }
+    }
+    return buildChapter({
+        "uid": bookId + "/" + parseString(chapterInfo["id"]),
+        "title": chapterTitle,
+        "timestamp": chapterTime,
+        "data": {},
+        "number": numberText,
+        "volume": chapterInfo["volume"]
+    });
+}
+
+function ranobeHubInnerHtml(element) {
+    markup = element.outerHtml;
+    start = markup.indexOf(">") + 1;
+    end = markup.length;
+    if(markup.endsWith("</div>")) {
+        end = end - 6;
+    }
+    if(end < start) {
+        return "";
+    }
+    return markup.substring(start, end);
+}
+
+function getChapterText(uid, data) {
+    uidParts = uid.split("/");
+    chapterId = uidParts[1];
+    body = ranobeHubRequest(ranobeHubBaseUrl() + "/ranobe/" + uidParts[0] + "/chapter/" + chapterId, {}, "text/html,application/xhtml+xml", "ranobehub chapter");
+    document = createHTMLParser(body);
+    content = document.querySelector("#reader-content-" + chapterId);
+    if(content == null) {
+        if(body.contains("content-access")) {
+            throwSourceError("loginRequired", "RanobeHub sells early access to this chapter");
+        }
+        throw "RanobeHub returned an unexpected page (ranobehub chapter)";
+    }
+    segments = content.querySelectorAll(".reader-content-segment");
+    parts = [];
+    for(s = 0; s < segments.length; s = s + 1) {
+        parts.push(ranobeHubInnerHtml(segments[s]));
+    }
+    chapterHtml = parts.join("").replaceAll('src="/', 'src="' + ranobeHubBaseUrl() + '/');
+    if(chapterHtml.trim() == "") {
+        throw "the chapter has no text (ranobehub chapter)";
+    }
+    chapterTitle = ranobeHubText(document, ".reader-chapter-header h1");
+    if(chapterTitle == "") {
+        return buildNovelChapter({"html": chapterHtml});
+    }
+    return buildNovelChapter({"html": chapterHtml, "title": chapterTitle});
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": ranobeHubBaseUrl() + "/"
+    };
+}
