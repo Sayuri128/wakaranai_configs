@@ -1,0 +1,299 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "anime_models";
+import "../../shared/playerjs";
+
+function aonBaseUrl() {
+    return "https://animeon.club";
+}
+
+function aonApiUrl() {
+    return "https://animeon.club/api";
+}
+
+function aonPageSize() {
+    return 30;
+}
+
+function aonGet(path, label) {
+    response = httpGet({
+        "url": aonApiUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": pjUserAgent(),
+            "Accept": "application/json",
+            "Referer": aonBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return jsonDecode(response["body"]);
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "AnimeON has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "AnimeON asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "AnimeON answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function aonText(value) {
+    if(value == null) {
+        return "";
+    }
+    return parseString(value).trim();
+}
+
+function aonImage(image) {
+    if(image == null) {
+        return "";
+    }
+    fileName = aonText(image["preview"]);
+    if(fileName == "") {
+        fileName = aonText(image["original"]);
+    }
+    if(fileName == "") {
+        return "";
+    }
+    return aonApiUrl() + "/uploads/images/" + fileName;
+}
+
+function aonGalleryItem(anime) {
+    return buildGallery({
+        "uid": aonText(anime["slug"]),
+        "title": aonText(anime["titleUa"]),
+        "cover": aonImage(anime["image"]),
+        "data": {},
+        "status": aonStatus(aonText(anime["status"]))
+    });
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    items = [];
+    if(query != null && parseString(query).trim() != "") {
+        if(page > 1) {
+            return items;
+        }
+        found = aonGet("/anime/search?text=" + urlEncode(parseString(query).trim()), "animeon search");
+        results = found["result"];
+        if(results == null) {
+            return items;
+        }
+        for(r = 0; r < results.length; r = r + 1) {
+            items.push(aonGalleryItem(results[r]));
+        }
+        return items;
+    }
+    sortType = "created";
+    if(feed != null && feed != "") {
+        sortType = feed;
+    }
+    parts = ["pageIndex=" + parseString(page), "pageSize=" + parseString(aonPageSize()), "sortType=" + sortType, "sort=desc"];
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            selected = filters[i]["selected"];
+            if(filterInfo == null || selected == null || selected == "" || selected == "any") {
+                continue;
+            }
+            parts.push(filterInfo["param"] + "=" + urlEncode(parseString(selected)));
+        }
+    }
+    listing = aonGet("/anime?" + parts.join("&"), "animeon list");
+    results = listing["results"];
+    if(results == null) {
+        return items;
+    }
+    for(r = 0; r < results.length; r = r + 1) {
+        items.push(aonGalleryItem(results[r]));
+    }
+    return items;
+}
+
+function aonStatus(statusText) {
+    if(statusText == "ongoing") {
+        return statusOngoing();
+    }
+    if(statusText == "released") {
+        return statusReleased();
+    }
+    if(statusText == "announced" || statusText == "anons") {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function aonDetails(uid) {
+    details = aonGet("/anime/" + uid, "animeon title");
+    if(details["redirectTo"] != null && details["titleUa"] == null) {
+        details = aonGet("/anime/" + aonText(details["redirectTo"]), "animeon title");
+    }
+    return details;
+}
+
+function aonPlayerRank(playerName) {
+    if(playerName == "Ashdi") {
+        return 0;
+    }
+    return 1;
+}
+
+function aonGroup(animeId, translation, player, titleUrl) {
+    playerName = aonText(player["name"]);
+    dubName = aonText(translation["name"]);
+    episodeList = aonGet("/player/" + animeId + "/episodes?take=1000&skip=0&playerId=" + aonText(player["id"]) + "&translationId=" + aonText(translation["id"]) + "&includeAlternative=false", "animeon episodes");
+    episodes = episodeList["episodes"];
+    videos = [];
+    if(episodes == null) {
+        return null;
+    }
+    for(e = 0; e < episodes.length; e = e + 1) {
+        numberText = aonText(episodes[e]["episode"]);
+        videos.push(buildAnimeVideo({
+            "uid": aonText(episodes[e]["id"]),
+            "src": titleUrl,
+            "title": "Серія " + numberText,
+            "timestamp": null,
+            "type": typeIframe(),
+            "data": {"dub": dubName, "player": playerName},
+            "number": numberText
+        }));
+    }
+    if(videos.length == 0) {
+        return null;
+    }
+    return buildAnimeVideoGroup({
+        "title": dubName + " · " + playerName,
+        "videos": videos
+    });
+}
+
+function aonGroups(animeId, titleUrl) {
+    listing = aonGet("/player/" + animeId + "/translations", "animeon players");
+    translations = listing["translations"];
+    groups = [];
+    if(translations == null) {
+        return groups;
+    }
+    for(rank = 0; rank < 2; rank = rank + 1) {
+        for(t = 0; t < translations.length; t = t + 1) {
+            players = translations[t]["player"];
+            if(players == null) {
+                continue;
+            }
+            for(p = 0; p < players.length; p = p + 1) {
+                if(aonPlayerRank(aonText(players[p]["name"])) != rank) {
+                    continue;
+                }
+                group = aonGroup(animeId, translations[t]["translation"], players[p], titleUrl);
+                if(group != null) {
+                    groups.push(group);
+                }
+            }
+        }
+    }
+    return groups;
+}
+
+function getConcrete(uid, data) {
+    details = aonDetails(uid);
+    slug = aonText(details["slug"]);
+    if(slug == "") {
+        slug = uid;
+    }
+    titleUrl = aonBaseUrl() + "/anime/" + slug;
+    alternativeTitles = [];
+    englishTitle = aonText(details["titleEn"]);
+    if(englishTitle != "") {
+        alternativeTitles.push(englishTitle);
+    }
+    originalTitle = aonText(details["titleOriginal"]);
+    if(originalTitle != "" && alternativeTitles.contains(originalTitle) == false) {
+        alternativeTitles.push(originalTitle);
+    }
+    synonyms = details["synonyms"];
+    if(synonyms != null) {
+        for(s = 0; s < synonyms.length; s = s + 1) {
+            synonym = aonText(synonyms[s]);
+            if(synonym != "" && alternativeTitles.contains(synonym) == false) {
+                alternativeTitles.push(synonym);
+            }
+        }
+    }
+    tags = [];
+    typeText = aonText(details["type"]);
+    if(typeText != "") {
+        tags.push(typeText.toUpperCase());
+    }
+    genres = details["genres"];
+    if(genres != null) {
+        for(g = 0; g < genres.length; g = g + 1) {
+            genreName = aonText(genres[g]["nameUa"]);
+            if(genreName != "") {
+                tags.push(genreName);
+            }
+        }
+    }
+    authors = [];
+    if(details["studio"] != null && aonText(details["studio"]["name"]) != "") {
+        authors.push(aonText(details["studio"]["name"]));
+    }
+    year = null;
+    releaseText = aonText(details["releaseDate"]);
+    if(releaseText.length >= 4) {
+        year = parseInt(releaseText.substring(0, 4));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": aonText(details["titleUa"]),
+        "cover": aonImage(details["image"]),
+        "description": aonText(details["description"]),
+        "tags": tags,
+        "status": aonStatus(aonText(details["status"])),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "url": titleUrl,
+        "groups": aonGroups(aonText(details["id"]), titleUrl)
+    });
+}
+
+function getVideoSources(uid, src, data) {
+    episode = aonGet("/player/" + uid + "/episode", "animeon episode");
+    videoUrl = aonText(episode["videoUrl"]);
+    if(videoUrl == "") {
+        throwSourceError("notFound", "AnimeON has no player for this episode");
+    }
+    if(pjHostOf(videoUrl).contains("ashdi") == false) {
+        return [];
+    }
+    sources = pjSources(videoUrl, aonBaseUrl() + "/");
+    if(sources == null || sources.length == 0) {
+        throwSourceError("sourceDown", "Ashdi did not return a stream for this episode");
+    }
+    dubName = "";
+    if(data != null && data["dub"] != null) {
+        dubName = aonText(data["dub"]);
+    }
+    for(s = 0; s < sources.length; s = s + 1) {
+        if(dubName != "" && sources[s]["audioLabel"] == null) {
+            sources[s]["audioLabel"] = dubName;
+        }
+    }
+    return sources;
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": pjUserAgent(),
+        "Referer": aonBaseUrl() + "/"
+    };
+}
