@@ -1,0 +1,359 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "novel_models";
+
+function novelBinBaseUrl() {
+    return "https://novelbin.com";
+}
+
+function novelBinUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function novelBinRequest(path, requestParams, label) {
+    response = httpGet({
+        "url": novelBinBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": novelBinUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": novelBinBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "NovelBin has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "NovelBin asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode == 503 || statusCode >= 500) {
+        throwSourceError("sourceDown", "NovelBin answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function novelBinAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function novelBinSlug(href) {
+    marker = "/b/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("/")[0].split("?")[0].split("#")[0];
+}
+
+function novelBinFilterChoice(filters, param) {
+    if(filters == null) {
+        return "";
+    }
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterData = filters[i];
+        filterInfo = filterData["filter"];
+        if(filterInfo == null) {
+            continue;
+        }
+        if(filterInfo["param"] == param && filterData["selected"] != null) {
+            return parseString(filterData["selected"]);
+        }
+    }
+    return "";
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    pageParams = {};
+    if(page > 1) {
+        pageParams["page"] = parseString(page);
+    }
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        pageParams["keyword"] = trimmedQuery;
+        return novelBinListItems(novelBinRequest("/search", pageParams, "novelbin search"), page);
+    }
+    genreSlug = novelBinFilterChoice(filters, "genre");
+    if(genreSlug != "") {
+        return novelBinListItems(novelBinRequest("/genre/" + genreSlug, pageParams, "novelbin genre"), page);
+    }
+    listPath = "/sort/top-hot-novel";
+    statusChoice = novelBinFilterChoice(filters, "status");
+    if(statusChoice != "") {
+        listPath = listPath + "/" + statusChoice;
+    }
+    if(feed != null && feed != "" && feed != "trending") {
+        pageParams["sort"] = feed;
+    }
+    return novelBinListItems(novelBinRequest(listPath, pageParams, "novelbin list"), page);
+}
+
+function novelBinListItems(body, page) {
+    document = createHTMLParser(body);
+    if(page > 1) {
+        activePage = document.querySelector("ul.pagination li.active");
+        if(activePage != null) {
+            if(parseInt(activePage.text.trim()) != page) {
+                return [];
+            }
+        }
+    }
+    rows = document.querySelectorAll(".list-novel .row");
+    items = [];
+    seen = [];
+    for(r = 0; r < rows.length; r = r + 1) {
+        titleLink = rows[r].querySelector("h3.novel-title a");
+        if(titleLink == null) {
+            continue;
+        }
+        slug = novelBinSlug(novelBinAttribute(titleLink, "href"));
+        if(slug == "" || seen.contains(slug)) {
+            continue;
+        }
+        seen.push(slug);
+        coverUrl = "";
+        coverImage = rows[r].querySelector("img.cover");
+        if(coverImage != null) {
+            coverUrl = novelBinAttribute(coverImage, "src");
+            if(coverUrl == "") {
+                coverUrl = novelBinAttribute(coverImage, "data-src");
+            }
+            coverUrl = coverUrl.replaceFirst("/novel_80_113/", "/novel/");
+        }
+        items.push(buildGallery({
+            "uid": slug,
+            "title": titleLink.text.trim(),
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function novelBinTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function novelBinInfoRow(document, label) {
+    rows = document.querySelectorAll("ul.info-meta li");
+    for(r = 0; r < rows.length; r = r + 1) {
+        heading = rows[r].querySelector("h3");
+        if(heading == null) {
+            continue;
+        }
+        if(heading.text.trim() == label) {
+            return rows[r];
+        }
+    }
+    return null;
+}
+
+function novelBinNewline() {
+    lineBreak = `
+`;
+    if(lineBreak.length > 1) {
+        lineBreak = lineBreak.substring(lineBreak.length - 1);
+    }
+    return lineBreak;
+}
+
+function novelBinStatus(statusRow) {
+    if(statusRow == null) {
+        return statusUndefined();
+    }
+    statusText = statusRow.text.toLowerCase();
+    if(statusText.contains("ongoing")) {
+        return statusOngoing();
+    }
+    if(statusText.contains("completed")) {
+        return statusReleased();
+    }
+    return statusUndefined();
+}
+
+function getConcrete(uid, data) {
+    body = novelBinRequest("/b/" + uid, {}, "novelbin novel");
+    document = createHTMLParser(body);
+    heading = document.querySelector(".books h3.title");
+    if(heading == null) {
+        heading = document.querySelector("h3.title");
+    }
+    if(heading == null) {
+        throw "NovelBin returned an unexpected page (novelbin novel)";
+    }
+    coverUrl = "";
+    coverImage = document.querySelector(".books .book img");
+    if(coverImage != null) {
+        coverUrl = novelBinAttribute(coverImage, "src");
+        if(coverUrl == "") {
+            coverUrl = novelBinAttribute(coverImage, "data-src");
+        }
+    }
+    description = "";
+    descriptionBlock = document.querySelector(".desc-text");
+    if(descriptionBlock != null) {
+        description = descriptionBlock.outerHtml.replaceAll("<p>", novelBinNewline()).replaceAll("<br>", novelBinNewline());
+        description = createHTMLParser(description).querySelector(".desc-text").text.trim();
+    }
+    authors = [];
+    authorRow = novelBinInfoRow(document, "Author:");
+    if(authorRow != null) {
+        authors = novelBinTexts(authorRow, "a");
+    }
+    tags = [];
+    genreRow = novelBinInfoRow(document, "Genre:");
+    if(genreRow != null) {
+        tags = novelBinTexts(genreRow, "a");
+    }
+    alternativeTitles = [];
+    alternativeRow = novelBinInfoRow(document, "Alternative names:");
+    if(alternativeRow != null) {
+        alternativeText = alternativeRow.text.replaceFirst("Alternative names:", "").trim();
+        if(alternativeText != "") {
+            alternativeParts = alternativeText.split(",");
+            for(a = 0; a < alternativeParts.length; a = a + 1) {
+                if(alternativeParts[a].trim() != "") {
+                    alternativeTitles.push(alternativeParts[a].trim());
+                }
+            }
+        }
+    }
+    year = null;
+    yearRow = novelBinInfoRow(document, "Year of publishing:");
+    if(yearRow != null) {
+        yearText = novelBinTexts(yearRow, "a");
+        if(yearText.length > 0) {
+            year = parseInt(yearText[0]);
+        }
+    }
+    rating = null;
+    ratingInput = document.querySelector("#rateVal");
+    if(ratingInput != null) {
+        rating = parseDouble(novelBinAttribute(ratingInput, "value"));
+    }
+    chapters = novelBinChapters(uid);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": novelBinStatus(novelBinInfoRow(document, "Status:")),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "rating": rating,
+        "url": novelBinBaseUrl() + "/b/" + uid,
+        "groups": groups
+    });
+}
+
+function novelBinBetween(haystack, startMarker, endMarker) {
+    startAt = haystack.indexOf(startMarker);
+    if(startAt < 0) {
+        return "";
+    }
+    rest = haystack.substring(startAt + startMarker.length);
+    endAt = rest.indexOf(endMarker);
+    if(endAt < 0) {
+        return "";
+    }
+    return rest.substring(0, endAt);
+}
+
+function novelBinDecode(text) {
+    return text.replaceAll("&#x27;", "'").replaceAll("&#39;", "'").replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
+function novelBinChapters(slug) {
+    body = novelBinRequest("/ajax/chapter-archive", {"novelId": slug}, "novelbin chapters");
+    entries = body.split("<li data-chapter-item");
+    chapters = [];
+    for(e = entries.length - 1; e >= 1; e = e - 1) {
+        entry = entries[e].split("</li>")[0];
+        chapterSlug = novelBinBetween(entry, 'data-chapter-id="', '"');
+        if(chapterSlug == "") {
+            continue;
+        }
+        chapterTitle = novelBinBetween(entry, 'title="', '"');
+        if(chapterTitle == "") {
+            chapterTitle = chapterSlug;
+        }
+        chapters.push(buildChapter({
+            "uid": slug + "/" + chapterSlug,
+            "title": novelBinDecode(chapterTitle).trim(),
+            "timestamp": null,
+            "data": {},
+            "number": e
+        }));
+    }
+    return chapters;
+}
+
+function getChapterText(uid, data) {
+    body = novelBinRequest("/b/" + uid, {}, "novelbin chapter");
+    document = createHTMLParser(body);
+    content = document.querySelector("#chr-content");
+    if(content == null) {
+        throw "NovelBin returned an unexpected page (novelbin chapter)";
+    }
+    paragraphs = content.querySelectorAll("p");
+    parts = [];
+    for(p = 0; p < paragraphs.length; p = p + 1) {
+        if(paragraphs[p].text.trim() != "") {
+            parts.push(paragraphs[p].outerHtml);
+        }
+    }
+    if(parts.isEmpty) {
+        throw "the chapter has no text (novelbin chapter)";
+    }
+    chapterTitle = "";
+    titleElement = document.querySelector(".chr-title");
+    if(titleElement != null) {
+        chapterTitle = novelBinAttribute(titleElement, "title").trim();
+        if(chapterTitle == "") {
+            chapterTitle = titleElement.text.trim();
+        }
+    }
+    if(chapterTitle == "") {
+        return buildNovelChapter({"html": parts.join("")});
+    }
+    return buildNovelChapter({"html": parts.join(""), "title": chapterTitle});
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": novelBinUserAgent(),
+        "Referer": novelBinBaseUrl() + "/"
+    };
+}

@@ -1,0 +1,122 @@
+{
+  "name": "NovelBin",
+  "uid": "6144f287-2f3c-443f-8bdd-67d459541ae3",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/novel/novel_bin/logo.png?raw=true",
+  "type": 2,
+  "nsfw": false,
+  "language": "English",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "novel"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    },
+    "mirrors": [
+      "https://novelbin.com",
+      "https://novelbin.me"
+    ]
+  },
+  "feeds": [
+    {
+      "id": "trending",
+      "title": "Trending"
+    },
+    {
+      "id": "LASTEST",
+      "title": "Latest"
+    },
+    {
+      "id": "NEW",
+      "title": "New"
+    },
+    {
+      "id": "POPULAR",
+      "title": "Popular"
+    },
+    {
+      "id": "RATING",
+      "title": "Top Rated"
+    },
+    {
+      "id": "ALL_TIME",
+      "title": "Most Viewed"
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Genre",
+      "param": "genre",
+      "values": [
+        "",
+        "action",
+        "adventure",
+        "comedy",
+        "drama",
+        "eastern",
+        "fantasy",
+        "game",
+        "harem",
+        "horror",
+        "martial-arts",
+        "mecha",
+        "mystery",
+        "psychological",
+        "reincarnation",
+        "romance",
+        "sci-fi",
+        "supernatural",
+        "system",
+        "urban",
+        "xianxia",
+        "xuanhuan"
+      ],
+      "labels": [
+        "All",
+        "Action",
+        "Adventure",
+        "Comedy",
+        "Drama",
+        "Eastern",
+        "Fantasy",
+        "Game",
+        "Harem",
+        "Horror",
+        "Martial arts",
+        "Mecha",
+        "Mystery",
+        "Psychological",
+        "Reincarnation",
+        "Romance",
+        "Sci-fi",
+        "Supernatural",
+        "System",
+        "Urban",
+        "Xianxia",
+        "Xuanhuan"
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Status",
+      "param": "status",
+      "values": [
+        "",
+        "ongoing",
+        "completed"
+      ],
+      "labels": [
+        "All",
+        "Ongoing",
+        "Completed"
+      ]
+    }
+  ]
+}
