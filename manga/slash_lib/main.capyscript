@@ -1,0 +1,56 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+import "../../shared/lib_social_api";
+
+function slashLibSiteUrl() {
+    return "https://v2.shlib.life";
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    return libSocialGetSortedGallery(page, query, 2, filters, slashLibFeedSort(feed), pageSize);
+}
+
+function slashLibFeedSort(feedId) {
+    if(feedId == "popular") {
+        return "rating_score";
+    }
+    if(feedId == "updates") {
+        return "last_chapter_at";
+    }
+    if(feedId == "new") {
+        return "created_at";
+    }
+    return "";
+}
+
+function getConcrete(uid, data) {
+    titleData = libSocialGetTitleData(uid);
+    chapterList = libSocialGetChapterList(uid);
+    chapterGroups = libSocialTeamChapterGroups(chapterList, uid);
+    return libSocialBuildConcrete(uid, titleData, chapterGroups, slashLibSiteUrl() + "/ru/manga/" + uid);
+}
+
+function getPages(uid, data) {
+    return libSocialGetPages(uid, data, "https://img2.hentaicdn.org");
+}
+
+function getImageHeaders(uid, data) {
+    headers = getHeaders();
+    return {
+        "user-agent": headers["user-agent"],
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Referer": slashLibSiteUrl() + "/"
+    };
+}
+
+function passProtector(body, headers, cookies) {
+    libSocialPassProtector(body, headers, cookies, 2, slashLibSiteUrl());
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}
