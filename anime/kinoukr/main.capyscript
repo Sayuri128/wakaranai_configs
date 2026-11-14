@@ -1,0 +1,307 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "anime_models";
+import "../../shared/playerjs";
+
+function kinoukrBaseUrl() {
+    return "https://kinoukr.tv";
+}
+
+function kinoukrRequest(path, label, missingIsEmpty) {
+    response = httpGet({
+        "url": kinoukrBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": pjUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "uk-UA,uk;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404 && missingIsEmpty) {
+        return "";
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "KinoUkr has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "KinoUkr asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "KinoUkr answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function kinoukrAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function kinoukrPath(href) {
+    path = href.trim();
+    if(path.startsWith(kinoukrBaseUrl())) {
+        path = path.substring(kinoukrBaseUrl().length);
+    }
+    if(path.startsWith("http://kinoukr.tv")) {
+        path = path.substring(17);
+    }
+    if(path.startsWith("/")) {
+        path = path.substring(1);
+    }
+    return path.split("?")[0].split("#")[0];
+}
+
+function kinoukrAbsolute(link) {
+    if(link == "" || link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    if(link.startsWith("/")) {
+        return kinoukrBaseUrl() + link;
+    }
+    return kinoukrBaseUrl() + "/" + link;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    section = "";
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            if(filterInfo != null && filterInfo["param"] == "section" && filters[i]["selected"] != null) {
+                section = parseString(filters[i]["selected"]);
+            }
+        }
+    }
+    listPath = "";
+    if(section != "") {
+        listPath = "/" + section;
+    }
+    if(page > 1) {
+        listPath = listPath + "/page/" + parseString(page) + "/";
+    } else {
+        listPath = listPath + "/";
+    }
+    body = kinoukrRequest(listPath, "kinoukr list", true);
+    if(body == "") {
+        return [];
+    }
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll("#dle-content .short");
+    items = [];
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        titleLink = cards[c].querySelector("a.short-title");
+        if(titleLink == null) {
+            continue;
+        }
+        uid = kinoukrPath(kinoukrAttribute(titleLink, "href"));
+        if(uid == "" || uid.endsWith(".html") == false || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        coverUrl = "";
+        coverImage = cards[c].querySelector(".short-img img");
+        if(coverImage != null) {
+            coverUrl = kinoukrAbsolute(kinoukrAttribute(coverImage, "src"));
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": titleLink.text.trim(),
+            "cover": coverUrl,
+            "data": {},
+            "status": statusUndefined()
+        }));
+    }
+    return items;
+}
+
+function kinoukrInfo(document, label) {
+    lines = document.querySelectorAll("#finfo .sd-line");
+    for(l = 0; l < lines.length; l = l + 1) {
+        heading = lines[l].querySelector("span");
+        if(heading == null) {
+            continue;
+        }
+        if(heading.text.trim() == label) {
+            return lines[l];
+        }
+    }
+    return null;
+}
+
+function kinoukrInfoText(document, label) {
+    line = kinoukrInfo(document, label);
+    if(line == null) {
+        return "";
+    }
+    lineText = line.text.trim();
+    return lineText.substring(label.length).trim();
+}
+
+function kinoukrPlayers(document) {
+    players = [];
+    frames = document.querySelectorAll(".fplayer .video-box iframe");
+    for(f = 0; f < frames.length; f = f + 1) {
+        frameUrl = pjAbsolute(kinoukrAttribute(frames[f], "src"));
+        if(frameUrl == "") {
+            frameUrl = pjAbsolute(kinoukrAttribute(frames[f], "data-src"));
+        }
+        if(pjHostOf(frameUrl).contains("ashdi") && players.contains(frameUrl) == false) {
+            players.push(frameUrl);
+        }
+    }
+    return players;
+}
+
+function getConcrete(uid, data) {
+    body = kinoukrRequest("/" + uid, "kinoukr title", false);
+    document = createHTMLParser(body);
+    heading = document.querySelector("#fheader h1");
+    if(heading == null) {
+        throw "KinoUkr returned an unexpected page (kinoukr title)";
+    }
+    shownTitle = heading.text.trim();
+    alternativeTitles = [];
+    originalElement = document.querySelector("#fheader .foriginal");
+    if(originalElement != null && originalElement.text.trim() != "") {
+        alternativeTitles.push(originalElement.text.trim());
+    }
+    coverUrl = "";
+    posterLink = document.querySelector(".fposter a");
+    if(posterLink != null) {
+        coverUrl = kinoukrAbsolute(kinoukrAttribute(posterLink, "href"));
+    }
+    description = "";
+    descriptionElement = document.querySelector("#fdesc [itemprop='description']");
+    if(descriptionElement != null) {
+        description = descriptionElement.text.trim();
+    }
+    tags = [];
+    genreLine = kinoukrInfo(document, "Жанр:");
+    if(genreLine != null) {
+        genreLinks = genreLine.querySelectorAll("a");
+        for(g = 0; g < genreLinks.length; g = g + 1) {
+            tags.push(genreLinks[g].text.trim());
+        }
+    }
+    year = null;
+    yearText = kinoukrInfoText(document, "Рік:");
+    if(yearText.length >= 4) {
+        year = parseInt(yearText.substring(0, 4));
+    }
+    statusValue = statusUndefined();
+    statusKnown = false;
+    statusText = kinoukrInfoText(document, "Статус:").toLowerCase();
+    if(statusText.contains("заверш")) {
+        statusValue = statusReleased();
+        statusKnown = true;
+    }
+    if(statusText.contains("виходить") || statusText.contains("триває")) {
+        statusValue = statusOngoing();
+        statusKnown = true;
+    }
+    authors = [];
+    directorText = kinoukrInfoText(document, "Режисер:");
+    if(directorText != "") {
+        directorParts = directorText.split(",");
+        for(d = 0; d < directorParts.length; d = d + 1) {
+            if(directorParts[d].trim() != "") {
+                authors.push(directorParts[d].trim());
+            }
+        }
+    }
+    rating = null;
+    ratingElement = document.querySelector(".fposter .m-imdb");
+    if(ratingElement != null) {
+        rating = parseDouble(ratingElement.text.trim());
+    }
+    groups = [];
+    players = kinoukrPlayers(document);
+    for(p = 0; p < players.length; p = p + 1) {
+        if(groups.isEmpty == false) {
+            continue;
+        }
+        if(players[p].contains("/serial/")) {
+            groups = pjSerialGroups(players[p], kinoukrBaseUrl() + "/");
+        }
+    }
+    if(groups.isEmpty && players.isEmpty == false) {
+        if(statusKnown == false) {
+            statusValue = statusReleased();
+        }
+        groups.push(buildAnimeVideoGroup({
+            "title": "Фільм",
+            "videos": [buildAnimeVideo({
+                "uid": uid,
+                "src": players[0],
+                "title": shownTitle,
+                "timestamp": null,
+                "type": typeIframe(),
+                "data": {"players": players},
+                "number": 1,
+                "season": null
+            })]
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": statusValue,
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "rating": rating,
+        "url": kinoukrBaseUrl() + "/" + uid,
+        "groups": groups
+    });
+}
+
+function getVideoSources(uid, src, data) {
+    players = [src];
+    if(data != null && data["players"] != null) {
+        players = data["players"];
+    }
+    sources = [];
+    for(p = 0; p < players.length; p = p + 1) {
+        playerSources = [];
+        try {
+            playerSources = pjSources(players[p], kinoukrBaseUrl() + "/");
+        } catch (e) {
+            playerSources = [];
+        }
+        for(s = 0; s < playerSources.length; s = s + 1) {
+            playerSource = playerSources[s];
+            if(players.length > 1 && playerSource["audioLabel"] == null) {
+                playerSource["audioLabel"] = "Плеєр " + parseString(p + 1);
+            }
+            sources.push(playerSource);
+        }
+    }
+    if(sources.isEmpty) {
+        throwSourceError("unsupported", "KinoUkr has no Ashdi player for this video");
+    }
+    return sources;
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": pjUserAgent(),
+        "Referer": kinoukrBaseUrl() + "/"
+    };
+}

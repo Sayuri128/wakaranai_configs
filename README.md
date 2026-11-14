@@ -51,6 +51,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | AniHub | Ukrainian | Recently updated, new episodes, popular, top rated and newly added feeds |
 | Anitube.in.ua | Ukrainian | Player and dub preferences; opening and ending skips |
 | UAFlix | Ukrainian | Movies, series, cartoons and anime; section filter |
+| KinoUkr | Ukrainian | Movies, series and cartoons; section filter; Ashdi players resolved natively, series split into seasons with one audio track per dub; no search (the site guards it with a Cloudflare challenge) |
 | Цікава Ідея | Ukrainian | Dub team catalogue: movies, series, animation |
 
 ### Novels
@@ -99,6 +100,7 @@ tests/               integration tests for each extension
 - Extensions that use any API 2 feature declare `"apiVersion": 2` and `"minAppVersion": "1.0.0"`. Novel and audiobook extensions always need both, since older apps can't read those types.
 - `shared/madara.capyscript`: a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
 - `shared/kodik.capyscript`: resolves Kodik player links (`kodikResolveSources(url, referer)`) to HLS/MP4 sources at 1080/720/480/360p. It blanks cookies, `Authorization` and other session headers on its own requests, so a source's `useHeaders` session never reaches Kodik.
+- `shared/playerjs.capyscript`: resolves Playerjs players (Ashdi `vod`/`serial` and similar) to HLS/MP4 with subtitles (`pjSources(url, referer)`); `pjSerialGroups(url, referer)` turns a dub/season/episode playlist into season groups whose episodes resolve every dub as a separate audio track.
 - `shared/mangathemesia.capyscript`: the MangaThemesia WordPress theme (`mtGetGallery`, `mtGetConcrete`, `mtGetPages`); a site passes `baseUrl`, its catalog `directory`, and optionally localized `months`, info-table labels and the chapter group title.
 
 The full authoring guide is in the app repository: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).

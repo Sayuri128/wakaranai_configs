@@ -1,0 +1,385 @@
+import "http";
+import "json";
+import "converter";
+import "anime_models";
+
+function pjUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function pjHostOf(pjUrl) {
+    if(pjUrl.contains("://") == false) {
+        return "";
+    }
+    return pjUrl.split("://")[1].split("/")[0].split("?")[0].toLowerCase();
+}
+
+function pjAbsolute(pjLink) {
+    pjText = parseString(pjLink).trim();
+    if(pjText.startsWith("//")) {
+        return "https:" + pjText;
+    }
+    return pjText;
+}
+
+function pjFetch(pjUrl, pjReferer) {
+    pjHeaders = {"User-Agent": pjUserAgent()};
+    if(pjReferer != null && pjReferer != "") {
+        pjHeaders["Referer"] = pjReferer;
+    }
+    pjResponse = httpGet({
+        "url": pjAbsolute(pjUrl).split("#")[0],
+        "params": {},
+        "paths": {},
+        "headers": pjHeaders,
+        "throughWeb": false
+    });
+    if(pjResponse["statusCode"] != 200) {
+        return null;
+    }
+    return pjResponse["body"];
+}
+
+function pjTextAfter(pjHaystack, pjMarker) {
+    if(pjHaystack == null) {
+        return null;
+    }
+    pjAt = pjHaystack.indexOf(pjMarker);
+    if(pjAt < 0) {
+        return null;
+    }
+    return pjHaystack.substring(pjAt + pjMarker.length);
+}
+
+function pjQuoted(pjRaw) {
+    if(pjRaw == null) {
+        return null;
+    }
+    pjTrimmed = pjRaw.trimLeft();
+    if(pjTrimmed.length < 2) {
+        return null;
+    }
+    pjQuote = pjTrimmed.substring(0, 1);
+    if(pjQuote != '"' && pjQuote != "'") {
+        return null;
+    }
+    pjRest = pjTrimmed.substring(1);
+    pjClose = pjRest.indexOf(pjQuote);
+    if(pjClose < 0) {
+        return null;
+    }
+    return pjRest.substring(0, pjClose).replaceAll(`\/`, "/").trim();
+}
+
+function pjPlayerFile(pjPage) {
+    pjConfig = pjTextAfter(pjPage, "new Playerjs(");
+    if(pjConfig == null) {
+        return null;
+    }
+    pjFileText = pjTextAfter(pjConfig, "file:");
+    if(pjFileText == null) {
+        pjFileText = pjTextAfter(pjConfig, '"file":');
+    }
+    return {
+        "file": pjQuoted(pjFileText),
+        "subtitle": pjQuoted(pjTextAfter(pjConfig, "subtitle:"))
+    };
+}
+
+function pjFormat(pjStreamUrl) {
+    pjPath = pjStreamUrl.toLowerCase().split("?")[0];
+    if(pjPath.endsWith(".mp4")) {
+        return "mp4";
+    }
+    if(pjPath.endsWith(".mpd")) {
+        return "dash";
+    }
+    return "hls";
+}
+
+function pjLanguage(pjLabel) {
+    pjLower = pjLabel.toLowerCase();
+    if(pjLower.contains("укр") || pjLower.contains("ukr")) {
+        return "uk";
+    }
+    if(pjLower.contains("англ") || pjLower.contains("eng")) {
+        return "en";
+    }
+    if(pjLower.contains("япон") || pjLower.contains("jap")) {
+        return "ja";
+    }
+    return null;
+}
+
+function pjLabeledLink(pjEntry) {
+    pjText = pjEntry.trim();
+    pjLabel = "";
+    if(pjText.startsWith("[")) {
+        pjBracket = pjText.indexOf("]");
+        if(pjBracket > 0) {
+            pjLabel = pjText.substring(1, pjBracket).trim();
+            pjText = pjText.substring(pjBracket + 1).trim();
+        }
+    }
+    return {"label": pjLabel, "link": pjAbsolute(pjText.split(" or ")[0].trim())};
+}
+
+function pjSubtitles(pjValue, pjHeaders) {
+    pjParsed = [];
+    if(pjValue == null || pjValue == "") {
+        return pjParsed;
+    }
+    pjEntries = pjValue.split(",");
+    for(ps = 0; ps < pjEntries.length; ps = ps + 1) {
+        pjEntry = pjLabeledLink(pjEntries[ps]);
+        if(pjEntry["link"].startsWith("http") == false) {
+            continue;
+        }
+        pjLabel = pjEntry["label"];
+        if(pjLabel == "") {
+            pjLabel = "Субтитри";
+        }
+        pjSubFormat = "vtt";
+        if(pjEntry["link"].toLowerCase().split("?")[0].endsWith(".srt")) {
+            pjSubFormat = "srt";
+        }
+        pjParsed.push({
+            "url": pjEntry["link"],
+            "label": pjLabel,
+            "language": pjLanguage(pjLabel),
+            "format": pjSubFormat,
+            "headers": pjHeaders
+        });
+    }
+    return pjParsed;
+}
+
+function pjStreamHeaders(pjPlayerUrl) {
+    return {"Referer": "https://" + pjHostOf(pjAbsolute(pjPlayerUrl)) + "/"};
+}
+
+function pjFileSources(pjFile, pjSubtitle, pjHeaders, pjAudio) {
+    pjSubtitleList = pjSubtitles(pjSubtitle, pjHeaders);
+    pjEntries = [pjFile];
+    if(pjFile.startsWith("[")) {
+        pjEntries = pjFile.split(",");
+    }
+    pjBuilt = [];
+    for(pe = 0; pe < pjEntries.length; pe = pe + 1) {
+        pjEntry = pjLabeledLink(pjEntries[pe]);
+        if(pjEntry["link"].startsWith("http") == false) {
+            continue;
+        }
+        pjQuality = pjEntry["label"];
+        if(pjQuality == "") {
+            pjQuality = "Auto";
+        }
+        pjSource = {
+            "url": pjEntry["link"],
+            "quality": pjQuality,
+            "format": pjFormat(pjEntry["link"]),
+            "headers": pjHeaders,
+            "subtitles": pjSubtitleList
+        };
+        if(pjAudio != null && pjAudio != "") {
+            pjSource["audioLabel"] = pjAudio;
+        }
+        pjBuilt.push(pjSource);
+    }
+    return pjBuilt;
+}
+
+function pjPlaylist(pjFileValue) {
+    if(pjFileValue == null) {
+        return null;
+    }
+    if(pjFileValue.startsWith("[{") == false && pjFileValue.startsWith("{") == false) {
+        return null;
+    }
+    pjTree = null;
+    try {
+        pjTree = jsonDecode(pjFileValue);
+    } catch (e) {
+        pjTree = null;
+    }
+    return pjTree;
+}
+
+function pjNumberAfter(pjLabel, pjWord) {
+    pjAfter = pjTextAfter(pjLabel, pjWord);
+    if(pjAfter == null) {
+        return null;
+    }
+    pjDigits = pjAfter.trim().split(" ")[0].replaceAll(",", ".");
+    pjValue = null;
+    try {
+        pjValue = parseDouble(pjDigits);
+    } catch (e) {
+        pjValue = null;
+    }
+    return pjValue;
+}
+
+function pjLabel(pjNode) {
+    if(pjNode["title"] == null) {
+        return "";
+    }
+    return parseString(pjNode["title"]).trim();
+}
+
+function pjEpisodeEntries(pjTree) {
+    pjEntries = [];
+    for(pa = 0; pa < pjTree.length; pa = pa + 1) {
+        pjFirst = pjTree[pa];
+        pjFirstLabel = pjLabel(pjFirst);
+        if(pjFirst["folder"] == null) {
+            pjEntries.push({"dub": "", "season": 1, "node": pjFirst});
+            continue;
+        }
+        pjFirstSeason = pjNumberAfter(pjFirstLabel, "Сезон");
+        pjDub = pjFirstLabel;
+        if(pjFirstSeason != null) {
+            pjDub = "";
+        }
+        pjSecondNodes = pjFirst["folder"];
+        for(pb = 0; pb < pjSecondNodes.length; pb = pb + 1) {
+            pjSecond = pjSecondNodes[pb];
+            if(pjSecond["folder"] == null) {
+                pjSeasonValue = pjFirstSeason;
+                if(pjSeasonValue == null) {
+                    pjSeasonValue = 1;
+                }
+                pjEntries.push({"dub": pjDub, "season": pjSeasonValue, "node": pjSecond});
+                continue;
+            }
+            pjSecondSeason = pjNumberAfter(pjLabel(pjSecond), "Сезон");
+            if(pjSecondSeason == null) {
+                pjSecondSeason = 1;
+            }
+            pjThirdNodes = pjSecond["folder"];
+            for(pc = 0; pc < pjThirdNodes.length; pc = pc + 1) {
+                pjEntries.push({"dub": pjDub, "season": pjSecondSeason, "node": pjThirdNodes[pc]});
+            }
+        }
+    }
+    return pjEntries;
+}
+
+function pjEpisodeNumber(pjEntry) {
+    pjValue = pjNumberAfter(pjLabel(pjEntry["node"]), "Серія");
+    if(pjValue == null) {
+        pjValue = pjNumberAfter(pjLabel(pjEntry["node"]), "серія");
+    }
+    return pjValue;
+}
+
+function pjSerialGroups(pjPlayerUrl, pjReferer) {
+    pjPage = pjFetch(pjPlayerUrl, pjReferer);
+    pjPlayer = pjPlayerFile(pjPage);
+    if(pjPlayer == null) {
+        return [];
+    }
+    pjTree = pjPlaylist(pjPlayer["file"]);
+    if(pjTree == null) {
+        return [];
+    }
+    pjEntries = pjEpisodeEntries(pjTree);
+    pjSeasons = [];
+    pjSeasonVideos = {};
+    pjSeen = [];
+    for(pd = 0; pd < pjEntries.length; pd = pd + 1) {
+        pjEntry = pjEntries[pd];
+        pjEpisode = pjEpisodeNumber(pjEntry);
+        if(pjEpisode == null) {
+            continue;
+        }
+        pjKey = parseString(pjEntry["season"]) + "/" + parseString(pjEpisode);
+        if(pjSeen.contains(pjKey)) {
+            continue;
+        }
+        pjSeen.push(pjKey);
+        pjSeasonKey = parseString(pjEntry["season"]);
+        if(pjSeasons.contains(pjSeasonKey) == false) {
+            pjSeasons.push(pjSeasonKey);
+            pjSeasonVideos[pjSeasonKey] = [];
+        }
+        pjEpisodeUrl = pjAbsolute(pjPlayerUrl).split("?")[0].split("#")[0] + "?season=" + parseString(pjEntry["season"]) + "&episode=" + parseString(pjEpisode);
+        pjVideoList = pjSeasonVideos[pjSeasonKey];
+        pjVideoList.push(buildAnimeVideo({
+            "uid": pjEpisodeUrl,
+            "src": pjEpisodeUrl,
+            "title": pjLabel(pjEntry["node"]),
+            "timestamp": null,
+            "type": typeIframe(),
+            "data": {"player": "playerjs-serial"},
+            "number": pjEpisode,
+            "season": pjEntry["season"]
+        }));
+    }
+    pjGroups = [];
+    for(pg = 0; pg < pjSeasons.length; pg = pg + 1) {
+        pjGroups.push(buildAnimeVideoGroup({
+            "title": "Сезон " + pjSeasons[pg].replaceAll(".0", ""),
+            "videos": pjSeasonVideos[pjSeasons[pg]]
+        }));
+    }
+    return pjGroups;
+}
+
+function pjQueryNumber(pjUrl, pjKey) {
+    pjText = pjTextAfter(pjUrl, pjKey + "=");
+    if(pjText == null) {
+        return null;
+    }
+    pjValue = null;
+    try {
+        pjValue = parseDouble(pjText.split("&")[0].split("#")[0].trim());
+    } catch (e) {
+        pjValue = null;
+    }
+    return pjValue;
+}
+
+function pjSources(pjPlayerUrl, pjReferer) {
+    pjPage = pjFetch(pjPlayerUrl, pjReferer);
+    pjPlayer = pjPlayerFile(pjPage);
+    if(pjPlayer == null || pjPlayer["file"] == null || pjPlayer["file"] == "") {
+        return [];
+    }
+    pjHeaders = pjStreamHeaders(pjPlayerUrl);
+    pjTree = pjPlaylist(pjPlayer["file"]);
+    if(pjTree == null) {
+        return pjFileSources(pjPlayer["file"], pjPlayer["subtitle"], pjHeaders, null);
+    }
+    pjWantedEpisode = pjQueryNumber(pjPlayerUrl, "episode");
+    pjWantedSeason = pjQueryNumber(pjPlayerUrl, "season");
+    if(pjWantedSeason == null) {
+        pjWantedSeason = 1;
+    }
+    pjEntries = pjEpisodeEntries(pjTree);
+    pjFound = [];
+    for(pf = 0; pf < pjEntries.length; pf = pf + 1) {
+        pjEntry = pjEntries[pf];
+        if(pjWantedEpisode != null) {
+            if(pjEntry["season"] != pjWantedSeason || pjEpisodeNumber(pjEntry) != pjWantedEpisode) {
+                continue;
+            }
+        }
+        pjNode = pjEntry["node"];
+        if(pjNode["file"] == null) {
+            continue;
+        }
+        pjSubtitle = pjNode["subtitle"];
+        if(pjSubtitle == null) {
+            pjSubtitle = "";
+        }
+        pjNodeSources = pjFileSources(parseString(pjNode["file"]).split(",")[0], parseString(pjSubtitle), pjHeaders, pjEntry["dub"]);
+        for(pn = 0; pn < pjNodeSources.length; pn = pn + 1) {
+            pjFound.push(pjNodeSources[pn]);
+        }
+        if(pjWantedEpisode == null) {
+            return pjFound;
+        }
+    }
+    return pjFound;
+}
