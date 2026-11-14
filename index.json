@@ -142,6 +142,175 @@
     },
     {
       "category": "manga",
+      "path": "manga/asura_scans",
+      "revision": "39c26bd8d9a3643c",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Asura Scans",
+        "uid": "165aa04a-328a-4b40-b652-ba534eb8b4a9",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/asura_scans/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "pricing": "partial",
+        "contentKinds": [
+          "manhwa",
+          "manhua",
+          "manga"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 3,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "latest",
+            "title": "Latest"
+          },
+          {
+            "id": "popular",
+            "title": "Popular"
+          },
+          {
+            "id": "title",
+            "title": "A-Z"
+          }
+        ],
+        "filters": [
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Genres",
+            "param": "genres",
+            "values": [
+              [
+                "action",
+                "adventure",
+                "comedy",
+                "crazy-mc",
+                "dark-fantasy",
+                "demon",
+                "drama",
+                "dungeons",
+                "fantasy",
+                "game",
+                "genius-mc",
+                "isekai",
+                "magic",
+                "martial-arts",
+                "murim",
+                "mystery",
+                "necromancer",
+                "overpowered",
+                "psychological",
+                "regression",
+                "reincarnation",
+                "revenge",
+                "romance",
+                "school-life",
+                "sci-fi",
+                "shoujo",
+                "shounen",
+                "slice-of-life",
+                "supernatural",
+                "system",
+                "tower",
+                "tragedy",
+                "transmigration",
+                "villain",
+                "violence"
+              ]
+            ],
+            "labels": [
+              [
+                "Action",
+                "Adventure",
+                "Comedy",
+                "Crazy MC",
+                "Dark Fantasy",
+                "Demon",
+                "Drama",
+                "Dungeons",
+                "Fantasy",
+                "Game",
+                "Genius MC",
+                "Isekai",
+                "Magic",
+                "Martial Arts",
+                "Murim",
+                "Mystery",
+                "Necromancer",
+                "Overpowered",
+                "Psychological",
+                "Regression",
+                "Reincarnation",
+                "Revenge",
+                "Romance",
+                "School Life",
+                "Sci-fi",
+                "Shoujo",
+                "Shounen",
+                "Slice of Life",
+                "Supernatural",
+                "System",
+                "Tower",
+                "Tragedy",
+                "Transmigration",
+                "Villain",
+                "Violence"
+              ]
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status",
+            "values": [
+              "any",
+              "ongoing",
+              "completed",
+              "hiatus",
+              "dropped",
+              "axed"
+            ],
+            "labels": [
+              "Any",
+              "Ongoing",
+              "Completed",
+              "Hiatus",
+              "Dropped",
+              "Axed"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Type",
+            "param": "type",
+            "values": [
+              "any",
+              "manhwa",
+              "manhua",
+              "manga"
+            ],
+            "labels": [
+              "Any",
+              "Manhwa",
+              "Manhua",
+              "Manga"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/comizy",
       "revision": "48065a29316aaa70",
       "apiVersion": 2,

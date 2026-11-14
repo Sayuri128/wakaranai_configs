@@ -1,0 +1,281 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function asuraApiUrl() {
+    return "https://api.asurascans.com/api";
+}
+
+function asuraSiteUrl() {
+    return "https://asurascans.com";
+}
+
+function asuraUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function asuraPageSize() {
+    return 20;
+}
+
+function asuraGet(path, label) {
+    response = httpGet({
+        "url": asuraApiUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": asuraUserAgent(),
+            "Accept": "application/json",
+            "Referer": asuraSiteUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return jsonDecode(response["body"]);
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Asura Scans has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Asura Scans asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Asura Scans answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function asuraText(value) {
+    if(value == null) {
+        return "";
+    }
+    return parseString(value).trim();
+}
+
+function asuraListQuery(page, query, filters, feed) {
+    parts = ["offset=" + parseString((page - 1) * asuraPageSize())];
+    if(query != null && parseString(query).trim() != "") {
+        parts.push("search=" + urlEncode(parseString(query).trim()));
+    } else {
+        if(feed != null && feed != "") {
+            parts.push("sort=" + urlEncode(feed));
+        }
+    }
+    if(filters == null) {
+        return parts.join("&");
+    }
+    for(i = 0; i < filters.length; i = i + 1) {
+        filterInfo = filters[i]["filter"];
+        chosen = filters[i]["selected"];
+        if(filterInfo == null || chosen == null) {
+            continue;
+        }
+        if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+            if(chosen != "" && chosen != "any") {
+                parts.push(filterInfo["param"] + "=" + urlEncode(parseString(chosen)));
+            }
+            continue;
+        }
+        chosenValues = [];
+        for(g = 0; g < chosen.length; g = g + 1) {
+            for(v = 0; v < chosen[g].length; v = v + 1) {
+                chosenValues.push(parseString(chosen[g][v]));
+            }
+        }
+        if(chosenValues.length > 0) {
+            parts.push(filterInfo["param"] + "=" + urlEncode(chosenValues.join(",")));
+        }
+    }
+    return parts.join("&");
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    result = asuraGet("/series?" + asuraListQuery(page, query, filters, feed), "asura list");
+    entries = result["data"];
+    items = [];
+    if(entries == null) {
+        return items;
+    }
+    for(e = 0; e < entries.length; e = e + 1) {
+        series = entries[e];
+        slug = asuraText(series["slug"]);
+        if(slug == "") {
+            continue;
+        }
+        items.push(buildGallery({
+            "uid": slug,
+            "title": asuraText(series["title"]),
+            "cover": asuraText(series["cover"]),
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function asuraStatus(statusText) {
+    if(statusText == "ongoing") {
+        return statusOngoing();
+    }
+    if(statusText == "completed") {
+        return statusReleased();
+    }
+    if(statusText == "hiatus") {
+        return statusPaused();
+    }
+    if(statusText == "dropped" || statusText == "axed") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function asuraCapitalized(word) {
+    if(word == "") {
+        return word;
+    }
+    return word.substring(0, 1).toUpperCase() + word.substring(1);
+}
+
+function asuraTimestamp(isoText) {
+    if(isoText.length < 16 || isoText.startsWith("0001")) {
+        return null;
+    }
+    return isoText.substring(0, 16).replaceFirst("T", " ");
+}
+
+function asuraChapters(slug) {
+    result = asuraGet("/series/" + slug + "/chapters", "asura chapters");
+    entries = result["data"];
+    chapters = [];
+    if(entries == null) {
+        return chapters;
+    }
+    for(c = 0; c < entries.length; c = c + 1) {
+        chapterInfo = entries[c];
+        if(chapterInfo["is_premium"] == true) {
+            continue;
+        }
+        chapterSlug = asuraText(chapterInfo["slug"]);
+        if(chapterSlug == "") {
+            continue;
+        }
+        numberText = asuraText(chapterInfo["number"]);
+        chapterTitle = "Chapter " + numberText;
+        extraTitle = asuraText(chapterInfo["title"]);
+        if(extraTitle != "") {
+            chapterTitle = chapterTitle + ": " + extraTitle;
+        }
+        chapters.push(buildChapter({
+            "uid": slug + "/" + chapterSlug,
+            "title": chapterTitle,
+            "timestamp": asuraTimestamp(asuraText(chapterInfo["published_at"])),
+            "data": {},
+            "number": numberText
+        }));
+    }
+    return chapters;
+}
+
+function getConcrete(uid, data) {
+    result = asuraGet("/series/" + uid, "asura series");
+    series = result["series"];
+    if(series == null && result["data"] != null) {
+        series = result["data"]["series"];
+    }
+    if(series == null) {
+        throw "Asura Scans returned an unexpected answer (asura series)";
+    }
+    slug = asuraText(series["slug"]);
+    if(slug == "") {
+        slug = uid;
+    }
+    alternativeTitles = [];
+    altTitles = series["alt_titles"];
+    if(altTitles != null) {
+        for(a = 0; a < altTitles.length; a = a + 1) {
+            altTitle = asuraText(altTitles[a]);
+            if(altTitle != "" && alternativeTitles.contains(altTitle) == false) {
+                alternativeTitles.push(altTitle);
+            }
+        }
+    }
+    authors = [];
+    authorText = asuraText(series["author"]);
+    if(authorText != "" && authorText != "_") {
+        authors.push(authorText);
+    }
+    artistText = asuraText(series["artist"]);
+    if(artistText != "" && artistText != "_" && authors.contains(artistText) == false) {
+        authors.push(artistText);
+    }
+    tags = [];
+    typeText = asuraText(series["type"]);
+    if(typeText != "") {
+        tags.push(asuraCapitalized(typeText));
+    }
+    genres = series["genres"];
+    if(genres != null) {
+        for(g = 0; g < genres.length; g = g + 1) {
+            genreName = asuraText(genres[g]["name"]);
+            if(genreName != "") {
+                tags.push(genreName);
+            }
+        }
+    }
+    chapters = asuraChapters(slug);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    publicPath = asuraText(series["public_url"]);
+    if(publicPath == "") {
+        publicPath = "/comics/" + slug;
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": asuraText(series["title"]),
+        "cover": asuraText(series["cover"]),
+        "description": asuraText(series["description"]),
+        "tags": tags,
+        "status": asuraStatus(asuraText(series["status"])),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "url": asuraSiteUrl() + publicPath,
+        "groups": groups
+    });
+}
+
+function getPages(uid, data) {
+    uidParts = uid.split("/");
+    result = asuraGet("/series/" + uidParts[0] + "/chapters/" + uidParts[1], "asura chapter");
+    chapterData = result["data"];
+    pageLinks = [];
+    if(chapterData != null && chapterData["chapter"] != null && chapterData["chapter"]["pages"] != null) {
+        pageList = chapterData["chapter"]["pages"];
+        for(p = 0; p < pageList.length; p = p + 1) {
+            pageUrl = asuraText(pageList[p]["url"]);
+            if(pageUrl.startsWith("http")) {
+                pageLinks.push(pageUrl);
+            }
+        }
+    }
+    if(pageLinks.isEmpty) {
+        throwSourceError("loginRequired", "Asura Scans keeps this chapter for premium members for now");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": asuraUserAgent(),
+        "Referer": asuraSiteUrl() + "/"
+    };
+}
