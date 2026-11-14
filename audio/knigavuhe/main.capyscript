@@ -1,0 +1,224 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "audio_models";
+
+function kvBaseUrl() {
+    return "https://m.knigavuhe.org";
+}
+
+function kvUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function kvGet(path, requestParams, label) {
+    response = httpGet({
+        "url": kvBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": kvUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Книга в Ухе has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Книга в Ухе asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Книга в Ухе answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function kvAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function kvBookUid(href) {
+    marker = "/book/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("/")[0].split("?")[0];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    listParams = {};
+    if(page > 1) {
+        listParams["page"] = parseString(page);
+    }
+    body = "";
+    if(query != null && parseString(query).trim() != "") {
+        listParams["q"] = parseString(query).trim();
+        body = kvGet("/search/", listParams, "knigavuhe search");
+    } else {
+        feedPath = "new";
+        if(feed != null && feed != "") {
+            feedPath = feed;
+        }
+        body = kvGet("/" + feedPath + "/", listParams, "knigavuhe list");
+    }
+    document = createHTMLParser(body);
+    entries = document.querySelectorAll(".bookkitemm");
+    items = [];
+    seen = [];
+    for(e = 0; e < entries.length; e = e + 1) {
+        link = entries[e].querySelector("a.bookkitem_name");
+        if(link == null) {
+            continue;
+        }
+        uid = kvBookUid(kvAttribute(link, "href"));
+        if(uid == "" || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        coverUrl = "";
+        coverImage = entries[e].querySelector("img.bookkitem_cover_img");
+        if(coverImage != null) {
+            coverUrl = kvAttribute(coverImage, "src");
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": link.text.trim(),
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function kvTracks(body) {
+    marker = "new BookPlayer(";
+    markerAt = body.indexOf(marker);
+    if(markerAt < 0) {
+        return null;
+    }
+    rest = body.substring(markerAt + marker.length);
+    listStart = rest.indexOf("[");
+    if(listStart < 0) {
+        return null;
+    }
+    listText = rest.substring(listStart);
+    listEnd = listText.indexOf("}]");
+    if(listEnd < 0) {
+        return null;
+    }
+    return jsonDecode(listText.substring(0, listEnd + 2));
+}
+
+function kvInfoLinks(document, label) {
+    names = [];
+    lines = document.querySelectorAll(".book_info_line");
+    for(l = 0; l < lines.length; l = l + 1) {
+        if(lines[l].text.trim().startsWith(label) == false) {
+            continue;
+        }
+        links = lines[l].querySelectorAll("a");
+        for(a = 0; a < links.length; a = a + 1) {
+            linkText = links[a].text.trim();
+            if(linkText != "" && names.contains(linkText) == false) {
+                names.push(linkText);
+            }
+        }
+    }
+    return names;
+}
+
+function getConcrete(uid, data) {
+    body = kvGet("/book/" + uid + "/", {}, "knigavuhe book");
+    document = createHTMLParser(body);
+    titleElement = document.querySelector(".book_title");
+    if(titleElement == null) {
+        throw "Книга в Ухе returned an unexpected page (knigavuhe book)";
+    }
+    authors = [];
+    authorLinks = document.querySelectorAll(".book_authors a");
+    for(a = 0; a < authorLinks.length; a = a + 1) {
+        authors.push(authorLinks[a].text.trim());
+    }
+    tags = kvInfoLinks(document, "Жанр");
+    readers = kvInfoLinks(document, "Читает");
+    for(r = 0; r < readers.length; r = r + 1) {
+        tags.push("Читает: " + readers[r]);
+    }
+    description = "";
+    descriptionElement = document.querySelector("[itemprop='description']");
+    if(descriptionElement != null) {
+        description = descriptionElement.text.trim();
+    }
+    coverUrl = "";
+    ogImage = document.querySelector("meta[property='og:image']");
+    if(ogImage != null) {
+        coverUrl = kvAttribute(ogImage, "content");
+    }
+    tracks = kvTracks(body);
+    elements = [];
+    if(tracks != null) {
+        for(t = 0; t < tracks.length; t = t + 1) {
+            track = tracks[t];
+            if(track["url"] == null || track["error"] != null && track["error"] != 0) {
+                continue;
+            }
+            elements.push(buildChapter({
+                "uid": uid + "/" + parseString(track["id"]),
+                "title": parseString(track["title"]).trim(),
+                "timestamp": null,
+                "data": {"url": track["url"], "duration": track["duration"]},
+                "number": t + 1
+            }));
+        }
+    }
+    groups = [];
+    if(elements.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Треки",
+            "elements": elements
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "cover": coverUrl,
+        "title": titleElement.text.trim(),
+        "description": description,
+        "tags": tags,
+        "groups": groups,
+        "status": statusReleased(),
+        "alternativeTitles": [],
+        "authors": authors,
+        "url": "https://knigavuhe.org/book/" + uid + "/"
+    });
+}
+
+function getAudioSources(uid, data) {
+    if(data == null || data["url"] == null) {
+        throwSourceError("notFound", "this track has no audio file");
+    }
+    return [buildAudioSource({
+        "url": data["url"],
+        "format": "mp3",
+        "headers": {"Referer": kvBaseUrl() + "/"},
+        "duration": data["duration"]
+    })];
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": kvBaseUrl() + "/"
+    };
+}

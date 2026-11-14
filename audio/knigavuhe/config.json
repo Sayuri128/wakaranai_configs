@@ -1,0 +1,37 @@
+{
+  "name": "Книга в Ухе",
+  "uid": "1eb8d4b8-6aef-43d9-9318-0fbbadcac7d1",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/audio/knigavuhe/logo.png?raw=true",
+  "type": 3,
+  "nsfw": false,
+  "language": "Русский",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "audiobook"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "new",
+      "title": "Новинки"
+    },
+    {
+      "id": "popular",
+      "title": "Популярное"
+    },
+    {
+      "id": "rating",
+      "title": "Рейтинг"
+    }
+  ],
+  "filters": []
+}

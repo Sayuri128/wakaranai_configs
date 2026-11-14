@@ -11795,6 +11795,50 @@
     },
     {
       "category": "audio",
+      "path": "audio/knigavuhe",
+      "revision": "4fd1677f83f99546",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Книга в Ухе",
+        "uid": "1eb8d4b8-6aef-43d9-9318-0fbbadcac7d1",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/audio/knigavuhe/logo.png?raw=true",
+        "type": 3,
+        "nsfw": false,
+        "language": "Русский",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "audiobook"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "new",
+            "title": "Новинки"
+          },
+          {
+            "id": "popular",
+            "title": "Популярное"
+          },
+          {
+            "id": "rating",
+            "title": "Рейтинг"
+          }
+        ],
+        "filters": []
+      }
+    },
+    {
+      "category": "audio",
       "path": "audio/librivox",
       "revision": "4bab742649c30a73",
       "apiVersion": 2,

@@ -76,6 +76,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | Extension | Language | Notes |
 |---|---|---|
 | LibriVox | English | Public domain audiobooks; new releases and catalog feeds; each section is a track streamed from archive.org at 64 or 128 kbps |
+| Книга в Ухе | Russian | Audiobooks; new, popular and rating feeds, search; tracks stream as MP3 |
 
 ### Self-hosted servers
 
