@@ -73,6 +73,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | Ficbook | Russian | Fanfiction and originals; direction, rating, status, fandom and genre filters; NC-17/NC-21 hidden unless enabled |
 | RanobeHub | Russian | Light and web novels; updates, popular, best and new feeds; genre, status and country filters |
 | Rulate (partly paid) | Russian | tl.rulate.ru; rating, updates, new and views feeds, category filter, search; paid chapters hidden unless enabled |
+| LitNet (partly paid) | Russian | litnet.com; genre tops (fantasy by default), search; chapters from the reader's contents, text through its page endpoint; 18+ books hidden unless enabled; purchase-only chapters report that they need sign-in |
 | Royal Road | English | Original web fiction; popular, best rated, trending, latest and new feeds; genre, tag, warning, status and type filters; paid and unpublished chapters hidden; author notes optional |
 | Wattpad (partly paid) | Multi | Hot and new feeds, tag filter, search; mature stories hidden unless enabled; Paid Stories parts report that they need the program, and can be hidden |
 | NovelBin | English | Translated web novels; trending, latest, new, popular, top rated and most viewed feeds; genre and status filters; novelbin.com with novelbin.me as a fallback mirror |

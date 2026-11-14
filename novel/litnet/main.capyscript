@@ -1,0 +1,327 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "novel_models";
+
+function litnetBaseUrl() {
+    return "https://litnet.com";
+}
+
+function litnetUserAgent() {
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+}
+
+function litnetFailure(statusCode, label) {
+    if(statusCode == 404) {
+        throwSourceError("notFound", "LitNet has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "LitNet asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "LitNet answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function litnetGet(path, label) {
+    response = httpGet({
+        "url": litnetBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": litnetUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9"
+        },
+        "throughWeb": false
+    });
+    if(response["statusCode"] != 200) {
+        litnetFailure(response["statusCode"], label);
+    }
+    return response;
+}
+
+function litnetAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function litnetBookAlias(href) {
+    marker = "/ru/book/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("?")[0].split("/")[0];
+}
+
+function litnetCards(body) {
+    showAdult = getPreference("showAdult") == true;
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll(".book-card");
+    items = [];
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        coverLink = cards[c].querySelector("a.book-card__cover");
+        if(coverLink == null) {
+            continue;
+        }
+        alias = litnetBookAlias(litnetAttribute(coverLink, "href"));
+        if(alias == "" || seen.contains(alias)) {
+            continue;
+        }
+        adultBadge = cards[c].querySelector(".book-card__adult");
+        if(showAdult == false && adultBadge != null && adultBadge.text.trim() == "18+") {
+            continue;
+        }
+        seen.push(alias);
+        title = "";
+        coverUrl = "";
+        coverImage = coverLink.querySelector("img");
+        if(coverImage != null) {
+            title = litnetAttribute(coverImage, "alt").trim();
+            coverUrl = litnetAttribute(coverImage, "src");
+        }
+        items.push(buildGallery({
+            "uid": alias,
+            "title": title,
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if(query != null && parseString(query).trim() != "") {
+        if(page > 1) {
+            return [];
+        }
+        found = litnetGet("/ru/search?q=" + urlEncode(parseString(query).trim()), "litnet search");
+        return litnetCards(found["body"]);
+    }
+    genre = "fentezi";
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            selected = filters[i]["selected"];
+            if(filterInfo != null && filterInfo["param"] == "genre" && selected != null && selected != "") {
+                genre = parseString(selected);
+            }
+        }
+    }
+    listPath = "/ru/top/" + genre;
+    if(page > 1) {
+        listPath = listPath + "?page=" + parseString(page);
+    }
+    listing = litnetGet(listPath, "litnet top");
+    return litnetCards(listing["body"]);
+}
+
+function litnetBookData(body) {
+    marker = '<script type="application/ld+json">';
+    parts = body.split(marker);
+    for(p = 1; p < parts.length; p = p + 1) {
+        jsonText = parts[p].split("</script>")[0];
+        if(jsonText.contains('"@type":"Book"') == false) {
+            continue;
+        }
+        return jsonDecode(jsonText);
+    }
+    return null;
+}
+
+function litnetPlainText(markup) {
+    if(markup == "") {
+        return "";
+    }
+    return parseString(createHTMLParser(markup.replaceAll("<br />", `
+`).replaceAll("<br>", `
+`)).text).trim();
+}
+
+function litnetChapters(alias) {
+    reader = litnetGet("/ru/reader/" + alias, "litnet contents");
+    document = createHTMLParser(reader["body"]);
+    options = document.querySelectorAll("select option[value]");
+    chapters = [];
+    seen = [];
+    for(o = 0; o < options.length; o = o + 1) {
+        chapterId = litnetAttribute(options[o], "value");
+        if(chapterId == "" || seen.contains(chapterId)) {
+            continue;
+        }
+        seen.push(chapterId);
+        chapterTitle = options[o].text.trim();
+        if(chapterTitle == "") {
+            chapterTitle = "Глава " + parseString(chapters.length + 1);
+        }
+        chapters.push(buildChapter({
+            "uid": alias + "/" + chapterId,
+            "title": chapterTitle,
+            "timestamp": null,
+            "data": {},
+            "number": chapters.length + 1
+        }));
+    }
+    return chapters;
+}
+
+function getConcrete(uid, data) {
+    page = litnetGet("/ru/book/" + uid, "litnet book");
+    book = litnetBookData(page["body"]);
+    if(book == null) {
+        throw "LitNet returned an unexpected page (litnet book)";
+    }
+    authors = [];
+    if(book["author"] != null && book["author"]["name"] != null) {
+        authors.push(parseString(book["author"]["name"]).trim());
+    }
+    tags = [];
+    if(book["genre"] != null) {
+        genreNames = parseString(book["genre"]).split(",");
+        for(g = 0; g < genreNames.length; g = g + 1) {
+            genreName = genreNames[g].trim();
+            if(genreName != "" && tags.contains(genreName) == false) {
+                tags.push(genreName);
+            }
+        }
+    }
+    if(book["audience"] != null && book["audience"]["requiredMinAge"] != null) {
+        tags.push(parseString(book["audience"]["requiredMinAge"]));
+    }
+    description = "";
+    if(book["description"] != null) {
+        description = litnetPlainText(parseString(book["description"]));
+    }
+    chapters = litnetChapters(uid);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Главы",
+            "elements": chapters
+        }));
+    }
+    coverUrl = "";
+    if(book["image"] != null) {
+        coverUrl = parseString(book["image"]);
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": parseString(book["name"]).trim(),
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": statusUndefined(),
+        "alternativeTitles": [],
+        "authors": authors,
+        "url": litnetBaseUrl() + "/ru/book/" + uid,
+        "groups": groups
+    });
+}
+
+function litnetCookies(responseHeaders) {
+    rawCookies = responseHeaders["set-cookie"];
+    if(rawCookies == null) {
+        return "";
+    }
+    attributeNames = ["path", "expires", "max-age", "domain", "samesite", "secure", "httponly", "priority"];
+    pairs = [];
+    pieces = parseString(rawCookies).replaceAll(",", ";").split(";");
+    for(p = 0; p < pieces.length; p = p + 1) {
+        piece = pieces[p].trim();
+        if(piece.contains("=") == false) {
+            continue;
+        }
+        cookieName = piece.split("=")[0].trim();
+        if(cookieName == "" || cookieName.contains(" ") || attributeNames.contains(cookieName.toLowerCase())) {
+            continue;
+        }
+        pairs.push(piece);
+    }
+    return pairs.join("; ");
+}
+
+function litnetCsrfToken(body) {
+    marker = 'name="csrf-token" content="';
+    markerAt = body.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return body.substring(markerAt + marker.length).split('"')[0];
+}
+
+function litnetPage(chapterId, pageNumber, token, cookies, refererUrl) {
+    response = httpPost({
+        "url": litnetBaseUrl() + "/reader/get-page",
+        "params": {},
+        "paths": {},
+        "body": {
+            "chapterId": chapterId,
+            "page": parseString(pageNumber),
+            "_csrf": token
+        },
+        "headers": {
+            "User-Agent": litnetUserAgent(),
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": refererUrl,
+            "Cookie": cookies
+        },
+        "throughWeb": false
+    });
+    if(response["statusCode"] != 200) {
+        litnetFailure(response["statusCode"], "litnet chapter page");
+    }
+    pageData = jsonDecode(response["body"]);
+    if(parseString(pageData["status"]) != "1") {
+        message = "LitNet only shows this chapter after purchase or sign-in";
+        if(pageData["data"] != null && parseString(pageData["data"]).trim() != "") {
+            message = message + " (" + parseString(pageData["data"]).trim() + ")";
+        }
+        throwSourceError("loginRequired", message);
+    }
+    return pageData;
+}
+
+function getChapterText(uid, data) {
+    uidParts = uid.split("/");
+    alias = uidParts[0];
+    chapterId = uidParts[1];
+    readerPath = "/ru/reader/" + alias + "?c=" + chapterId;
+    reader = litnetGet(readerPath, "litnet reader");
+    token = litnetCsrfToken(reader["body"]);
+    if(token == "") {
+        throw "LitNet returned an unexpected page (litnet reader)";
+    }
+    cookies = litnetCookies(reader["headers"]);
+    first = litnetPage(chapterId, 1, token, cookies, litnetBaseUrl() + readerPath);
+    pieces = [parseString(first["data"])];
+    totalPages = 1;
+    if(first["totalPages"] != null) {
+        totalPages = parseInt(parseString(first["totalPages"]));
+    }
+    for(p = 2; p <= totalPages; p = p + 1) {
+        nextPage = litnetPage(chapterId, p, token, cookies, litnetBaseUrl() + readerPath);
+        pieces.push(parseString(nextPage["data"]));
+    }
+    chapterHtml = pieces.join("");
+    if(first["chapterTitle"] != null && parseString(first["chapterTitle"]).trim() != "") {
+        return buildNovelChapter({"html": chapterHtml, "title": parseString(first["chapterTitle"]).trim()});
+    }
+    return buildNovelChapter({"html": chapterHtml});
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": litnetUserAgent(),
+        "Referer": litnetBaseUrl() + "/"
+    };
+}
