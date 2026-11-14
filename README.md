@@ -51,6 +51,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | AniDub | Russian | AniDub dubs from its own player (HLS); section filter (ongoing, series, movies, OVA, ONA, dramas, cartoons, dubbing); search |
 | AnimeLib | Russian | Requires login, shares the MangaLib session; popular, new episodes and new feeds; genre, type, status, year and rating filters; Kodik dubs play natively, the most watched or preferred teams first (count and team names in the extension settings) |
 | Animedia | Russian | amd.online; AniMedia dubs from its own Playerjs player; new episodes, ongoing, finished and announced sections; search |
+| AnimeGO | Russian | animego.me; new, rating and release feeds; genre, type and status filters, search; every Kodik dub per episode plays natively (shared Kodik resolver), other players open in the web player |
 | AnimeVost | Russian | Latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
 | YummyAnime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; an optional application token can be set in the extension settings |
 | Anime365 (paid) | Russian | Browsing is free, watching needs an Anime365 subscription (sign in through the in-app browser); subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |

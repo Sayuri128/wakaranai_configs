@@ -1,0 +1,389 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "anime_models";
+import "../../shared/kodik";
+
+function agoBaseUrl() {
+    return "https://animego.me";
+}
+
+function agoUserAgent() {
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+}
+
+function agoMaxDubs() {
+    return 6;
+}
+
+function agoRequest(path, asAjax, label) {
+    requestHeaders = {
+        "User-Agent": agoUserAgent(),
+        "Referer": agoBaseUrl() + "/",
+        "Accept-Language": "ru-RU,ru;q=0.9"
+    };
+    if(asAjax) {
+        requestHeaders["Accept"] = "application/json";
+        requestHeaders["X-Requested-With"] = "XMLHttpRequest";
+    }
+    response = httpGet({
+        "url": agoBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": requestHeaders,
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "AnimeGO has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "AnimeGO asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "AnimeGO answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function agoAjaxContent(path, label) {
+    answer = jsonDecode(agoRequest(path, true, label));
+    if(answer["data"] == null || answer["data"]["content"] == null) {
+        return "";
+    }
+    return parseString(answer["data"]["content"]);
+}
+
+function agoAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function agoAnimeUid(href) {
+    marker = "/anime/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("?")[0].split("/")[0];
+}
+
+function agoAnimeId(uid) {
+    parts = uid.split("-");
+    return parts[parts.length - 1];
+}
+
+function agoListPath(page, filters, feed) {
+    listPath = "/anime";
+    if(filters != null) {
+        chosen = {"genre": "", "type": "", "status": ""};
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            selected = filters[i]["selected"];
+            if(filterInfo == null || selected == null || selected == "" || selected == "any") {
+                continue;
+            }
+            chosen[filterInfo["param"]] = parseString(selected);
+        }
+        if(chosen["genre"] != "") {
+            listPath = listPath + "/genre/" + chosen["genre"];
+        } else if(chosen["type"] != "") {
+            listPath = listPath + "/type/" + chosen["type"];
+        } else if(chosen["status"] != "") {
+            listPath = listPath + "/status/" + chosen["status"];
+        }
+    }
+    if(page > 1) {
+        listPath = listPath + "/" + parseString(page);
+    }
+    if(feed != null && feed != "") {
+        listPath = listPath + "?sort=" + feed + "&direction=desc";
+    }
+    return listPath;
+}
+
+function agoGalleryItems(body, pictureSelector) {
+    document = createHTMLParser(body);
+    pictures = document.querySelectorAll(pictureSelector);
+    items = [];
+    seen = [];
+    for(p = 0; p < pictures.length; p = p + 1) {
+        uid = agoAnimeUid(agoAttribute(pictures[p], "href"));
+        if(uid == "" || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        image = pictures[p].querySelector("img");
+        if(image == null) {
+            continue;
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": agoAttribute(image, "alt").trim(),
+            "cover": agoAttribute(image, "src"),
+            "data": {},
+            "status": statusUndefined()
+        }));
+    }
+    return items;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if(query != null && parseString(query).trim() != "") {
+        if(page > 1) {
+            return [];
+        }
+        searchBody = agoRequest("/search/anime?q=" + urlEncode(parseString(query).trim()), false, "animego search");
+        return agoGalleryItems(searchBody, "a.ani-grid__item-picture, a.ani-list__item-picture");
+    }
+    listBody = agoRequest(agoListPath(page, filters, feed), false, "animego list");
+    return agoGalleryItems(listBody, "a.ani-list__item-picture, a.ani-grid__item-picture");
+}
+
+function agoFieldValue(document, label) {
+    nodes = document.querySelectorAll(".text-body-tertiary, .text-body-tertiary + div");
+    for(n = 0; n + 1 < nodes.length; n = n + 1) {
+        if(agoAttribute(nodes[n], "class").contains("text-body-tertiary") == false) {
+            continue;
+        }
+        if(nodes[n].text.trim() != label) {
+            continue;
+        }
+        if(agoAttribute(nodes[n + 1], "class").contains("text-body-tertiary")) {
+            return null;
+        }
+        return nodes[n + 1];
+    }
+    return null;
+}
+
+function agoLinkNames(element) {
+    names = [];
+    if(element == null) {
+        return names;
+    }
+    links = element.querySelectorAll("a");
+    for(a = 0; a < links.length; a = a + 1) {
+        name = links[a].text.trim();
+        if(name != "" && names.contains(name) == false) {
+            names.push(name);
+        }
+    }
+    return names;
+}
+
+function agoStatus(document) {
+    statusField = agoFieldValue(document, "Статус");
+    if(statusField == null) {
+        return statusUndefined();
+    }
+    statusLink = statusField.querySelector("a");
+    if(statusLink == null) {
+        return statusUndefined();
+    }
+    href = agoAttribute(statusLink, "href");
+    if(href.endsWith("/ongoing")) {
+        return statusOngoing();
+    }
+    if(href.endsWith("/released")) {
+        return statusReleased();
+    }
+    if(href.endsWith("/anons")) {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function agoEpisodeEntries(content, episodes, seen) {
+    if(content == "") {
+        content = "<div></div>";
+    }
+    document = createHTMLParser(content);
+    buttons = document.querySelectorAll("[data-episode][data-episode-number]");
+    for(b = 0; b < buttons.length; b = b + 1) {
+        episodeId = agoAttribute(buttons[b], "data-episode");
+        if(episodeId == "" || seen.contains(episodeId)) {
+            continue;
+        }
+        seen.push(episodeId);
+        episodes.push({"id": episodeId, "number": agoAttribute(buttons[b], "data-episode-number")});
+    }
+}
+
+function agoEpisodeTotal(content) {
+    marker = 'data-anime-player-episodes-total-value="';
+    markerAt = content.indexOf(marker);
+    if(markerAt < 0) {
+        return 0;
+    }
+    return parseInt(content.substring(markerAt + marker.length).split('"')[0]);
+}
+
+function agoVideos(animeId, titleUrl) {
+    playerContent = agoAjaxContent("/player/" + animeId, "animego player");
+    episodes = [];
+    seen = [];
+    agoEpisodeEntries(playerContent, episodes, seen);
+    total = agoEpisodeTotal(playerContent);
+    for(p = 1; p * 100 < total; p = p + 1) {
+        agoEpisodeEntries(agoAjaxContent("/player/" + animeId + "/episodes?page=" + parseString(p), "animego episodes"), episodes, seen);
+    }
+    videos = [];
+    if(episodes.length == 0) {
+        if(playerContent.contains("data-player=")) {
+            videos.push(buildAnimeVideo({
+                "uid": "a" + animeId,
+                "src": titleUrl,
+                "title": "Фильм",
+                "timestamp": null,
+                "type": typeIframe(),
+                "data": {},
+                "number": "1"
+            }));
+        }
+        return videos;
+    }
+    for(e = 0; e < episodes.length; e = e + 1) {
+        videos.push(buildAnimeVideo({
+            "uid": episodes[e]["id"],
+            "src": titleUrl,
+            "title": "Серия " + episodes[e]["number"],
+            "timestamp": null,
+            "type": typeIframe(),
+            "data": {},
+            "number": episodes[e]["number"]
+        }));
+    }
+    return videos;
+}
+
+function getConcrete(uid, data) {
+    titleUrl = agoBaseUrl() + "/anime/" + uid;
+    body = agoRequest("/anime/" + uid, false, "animego title");
+    document = createHTMLParser(body);
+    heading = document.querySelector("h1");
+    if(heading == null) {
+        throw "AnimeGO returned an unexpected page (animego title)";
+    }
+    alternativeTitles = [];
+    synonyms = document.querySelectorAll(".entity__title-synonyms li");
+    for(s = 0; s < synonyms.length; s = s + 1) {
+        synonym = synonyms[s].text.trim();
+        if(synonym != "" && alternativeTitles.contains(synonym) == false) {
+            alternativeTitles.push(synonym);
+        }
+    }
+    coverUrl = "";
+    ogImage = document.querySelector("meta[property='og:image']");
+    if(ogImage != null) {
+        coverUrl = agoAttribute(ogImage, "content");
+    }
+    description = "";
+    descriptionElement = document.querySelector(".description");
+    if(descriptionElement != null) {
+        description = descriptionElement.text.trim();
+    }
+    tags = [];
+    typeElement = agoFieldValue(document, "Тип");
+    if(typeElement != null && typeElement.text.trim() != "") {
+        tags.push(typeElement.text.trim());
+    }
+    genreElement = document.querySelector(".entity-field__genres");
+    genreNames = agoLinkNames(genreElement);
+    for(g = 0; g < genreNames.length; g = g + 1) {
+        tags.push(genreNames[g]);
+    }
+    authors = agoLinkNames(agoFieldValue(document, "Студия"));
+    videos = agoVideos(agoAnimeId(uid), titleUrl);
+    groups = [];
+    if(videos.length > 0) {
+        groups.push(buildAnimeVideoGroup({
+            "title": "Серии",
+            "videos": videos
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": agoStatus(document),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "url": titleUrl,
+        "groups": groups
+    });
+}
+
+function agoKodikPlayers(content) {
+    players = [];
+    if(content == "") {
+        return players;
+    }
+    document = createHTMLParser(content);
+    entries = document.querySelectorAll("[data-player][data-provider-slug]");
+    seenDubs = [];
+    for(e = 0; e < entries.length; e = e + 1) {
+        if(agoAttribute(entries[e], "data-provider-slug") != "kodik") {
+            continue;
+        }
+        dubTitle = agoAttribute(entries[e], "data-translation-title").trim();
+        if(seenDubs.contains(dubTitle)) {
+            continue;
+        }
+        seenDubs.push(dubTitle);
+        players.push({"url": agoAttribute(entries[e], "data-player"), "dub": dubTitle});
+    }
+    return players;
+}
+
+function getVideoSources(uid, src, data) {
+    content = "";
+    if(uid.startsWith("a")) {
+        content = agoAjaxContent("/player/" + uid.substring(1), "animego player");
+    } else {
+        content = agoAjaxContent("/player/videos/" + uid, "animego videos");
+    }
+    players = agoKodikPlayers(content);
+    if(players.length == 0) {
+        throwSourceError("unsupported", "AnimeGO only has players without direct streams for this episode");
+    }
+    sources = [];
+    for(p = 0; p < players.length && p < agoMaxDubs(); p = p + 1) {
+        resolved = [];
+        try {
+            resolved = kodikResolveSources(players[p]["url"], agoBaseUrl() + "/");
+        } catch (e) {
+            resolved = [];
+        }
+        if(resolved == null) {
+            resolved = [];
+        }
+        for(r = 0; r < resolved.length; r = r + 1) {
+            if(players[p]["dub"] != "") {
+                resolved[r]["audioLabel"] = players[p]["dub"];
+            }
+            sources.push(resolved[r]);
+        }
+    }
+    if(sources.length == 0) {
+        throwSourceError("sourceDown", "Kodik did not return streams for this episode");
+    }
+    return sources;
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": agoUserAgent(),
+        "Referer": agoBaseUrl() + "/"
+    };
+}
