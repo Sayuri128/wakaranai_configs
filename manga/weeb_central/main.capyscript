@@ -1,0 +1,320 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "manga_models";
+
+function weebBaseUrl() {
+    return "https://weebcentral.com";
+}
+
+function weebUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function weebPageSize() {
+    return 32;
+}
+
+function weebRequest(path, requestParams, label) {
+    response = httpGet({
+        "url": weebBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": weebUserAgent(),
+            "Accept": "text/html",
+            "HX-Request": "true",
+            "Referer": weebBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "WeebCentral has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "WeebCentral asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "WeebCentral answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function weebAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function weebSeriesUid(href) {
+    marker = "/series/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("/")[0].split("?")[0];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchParams = {
+        "limit": parseString(weebPageSize()),
+        "offset": parseString((page - 1) * weebPageSize()),
+        "sort": "Popularity",
+        "order": "Descending",
+        "official": "Any",
+        "anime": "Any",
+        "adult": "False",
+        "display_mode": "Full Display"
+    };
+    if(feed != null && feed != "") {
+        searchParams["sort"] = feed;
+    }
+    if(query != null && parseString(query).trim() != "") {
+        searchParams["text"] = parseString(query).trim();
+        searchParams["sort"] = "Best Match";
+    }
+    repeatedParts = [];
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            chosen = filters[i]["selected"];
+            if(filterInfo == null || chosen == null) {
+                continue;
+            }
+            if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+                if(chosen != "") {
+                    searchParams[filterInfo["param"]] = parseString(chosen);
+                }
+                continue;
+            }
+            chosenValues = [];
+            for(g = 0; g < chosen.length; g = g + 1) {
+                for(v = 0; v < chosen[g].length; v = v + 1) {
+                    chosenValues.push(parseString(chosen[g][v]));
+                }
+            }
+            for(c = 0; c < chosenValues.length; c = c + 1) {
+                repeatedParts.push(filterInfo["param"] + "=" + urlEncode(chosenValues[c]));
+            }
+        }
+    }
+    searchPath = "/search/data";
+    if(repeatedParts.length > 0) {
+        searchPath = searchPath + "?" + repeatedParts.join("&");
+    }
+    body = weebRequest(searchPath, searchParams, "weebcentral search");
+    document = createHTMLParser(body);
+    articles = document.querySelectorAll("article.bg-base-300");
+    items = [];
+    seen = [];
+    for(a = 0; a < articles.length; a = a + 1) {
+        titleLink = articles[a].querySelector("a.link");
+        if(titleLink == null) {
+            continue;
+        }
+        uid = weebSeriesUid(weebAttribute(titleLink, "href"));
+        if(uid == "" || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        items.push(buildGallery({
+            "uid": uid,
+            "title": titleLink.text.trim(),
+            "cover": "https://temp.compsci88.com/cover/normal/" + uid + ".webp",
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function weebListValue(document, label) {
+    rows = document.querySelectorAll("ul li");
+    for(r = 0; r < rows.length; r = r + 1) {
+        heading = rows[r].querySelector("strong");
+        if(heading == null) {
+            continue;
+        }
+        if(heading.text.trim() == label) {
+            return rows[r];
+        }
+    }
+    return null;
+}
+
+function weebTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function weebStatus(statusRow) {
+    if(statusRow == null) {
+        return statusUndefined();
+    }
+    statusText = statusRow.text.toLowerCase();
+    if(statusText.contains("ongoing")) {
+        return statusOngoing();
+    }
+    if(statusText.contains("complete")) {
+        return statusReleased();
+    }
+    if(statusText.contains("hiatus")) {
+        return statusPaused();
+    }
+    if(statusText.contains("canceled")) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function getConcrete(uid, data) {
+    body = weebRequest("/series/" + uid, {}, "weebcentral series");
+    document = createHTMLParser(body);
+    heading = document.querySelector("h1");
+    if(heading == null) {
+        throw "WeebCentral returned an unexpected page (weebcentral series)";
+    }
+    description = "";
+    descriptionElement = document.querySelector("p.whitespace-pre-wrap");
+    if(descriptionElement != null) {
+        description = descriptionElement.text.trim();
+    }
+    tags = [];
+    typeRow = weebListValue(document, "Type:");
+    if(typeRow != null) {
+        tags = weebTexts(typeRow, "a");
+    }
+    tagRow = weebListValue(document, "Tags(s):");
+    if(tagRow != null) {
+        tagNames = weebTexts(tagRow, "a");
+        for(t = 0; t < tagNames.length; t = t + 1) {
+            tags.push(tagNames[t]);
+        }
+    }
+    authors = [];
+    authorRow = weebListValue(document, "Author(s):");
+    if(authorRow != null) {
+        authors = weebTexts(authorRow, "a");
+    }
+    alternativeTitles = [];
+    alternativeRow = weebListValue(document, "Associated Name(s)");
+    if(alternativeRow != null) {
+        alternativeTitles = weebTexts(alternativeRow, "li");
+    }
+    year = null;
+    releaseRow = weebListValue(document, "Released:");
+    if(releaseRow != null) {
+        releaseSpan = releaseRow.querySelector("span");
+        if(releaseSpan != null) {
+            year = parseInt(releaseSpan.text.trim());
+        }
+    }
+    chapters = weebChapters(uid);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": "https://temp.compsci88.com/cover/normal/" + uid + ".webp",
+        "description": description,
+        "tags": tags,
+        "status": weebStatus(weebListValue(document, "Status:")),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "url": weebBaseUrl() + "/series/" + uid,
+        "groups": groups
+    });
+}
+
+function weebBetween(haystack, startMarker, endMarker) {
+    startAt = haystack.indexOf(startMarker);
+    if(startAt < 0) {
+        return "";
+    }
+    rest = haystack.substring(startAt + startMarker.length);
+    endAt = rest.indexOf(endMarker);
+    if(endAt < 0) {
+        return "";
+    }
+    return rest.substring(0, endAt);
+}
+
+function weebChapters(uid) {
+    body = weebRequest("/series/" + uid + "/full-chapter-list", {}, "weebcentral chapters");
+    entries = body.split('<a href="/chapters/');
+    chapters = [];
+    for(e = 1; e < entries.length; e = e + 1) {
+        entry = entries[e];
+        chapterId = entry.split('"')[0];
+        if(chapterId == "") {
+            continue;
+        }
+        chapterTitle = weebBetween(entry, '<span class="">', "</span>").trim();
+        if(chapterTitle == "") {
+            chapterTitle = "Chapter";
+        }
+        chapterTime = weebBetween(entry, 'datetime="', '"');
+        if(chapterTime.length >= 16) {
+            chapterTime = chapterTime.substring(0, 16).replaceFirst("T", " ");
+        }
+        chapterNumber = null;
+        titleWords = chapterTitle.split(" ");
+        if(titleWords.length >= 2) {
+            chapterNumber = titleWords[titleWords.length - 1];
+        }
+        chapters.push(buildChapter({
+            "uid": chapterId,
+            "title": chapterTitle,
+            "timestamp": chapterTime,
+            "data": {},
+            "number": chapterNumber
+        }));
+    }
+    return chapters;
+}
+
+function getPages(uid, data) {
+    body = weebRequest("/chapters/" + uid + "/images", {"is_prev": "False", "current_page": "1", "reading_style": "long_strip"}, "weebcentral chapter");
+    document = createHTMLParser(body);
+    images = document.querySelectorAll("section#chapter-images img");
+    pageLinks = [];
+    for(i = 0; i < images.length; i = i + 1) {
+        imageUrl = weebAttribute(images[i], "src");
+        if(imageUrl.startsWith("http")) {
+            pageLinks.push(imageUrl);
+        }
+    }
+    if(pageLinks.isEmpty) {
+        throwSourceError("notFound", "WeebCentral shows no pages for this chapter");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": weebUserAgent(),
+        "Referer": weebBaseUrl() + "/"
+    };
+}

@@ -6027,6 +6027,144 @@
     },
     {
       "category": "manga",
+      "path": "manga/weeb_central",
+      "revision": "998b053997652a54",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "WeebCentral",
+        "uid": "afcdaad6-9edf-4a21-a20e-c58227107882",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/weeb_central/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "manga",
+          "manhwa",
+          "manhua"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 3,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "Popularity",
+            "title": "Popular"
+          },
+          {
+            "id": "Latest Updates",
+            "title": "Latest"
+          },
+          {
+            "id": "Recently Added",
+            "title": "New"
+          },
+          {
+            "id": "Subscribers",
+            "title": "Most Subscribed"
+          }
+        ],
+        "filters": [
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Type",
+            "param": "included_type",
+            "values": [
+              [
+                "Manga",
+                "Manhwa",
+                "Manhua",
+                "OEL"
+              ]
+            ],
+            "labels": [
+              [
+                "Manga",
+                "Manhwa",
+                "Manhua",
+                "OEL"
+              ]
+            ]
+          },
+          {
+            "type": "MULTIPLE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "included_status",
+            "values": [
+              [
+                "Ongoing",
+                "Complete",
+                "Hiatus",
+                "Canceled"
+              ]
+            ],
+            "labels": [
+              [
+                "Ongoing",
+                "Complete",
+                "Hiatus",
+                "Canceled"
+              ]
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Official translation",
+            "param": "official",
+            "values": [
+              "Any",
+              "True",
+              "False"
+            ],
+            "labels": [
+              "Any",
+              "Official only",
+              "Unofficial only"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Anime adaptation",
+            "param": "anime",
+            "values": [
+              "Any",
+              "True",
+              "False"
+            ],
+            "labels": [
+              "Any",
+              "With anime",
+              "Without anime"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Adult content",
+            "param": "adult",
+            "values": [
+              "False",
+              "Any",
+              "True"
+            ],
+            "labels": [
+              "Hide",
+              "Show",
+              "Only"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/zenko",
       "revision": "f93fa64c59a50302",
       "apiVersion": 2,
