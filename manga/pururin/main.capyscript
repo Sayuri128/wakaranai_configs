@@ -1,0 +1,264 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function pururinBaseUrl() {
+    return "https://pururin.me";
+}
+
+function pururinImageBase() {
+    return "https://i.pururin.me";
+}
+
+function pururinGet(url, requestParams, label) {
+    response = httpGet({
+        "url": url,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "text/html,application/xhtml+xml",
+            "Referer": pururinBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Pururin has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Pururin asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Pururin answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function pururinAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function pururinUid(href) {
+    marker = "/gallery/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    parts = href.substring(markerAt + marker.length).split("?")[0].split("/");
+    if(parts.length < 2) {
+        return parts[0];
+    }
+    return parts[0] + "/" + parts[1];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    body = "";
+    if(query != null && parseString(query).trim() != "") {
+        body = pururinGet(pururinBaseUrl() + "/search", {"q": parseString(query).trim(), "page": parseString(page)}, "pururin search");
+    } else {
+        sortId = "newest";
+        if(feed != null && feed != "") {
+            sortId = feed;
+        }
+        body = pururinGet(pururinBaseUrl() + "/browse", {"sort": sortId, "page": parseString(page)}, "pururin browse");
+    }
+    document = createHTMLParser(body);
+    grid = document.querySelector(".row-gallery");
+    if(grid != null) {
+        lastPage = pururinAttribute(grid, "data-last-page");
+        if(lastPage != "" && page > parseInt(lastPage)) {
+            return [];
+        }
+    }
+    cards = document.querySelectorAll("a.card-gallery");
+    items = [];
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        uid = pururinUid(pururinAttribute(cards[c], "href"));
+        if(uid == "" || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        coverUrl = "";
+        coverImage = cards[c].querySelector("img");
+        if(coverImage != null) {
+            coverUrl = pururinAttribute(coverImage, "src");
+            if(coverUrl == "" || coverUrl.startsWith("data:")) {
+                coverUrl = pururinAttribute(coverImage, "data-src");
+            }
+        }
+        titleElement = cards[c].querySelector(".title h2");
+        shownTitle = pururinAttribute(cards[c], "title");
+        if(titleElement != null) {
+            shownTitle = titleElement.text.split(`
+`)[0].trim();
+            if(shownTitle == "") {
+                shownTitle = titleElement.text.trim();
+            }
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function pururinInfoRow(document, label) {
+    rows = document.querySelectorAll("table.table-info tr");
+    for(r = 0; r < rows.length; r = r + 1) {
+        cells = rows[r].querySelectorAll("td");
+        if(cells.length >= 2 && cells[0].text.trim() == label) {
+            return cells[1];
+        }
+    }
+    return null;
+}
+
+function pururinRowNames(document, label) {
+    names = [];
+    cell = pururinInfoRow(document, label);
+    if(cell == null) {
+        return names;
+    }
+    links = cell.querySelectorAll("a");
+    for(l = 0; l < links.length; l = l + 1) {
+        linkName = links[l].text.trim();
+        if(linkName != "" && names.contains(linkName) == false) {
+            names.push(linkName);
+        }
+    }
+    return names;
+}
+
+function getConcrete(uid, data) {
+    body = pururinGet(pururinBaseUrl() + "/gallery/" + uid, {}, "pururin gallery");
+    document = createHTMLParser(body);
+    heading = document.querySelector(".content-wrapper .title h1");
+    if(heading == null) {
+        throw "Pururin returned an unexpected page (pururin gallery)";
+    }
+    fullTitle = heading.text.trim();
+    titleParts = fullTitle.split(" / ");
+    shownTitle = titleParts[0].trim();
+    alternativeTitles = [];
+    for(t = 1; t < titleParts.length; t = t + 1) {
+        if(titleParts[t].trim() != "") {
+            alternativeTitles.push(titleParts[t].trim());
+        }
+    }
+    secondary = document.querySelector(".title-secondary h2");
+    if(secondary != null && secondary.text.trim() != "" && alternativeTitles.contains(secondary.text.trim()) == false) {
+        alternativeTitles.push(secondary.text.trim());
+    }
+    coverUrl = "";
+    coverImage = document.querySelector(".cover-wrapper img");
+    if(coverImage != null) {
+        coverUrl = pururinAttribute(coverImage, "src");
+    }
+    tags = [];
+    tagRows = ["Category", "Language", "Parody", "Contents", "Characters"];
+    for(r = 0; r < tagRows.length; r = r + 1) {
+        rowNames = pururinRowNames(document, tagRows[r]);
+        for(n = 0; n < rowNames.length; n = n + 1) {
+            if(tags.contains(rowNames[n]) == false) {
+                tags.push(rowNames[n]);
+            }
+        }
+    }
+    authors = pururinRowNames(document, "Artist");
+    circles = pururinRowNames(document, "Circle");
+    for(c = 0; c < circles.length; c = c + 1) {
+        authors.push(circles[c]);
+    }
+    readLink = document.querySelector(".cover-wrapper a");
+    readPath = "/read/" + uid.split("/")[0] + "/01";
+    if(readLink != null) {
+        readHref = pururinAttribute(readLink, "href");
+        readAt = readHref.indexOf("/read/");
+        if(readAt >= 0) {
+            readPath = readHref.substring(readAt);
+        }
+    }
+    pageCount = "";
+    pagesElement = document.querySelector("[itemprop='numberOfPages']");
+    if(pagesElement != null) {
+        pageCount = pagesElement.text.trim();
+    }
+    chapterTitle = "Gallery";
+    if(pageCount != "") {
+        chapterTitle = "Gallery (" + pageCount + " pages)";
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": coverUrl,
+        "description": "",
+        "tags": tags,
+        "status": statusReleased(),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "url": pururinBaseUrl() + "/gallery/" + uid,
+        "groups": [buildChapterGroups({
+            "title": "Gallery",
+            "elements": [buildChapter({
+                "uid": readPath,
+                "title": chapterTitle,
+                "timestamp": null,
+                "data": {},
+                "number": 1
+            })]
+        })]
+    });
+}
+
+function getPages(uid, data) {
+    body = pururinGet(pururinBaseUrl() + uid, {}, "pururin reader");
+    marker = 'data-img="';
+    markerAt = body.indexOf(marker);
+    if(markerAt < 0) {
+        throwSourceError("notFound", "Pururin shows no pages for this gallery");
+    }
+    encoded = body.substring(markerAt + marker.length).split('"')[0];
+    imageData = jsonDecode(encoded.replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
+    directory = imageData["directory"];
+    images = imageData["images"];
+    filesByPage = {};
+    highestPage = 0;
+    for(i = 0; i < images.length; i = i + 1) {
+        pageNumber = parseInt(parseString(images[i]["page"]));
+        filesByPage[parseString(pageNumber)] = images[i]["filename"];
+        if(pageNumber > highestPage) {
+            highestPage = pageNumber;
+        }
+    }
+    pageLinks = [];
+    for(o = 1; o <= highestPage; o = o + 1) {
+        pageFile = filesByPage[parseString(o)];
+        if(pageFile != null) {
+            pageLinks.push(pururinImageBase() + "/" + directory + "/" + pageFile);
+        }
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": pururinBaseUrl() + "/"
+    };
+}

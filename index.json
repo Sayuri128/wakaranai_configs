@@ -5222,6 +5222,55 @@
     },
     {
       "category": "manga",
+      "path": "manga/pururin",
+      "revision": "487c8b53d7e0c2bb",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Pururin",
+        "uid": "cdf48bb7-1b0a-464d-97e0-8f9d73ae8e32",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/pururin/logo.png?raw=true",
+        "type": 0,
+        "nsfw": true,
+        "language": "English",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "doujinshi",
+          "manga"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "newest",
+            "title": "Newest"
+          },
+          {
+            "id": "most-popular",
+            "title": "Popular"
+          },
+          {
+            "id": "highest-rated",
+            "title": "Top Rated"
+          },
+          {
+            "id": "most-viewed",
+            "title": "Most Viewed"
+          }
+        ],
+        "filters": []
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/remanga",
       "revision": "644fcb2208edaf31",
       "apiVersion": 2,
