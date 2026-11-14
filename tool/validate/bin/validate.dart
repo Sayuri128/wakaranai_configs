@@ -54,12 +54,20 @@ final RegExp _incrementBeforeContinue = RegExp(
     r'\b(\w+)\s*(?:=\s*\1\s*\+\s*1|\+\+|\+=\s*1)\s*;\s*continue\s*;');
 
 const int _legacyApiVersion = 1;
-const int _latestApiVersion = 2;
+const int _latestApiVersion = 3;
 
 const Map<String, int> _moduleApiVersions = {
   'preferences': 2,
   'storage': 2,
   'errors': 2,
+  'dependencies': 3,
+  'bytes': 3,
+  'hash': 3,
+  'graphql': 3,
+};
+
+const Map<int, String> _newestAppWithoutApiVersion = {
+  3: '1.0.0',
 };
 
 const Map<String, int> _functionApiVersions = {
@@ -88,6 +96,7 @@ const Map<String, int> _downloadConfigFieldApiVersions = {
 };
 
 final RegExp _semanticVersion = RegExp(r'^\d+\.\d+\.\d+$');
+final RegExp _bodyBytesAccess = RegExp(r'''["']bodyBytes["']|\.bodyBytes''');
 final RegExp _apiFunctionCall =
     RegExp('\\b(${_functionApiVersions.keys.join('|')})\\s*\\(');
 
@@ -255,6 +264,15 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
   if (minAppVersion is String && !_semanticVersion.hasMatch(minAppVersion)) {
     fail('"minAppVersion" must look like 1.2.3');
   }
+  final newestAppWithout =
+      apiVersion is int ? _newestAppWithoutApiVersion[apiVersion] : null;
+  if (newestAppWithout != null &&
+      (minAppVersion is! String ||
+          !_semanticVersion.hasMatch(minAppVersion) ||
+          _compareVersions(minAppVersion, newestAppWithout) <= 0)) {
+    fail('"apiVersion": $apiVersion needs a "minAppVersion" newer than '
+        '$newestAppWithout, the last app release without it');
+  }
   _collectConfigApiFeatures(config, features);
   _validatePreferences(config['preferences'], fail);
   _validateRequestPolicy(config['requestPolicy'], fail);
@@ -321,9 +339,10 @@ void _validateConfig(Map<String, dynamic> config, String name, String category,
 
 void _validateNewerCategoryConfig(Map<String, dynamic> config,
     _NewerCategory newer, void Function(String) fail) {
-  if (config['apiVersion'] != _newerCategoryApiVersion) {
+  final apiVersion = config['apiVersion'];
+  if (apiVersion is! int || apiVersion < _newerCategoryApiVersion) {
     fail('${newer.label} extensions must declare "apiVersion": '
-        '$_newerCategoryApiVersion');
+        '$_newerCategoryApiVersion or higher');
   }
   final minAppVersion = config['minAppVersion'];
   if (minAppVersion is! String) {
@@ -845,6 +864,13 @@ void _validateScript(
     final function = match.group(1)!;
     features.add(
         _ApiFeature('$label calls $function', _functionApiVersions[function]!));
+  }
+
+  if (_bodyBytesAccess.hasMatch(code)) {
+    features.add(_ApiFeature('$label reads bodyBytes', 3));
+  }
+  if (parsed.contains('onInit')) {
+    features.add(_ApiFeature('$label defines onInit', 3));
   }
 
   for (final match in _import.allMatches(code)) {
