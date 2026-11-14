@@ -1,0 +1,360 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "manga_models";
+
+function katanaBaseUrl() {
+    return "https://mangakatana.com";
+}
+
+function katanaRequest(path, requestParams, label) {
+    return katanaFetch(path, requestParams, label, false);
+}
+
+function katanaListRequest(path, requestParams, label) {
+    return katanaFetch(path, requestParams, label, true);
+}
+
+function katanaFetch(path, requestParams, label, missingIsEmpty) {
+    response = httpGet({
+        "url": katanaBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "text/html,application/xhtml+xml",
+            "Referer": katanaBaseUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404 && missingIsEmpty) {
+        return "";
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "MangaKatana has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "MangaKatana asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "MangaKatana answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function katanaAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function katanaMangaUid(href) {
+    marker = "/manga/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("?")[0].split("#")[0];
+}
+
+function katanaPagePath(basePath, page) {
+    if(page > 1) {
+        return basePath + "/page/" + parseString(page);
+    }
+    return basePath;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        body = katanaListRequest(katanaPagePath("", page), {"search": trimmedQuery, "search_by": "book_name"}, "mangakatana search");
+        return katanaItems(body, page);
+    }
+    listParams = {
+        "filter": "1",
+        "include_mode": "and",
+        "bookmark_opts": "off",
+        "chapters": "1",
+        "order": "latest"
+    };
+    if(feed != null && feed != "") {
+        listParams["order"] = feed;
+    }
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            chosen = filters[i]["selected"];
+            if(filterInfo == null || chosen == null) {
+                continue;
+            }
+            if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+                if(chosen != "") {
+                    listParams[filterInfo["param"]] = parseString(chosen);
+                }
+                continue;
+            }
+            chosenValues = [];
+            for(g = 0; g < chosen.length; g = g + 1) {
+                for(v = 0; v < chosen[g].length; v = v + 1) {
+                    chosenValues.push(parseString(chosen[g][v]));
+                }
+            }
+            if(chosenValues.length > 0) {
+                listParams[filterInfo["param"]] = chosenValues.join("_");
+            }
+        }
+    }
+    return katanaItems(katanaListRequest(katanaPagePath("/manga", page), listParams, "mangakatana list"), page);
+}
+
+function katanaItems(body, page) {
+    if(body == "") {
+        return [];
+    }
+    document = createHTMLParser(body);
+    heading = document.querySelector("#single_book h1.heading");
+    if(heading != null) {
+        if(page > 1) {
+            return [];
+        }
+        canonical = document.querySelector("link[rel='canonical']");
+        singleUid = "";
+        if(canonical != null) {
+            singleUid = katanaMangaUid(katanaAttribute(canonical, "href"));
+        }
+        if(singleUid == "") {
+            return [];
+        }
+        return [buildGallery({
+            "uid": singleUid,
+            "title": heading.text.trim(),
+            "cover": katanaCover(document.querySelector("#single_book .cover img")),
+            "data": {}
+        })];
+    }
+    if(page > 1) {
+        current = document.querySelector("ul.uk-pagination .uk-active");
+        if(current == null) {
+            return [];
+        }
+        if(parseInt(current.text.trim()) != page) {
+            return [];
+        }
+    }
+    entries = document.querySelectorAll("#book_list > div.item");
+    items = [];
+    seen = [];
+    for(e = 0; e < entries.length; e = e + 1) {
+        titleLink = entries[e].querySelector("h3.title a");
+        if(titleLink == null) {
+            continue;
+        }
+        uid = katanaMangaUid(katanaAttribute(titleLink, "href"));
+        if(uid == "" || uid.contains("/") || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        items.push(buildGallery({
+            "uid": uid,
+            "title": titleLink.text.trim(),
+            "cover": katanaCover(entries[e].querySelector(".wrap_img img")),
+            "data": {},
+            "status": katanaStatus(entries[e].querySelector(".status"))
+        }));
+    }
+    return items;
+}
+
+function katanaCover(imageElement) {
+    if(imageElement == null) {
+        return "";
+    }
+    coverUrl = katanaAttribute(imageElement, "src");
+    if(coverUrl == "" || coverUrl.startsWith("data:")) {
+        coverUrl = katanaAttribute(imageElement, "data-src");
+    }
+    return coverUrl;
+}
+
+function katanaStatus(statusElement) {
+    if(statusElement == null) {
+        return statusUndefined();
+    }
+    statusText = statusElement.text.toLowerCase();
+    if(statusText.contains("ongoing")) {
+        return statusOngoing();
+    }
+    if(statusText.contains("completed")) {
+        return statusReleased();
+    }
+    if(statusText.contains("cancel")) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function katanaTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function katanaDate(dateText) {
+    months = {"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04", "May": "05", "Jun": "06", "Jul": "07", "Aug": "08", "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"};
+    parts = dateText.trim().split("-");
+    if(parts.length != 3 || months[parts[0]] == null) {
+        return null;
+    }
+    return parts[2] + "-" + months[parts[0]] + "-" + parts[1];
+}
+
+function getConcrete(uid, data) {
+    body = katanaRequest("/manga/" + uid, {}, "mangakatana title");
+    document = createHTMLParser(body);
+    heading = document.querySelector("h1.heading");
+    if(heading == null) {
+        throw "MangaKatana returned an unexpected page (mangakatana title)";
+    }
+    alternativeTitles = [];
+    alternativeElement = document.querySelector(".alt_name");
+    if(alternativeElement != null) {
+        alternativeParts = alternativeElement.text.split(";");
+        for(a = 0; a < alternativeParts.length; a = a + 1) {
+            if(alternativeParts[a].trim() != "") {
+                alternativeTitles.push(alternativeParts[a].trim());
+            }
+        }
+    }
+    description = "";
+    summaryElement = document.querySelector(".summary p");
+    if(summaryElement != null) {
+        description = summaryElement.text.trim();
+    }
+    chapterRows = document.querySelectorAll(".chapters tr");
+    chapters = [];
+    seen = [];
+    for(c = 0; c < chapterRows.length; c = c + 1) {
+        chapterLink = chapterRows[c].querySelector(".chapter a");
+        if(chapterLink == null) {
+            continue;
+        }
+        chapterUid = katanaMangaUid(katanaAttribute(chapterLink, "href"));
+        if(chapterUid == "" || seen.contains(chapterUid)) {
+            continue;
+        }
+        seen.push(chapterUid);
+        chapterTime = null;
+        timeElement = chapterRows[c].querySelector(".update_time");
+        if(timeElement != null) {
+            chapterTime = katanaDate(timeElement.text);
+        }
+        chapterNumber = null;
+        chapterParts = chapterUid.split("/c");
+        if(chapterParts.length >= 2) {
+            chapterNumber = chapterParts[chapterParts.length - 1];
+        }
+        chapters.push(buildChapter({
+            "uid": chapterUid,
+            "title": chapterLink.text.trim(),
+            "timestamp": chapterTime,
+            "data": {},
+            "number": chapterNumber
+        }));
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": katanaCover(document.querySelector("#single_book .cover img")),
+        "description": description,
+        "tags": katanaTexts(document, ".info .genres a"),
+        "status": katanaStatus(document.querySelector(".info .value.status")),
+        "alternativeTitles": alternativeTitles,
+        "authors": katanaTexts(document, ".info .authors a"),
+        "url": katanaBaseUrl() + "/manga/" + uid,
+        "groups": groups
+    });
+}
+
+function katanaImageArrays(body) {
+    arrays = [];
+    pieces = body.split("=['");
+    for(p = 1; p < pieces.length; p = p + 1) {
+        arrayText = pieces[p];
+        endAt = arrayText.indexOf("']");
+        if(endAt < 0) {
+            continue;
+        }
+        entries = ("'" + arrayText.substring(0, endAt + 1)).split(",");
+        links = [];
+        for(e = 0; e < entries.length; e = e + 1) {
+            entry = entries[e].trim().replaceAll("'", "");
+            if(entry.startsWith("http")) {
+                links.push(entry);
+            }
+        }
+        arrays.push(links);
+    }
+    return arrays;
+}
+
+function getPages(uid, data) {
+    body = katanaRequest("/manga/" + uid, {}, "mangakatana chapter");
+    document = createHTMLParser(body);
+    expected = 0;
+    firstPage = document.querySelector("#page1");
+    if(firstPage != null) {
+        expected = parseInt(katanaAttribute(firstPage, "data-pages"));
+    }
+    arrays = katanaImageArrays(body);
+    best = [];
+    for(a = 0; a < arrays.length; a = a + 1) {
+        if(arrays[a].length == expected) {
+            best = arrays[a];
+        }
+        if(expected == 0 && arrays[a].length > best.length) {
+            best = arrays[a];
+        }
+    }
+    if(best.isEmpty) {
+        for(a = 0; a < arrays.length; a = a + 1) {
+            if(arrays[a].length > best.length) {
+                best = arrays[a];
+            }
+        }
+    }
+    if(best.isEmpty) {
+        throwSourceError("notFound", "MangaKatana shows no pages for this chapter");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": best
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": katanaBaseUrl() + "/"
+    };
+}
