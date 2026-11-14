@@ -1,0 +1,300 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "anime_models";
+import "../../shared/playerjs";
+
+function amdBaseUrl() {
+    return "https://amd.online";
+}
+
+function amdCheck(response, label, missingIsEmpty) {
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404 && missingIsEmpty) {
+        return "";
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Animedia has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Animedia asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Animedia answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function amdHeaders() {
+    return {
+        "User-Agent": pjUserAgent(),
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Referer": amdBaseUrl() + "/"
+    };
+}
+
+function amdGet(path, label, missingIsEmpty) {
+    response = httpGet({
+        "url": amdBaseUrl() + path,
+        "params": {},
+        "paths": {},
+        "headers": amdHeaders(),
+        "throughWeb": false
+    });
+    return amdCheck(response, label, missingIsEmpty);
+}
+
+function amdAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function amdAbsolute(link) {
+    if(link == "" || link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    if(link.startsWith("/")) {
+        return amdBaseUrl() + link;
+    }
+    return amdBaseUrl() + "/" + link;
+}
+
+function amdPath(href) {
+    path = href.trim();
+    if(path.startsWith(amdBaseUrl())) {
+        path = path.substring(amdBaseUrl().length);
+    }
+    if(path.startsWith("/")) {
+        path = path.substring(1);
+    }
+    return path.split("?")[0].split("#")[0];
+}
+
+function amdCards(body) {
+    if(body == "") {
+        return [];
+    }
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll("#dle-content .poster");
+    items = [];
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        link = cards[c].querySelector("a.poster__link");
+        if(link == null) {
+            continue;
+        }
+        uid = amdPath(amdAttribute(link, "href"));
+        if(uid.endsWith(".html") == false || uid.contains("/") || seen.contains(uid)) {
+            continue;
+        }
+        seen.push(uid);
+        coverUrl = "";
+        coverImage = cards[c].querySelector(".poster__img img");
+        if(coverImage != null) {
+            coverUrl = amdAbsolute(amdAttribute(coverImage, "src"));
+        }
+        titleElement = cards[c].querySelector(".poster__title");
+        shownTitle = uid;
+        if(titleElement != null) {
+            shownTitle = titleElement.text.trim();
+        }
+        items.push(buildGallery({
+            "uid": uid,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {},
+            "status": statusUndefined()
+        }));
+    }
+    return items;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    if(query != null && parseString(query).trim() != "") {
+        searchResponse = httpPost({
+            "url": amdBaseUrl() + "/index.php?do=search",
+            "params": {},
+            "paths": {},
+            "headers": {
+                "User-Agent": pjUserAgent(),
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": amdBaseUrl() + "/"
+            },
+            "body": {
+                "do": "search",
+                "subaction": "search",
+                "search_start": parseString(page),
+                "full_search": "0",
+                "result_from": parseString((page - 1) * 16 + 1),
+                "story": parseString(query).trim()
+            },
+            "throughWeb": false
+        });
+        return amdCards(amdCheck(searchResponse, "animedia search", true));
+    }
+    section = "anime";
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            if(filterInfo != null && filterInfo["param"] == "section" && filters[i]["selected"] != null && filters[i]["selected"] != "") {
+                section = parseString(filters[i]["selected"]);
+            }
+        }
+    }
+    listPath = "/" + section + "/";
+    if(page > 1) {
+        listPath = listPath + "page/" + parseString(page) + "/";
+    }
+    return amdCards(amdGet(listPath, "animedia list", true));
+}
+
+function amdTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function getConcrete(uid, data) {
+    body = amdGet("/" + uid, "animedia title", false);
+    document = createHTMLParser(body);
+    heading = document.querySelector(".amd-title h1");
+    if(heading == null) {
+        throw "Animedia returned an unexpected page (animedia title)";
+    }
+    shownTitle = heading.text.trim();
+    alternativeTitles = [];
+    subtitle = document.querySelector(".amd-sub");
+    if(subtitle != null && subtitle.text.trim() != "") {
+        alternativeTitles.push(subtitle.text.trim());
+    }
+    alternativeBlock = document.querySelector("#amd-alt-names");
+    if(alternativeBlock != null) {
+        alternativeParts = alternativeBlock.text.split(",");
+        for(a = 0; a < alternativeParts.length; a = a + 1) {
+            alternativeName = alternativeParts[a].trim();
+            if(alternativeName != "" && alternativeTitles.contains(alternativeName) == false) {
+                alternativeTitles.push(alternativeName);
+            }
+        }
+    }
+    coverUrl = "";
+    ogImage = document.querySelector("meta[property='og:image']");
+    if(ogImage != null) {
+        coverUrl = amdAbsolute(amdAttribute(ogImage, "content"));
+    }
+    descriptionParts = amdTexts(document, "#amd-desc p");
+    tags = amdTexts(document, ".amd-tags a");
+    year = null;
+    statusValue = statusUndefined();
+    metaLinks = document.querySelectorAll(".amd-meta a");
+    for(m = 0; m < metaLinks.length; m = m + 1) {
+        metaHref = amdAttribute(metaLinks[m], "href");
+        metaText = metaLinks[m].text.trim();
+        if(metaHref.contains("/god/")) {
+            year = parseInt(metaText);
+        } else {
+            if(metaHref.contains("/ongoingi/")) {
+                statusValue = statusOngoing();
+            } else {
+                if(metaHref.contains("/zavershennye/")) {
+                    statusValue = statusReleased();
+                } else {
+                    if(metaHref.contains("/anonsy/")) {
+                        statusValue = statusAnnounce();
+                    } else {
+                        if(metaText != "" && tags.contains(metaText) == false) {
+                            tags.push(metaText);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    rating = null;
+    scoreElement = document.querySelector(".amd-score");
+    if(scoreElement != null) {
+        try {
+            rating = parseDouble(scoreElement.text.trim());
+        } catch (e) {
+            rating = null;
+        }
+    }
+    episodeLinks = document.querySelectorAll("#elementb a[data-vlnk]");
+    videos = [];
+    seen = [];
+    for(e = 0; e < episodeLinks.length; e = e + 1) {
+        playerUrl = pjAbsolute(amdAttribute(episodeLinks[e], "data-vlnk"));
+        if(playerUrl == "" || seen.contains(playerUrl)) {
+            continue;
+        }
+        seen.push(playerUrl);
+        episodeNumber = amdAttribute(episodeLinks[e], "data-vid");
+        videos.push(buildAnimeVideo({
+            "uid": playerUrl,
+            "src": playerUrl,
+            "title": "Серия " + episodeNumber,
+            "timestamp": null,
+            "type": typeIframe(),
+            "data": {},
+            "number": episodeNumber,
+            "season": null
+        }));
+    }
+    groups = [];
+    if(videos.length > 0) {
+        groups.push(buildAnimeVideoGroup({
+            "title": "Озвучка AniMedia",
+            "videos": videos
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": coverUrl,
+        "description": descriptionParts.join(`
+`),
+        "tags": tags,
+        "status": statusValue,
+        "alternativeTitles": alternativeTitles,
+        "year": year,
+        "rating": rating,
+        "url": amdBaseUrl() + "/" + uid,
+        "groups": groups
+    });
+}
+
+function getVideoSources(uid, src, data) {
+    sources = pjSources(src, amdBaseUrl() + "/");
+    if(sources.isEmpty) {
+        throwSourceError("notFound", "Animedia's player has no stream for this episode");
+    }
+    for(s = 0; s < sources.length; s = s + 1) {
+        source = sources[s];
+        source["audioLabel"] = "AniMedia";
+    }
+    return sources;
+}
+
+function getImageHeaders(uid) {
+    return {
+        "User-Agent": pjUserAgent(),
+        "Referer": amdBaseUrl() + "/"
+    };
+}

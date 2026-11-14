@@ -8806,6 +8806,54 @@
     },
     {
       "category": "anime",
+      "path": "anime/animedia",
+      "revision": "55c34a8cc349e706",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Animedia",
+        "uid": "1c4d9ebc-6caf-4b85-a380-803c8c39585a",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/animedia/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Русский",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "anime"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Раздел",
+            "param": "section",
+            "values": [
+              "anime",
+              "ongoingi",
+              "zavershennye",
+              "anonsy"
+            ],
+            "labels": [
+              "Новые серии",
+              "Онгоинги",
+              "Завершённые",
+              "Анонсы"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/animevost",
       "revision": "648878e0d1eb88f8",
       "apiVersion": 2,
