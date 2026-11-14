@@ -31,6 +31,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | ManhuaPlus | English | Madara engine |
 | Dynasty Scans (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
 | LilyManga (NSFW) | English | Madara engine |
+| Comizy (NSFW) | English | Formerly MangaBuddy; mostly adult catalog; popular, latest, new, top rated and most viewed feeds; type, status, demographic and genre filters |
 | Manga District (NSFW) | English | Madara engine; the site's banner page is dropped from chapters |
 | HentaiLib (NSFW) | Russian | Requires login |
 | SlashLib (NSFW) | Russian | Requires login, shares the MangaLib session; BL manga, manhwa and comics; popular, updates and new feeds; genre, tag, type, format, status and range filters |

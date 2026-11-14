@@ -1,0 +1,249 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function comizySiteUrl() {
+    return "https://comizy.io";
+}
+
+function comizyApiUrl() {
+    return "https://api.comizy.io";
+}
+
+function comizyCheck(response, label) {
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 400) {
+        throw "Comizy rejected the request: " + parseString(response["body"]) + " (" + label + ")";
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Comizy has no such page (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Comizy asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "Comizy answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function comizyApi(path, requestParams, label) {
+    response = httpGet({
+        "url": comizyApiUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "application/json",
+            "Origin": comizySiteUrl(),
+            "Referer": comizySiteUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    result = jsonDecode(comizyCheck(response, label));
+    if(result["success"] == false) {
+        throw "Comizy: " + parseString(result["message"]) + " (" + label + ")";
+    }
+    return result["data"];
+}
+
+function comizyStatus(statusText) {
+    if(statusText == null) {
+        return statusUndefined();
+    }
+    loweredStatus = parseString(statusText).toLowerCase();
+    if(loweredStatus == "ongoing") {
+        return statusOngoing();
+    }
+    if(loweredStatus == "completed") {
+        return statusReleased();
+    }
+    if(loweredStatus == "hiatus") {
+        return statusPaused();
+    }
+    if(loweredStatus == "cancelled") {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchParams = {
+        "limit": "24",
+        "page": parseString(page),
+        "sort": "views_7days"
+    };
+    if(feed != null && feed != "") {
+        searchParams["sort"] = feed;
+    }
+    if(query != null && parseString(query).trim() != "") {
+        searchParams["q"] = parseString(query).trim();
+        searchParams.remove("sort");
+    }
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            chosen = filters[i]["selected"];
+            if(filterInfo == null || chosen == null) {
+                continue;
+            }
+            if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+                if(chosen != "") {
+                    searchParams[filterInfo["param"]] = parseString(chosen);
+                }
+                continue;
+            }
+            chosenValues = [];
+            for(g = 0; g < chosen.length; g = g + 1) {
+                for(v = 0; v < chosen[g].length; v = v + 1) {
+                    chosenValues.push(parseString(chosen[g][v]));
+                }
+            }
+            if(chosenValues.length > 0) {
+                searchParams[filterInfo["param"]] = chosenValues.join(",");
+            }
+        }
+    }
+    data = comizyApi("/titles/search", searchParams, "comizy search");
+    pagination = data["pagination"];
+    if(pagination != null && pagination["total_pages"] != null && page > pagination["total_pages"]) {
+        return [];
+    }
+    items = [];
+    titles = data["items"];
+    if(titles == null) {
+        return items;
+    }
+    for(t = 0; t < titles.length; t = t + 1) {
+        items.push(buildGallery({
+            "uid": titles[t]["slug"],
+            "title": titles[t]["name"],
+            "cover": titles[t]["cover"],
+            "data": {},
+            "status": comizyStatus(titles[t]["status"])
+        }));
+    }
+    return items;
+}
+
+function comizyNames(entries) {
+    names = [];
+    if(entries == null) {
+        return names;
+    }
+    for(e = 0; e < entries.length; e = e + 1) {
+        entryName = entries[e]["name"];
+        if(entryName != null && names.contains(entryName) == false) {
+            names.push(entryName);
+        }
+    }
+    return names;
+}
+
+function getConcrete(uid, data) {
+    title = comizyApi("/titles/by-slug/" + urlEncode(uid), {"include": "details"}, "comizy title")["title"];
+    if(title == null) {
+        throwSourceError("notFound", "Comizy has no such title");
+    }
+    chapters = [];
+    chapterList = title["chapters"];
+    if(chapterList != null) {
+        for(c = 0; c < chapterList.length; c = c + 1) {
+            chapterInfo = chapterList[c];
+            chapterTime = chapterInfo["updated_at"];
+            if(chapterTime != null) {
+                chapterTime = parseString(chapterTime);
+                if(chapterTime.length >= 16) {
+                    chapterTime = chapterTime.substring(0, 16).replaceFirst("T", " ");
+                }
+            }
+            chapterNumber = null;
+            nameWords = parseString(chapterInfo["name"]).split(" ");
+            if(nameWords.length >= 2) {
+                chapterNumber = nameWords[1].replaceAll(":", "");
+            }
+            chapters.push(buildChapter({
+                "uid": uid + "/" + chapterInfo["slug"],
+                "title": chapterInfo["name"],
+                "timestamp": chapterTime,
+                "data": {},
+                "number": chapterNumber
+            }));
+        }
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Chapters",
+            "elements": chapters
+        }));
+    }
+    tags = comizyNames(title["genres"]);
+    themeNames = comizyNames(title["themes"]);
+    for(t = 0; t < themeNames.length; t = t + 1) {
+        if(tags.contains(themeNames[t]) == false) {
+            tags.push(themeNames[t]);
+        }
+    }
+    description = title["summary"];
+    if(description == null) {
+        description = "";
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": title["name"],
+        "cover": title["cover"],
+        "description": description,
+        "tags": tags,
+        "status": comizyStatus(title["status"]),
+        "alternativeTitles": comizyNames(title["alt_names"]),
+        "authors": comizyNames(title["authors"]),
+        "artists": comizyNames(title["artists"]),
+        "url": comizySiteUrl() + "/" + uid,
+        "groups": groups
+    });
+}
+
+function comizyNextData(body) {
+    marker = '<script id="__NEXT_DATA__" type="application/json">';
+    startAt = body.indexOf(marker);
+    if(startAt < 0) {
+        return null;
+    }
+    rest = body.substring(startAt + marker.length);
+    return jsonDecode(rest.substring(0, rest.indexOf("</script>")));
+}
+
+function getPages(uid, data) {
+    response = httpGet({
+        "url": comizySiteUrl() + "/" + uid,
+        "params": {},
+        "paths": {},
+        "headers": {
+            "Accept": "text/html,application/xhtml+xml"
+        },
+        "throughWeb": false
+    });
+    nextData = comizyNextData(comizyCheck(response, "comizy chapter"));
+    if(nextData == null) {
+        throw "Comizy returned an unexpected page (comizy chapter)";
+    }
+    chapter = nextData["props"]["pageProps"]["initialChapter"];
+    if(chapter == null || chapter["images"] == null || chapter["images"].isEmpty) {
+        throwSourceError("notFound", "Comizy shows no pages for this chapter");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": chapter["images"]
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": comizySiteUrl() + "/"
+    };
+}

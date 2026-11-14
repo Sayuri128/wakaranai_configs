@@ -1,0 +1,262 @@
+{
+  "name": "Comizy",
+  "uid": "29d4ab35-798b-450b-b176-047b09efc341",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/comizy/logo.png?raw=true",
+  "type": 0,
+  "nsfw": true,
+  "language": "English",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "manga",
+    "manhwa",
+    "manhua"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 3,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "views_7days",
+      "title": "Popular"
+    },
+    {
+      "id": "latest",
+      "title": "Latest"
+    },
+    {
+      "id": "newest",
+      "title": "New"
+    },
+    {
+      "id": "rating",
+      "title": "Top Rated"
+    },
+    {
+      "id": "views",
+      "title": "Most Viewed"
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Type",
+      "param": "type",
+      "values": [
+        "",
+        "manga",
+        "manhwa",
+        "manhua"
+      ],
+      "labels": [
+        "Any",
+        "Manga",
+        "Manhwa",
+        "Manhua"
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Status",
+      "param": "status",
+      "values": [
+        "",
+        "ongoing",
+        "completed",
+        "hiatus",
+        "cancelled"
+      ],
+      "labels": [
+        "Any",
+        "Ongoing",
+        "Completed",
+        "Hiatus",
+        "Cancelled"
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Demographic",
+      "param": "demographic",
+      "values": [
+        "",
+        "shounen,seinen",
+        "shoujo,josei",
+        "shounen",
+        "shoujo",
+        "seinen",
+        "josei"
+      ],
+      "labels": [
+        "Any",
+        "Boy",
+        "Girl",
+        "Shounen",
+        "Shoujo",
+        "Seinen",
+        "Josei"
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Genres",
+      "param": "genres",
+      "values": [
+        [
+          "action",
+          "adaptation",
+          "adult",
+          "adventure",
+          "anthology",
+          "comedy",
+          "comic",
+          "cooking",
+          "demons",
+          "doujinshi",
+          "drama",
+          "ecchi",
+          "fantasy",
+          "full-color",
+          "game",
+          "gender-bender",
+          "ghosts",
+          "harem",
+          "hentai",
+          "historical",
+          "horror",
+          "isekai",
+          "josei",
+          "long-strip",
+          "magic",
+          "manga",
+          "manhua",
+          "manhwa",
+          "martial-arts",
+          "mature",
+          "mecha",
+          "medical",
+          "military",
+          "monster",
+          "monster-girls",
+          "monsters",
+          "music",
+          "mystery",
+          "office-workers",
+          "one-shot",
+          "police",
+          "psychological",
+          "reincarnation",
+          "romance",
+          "school-life",
+          "sci-fi",
+          "science-fiction",
+          "shoujo",
+          "shoujo-ai",
+          "shounen",
+          "shounen-ai",
+          "slice-of-life",
+          "smut",
+          "soft-yaoi",
+          "sports",
+          "super-power",
+          "superhero",
+          "supernatural",
+          "thriller",
+          "time-travel",
+          "tragedy",
+          "vampire",
+          "vampires",
+          "video-games",
+          "villainess",
+          "web-comic",
+          "webtoons",
+          "worth-the-read",
+          "yaoi",
+          "yuri",
+          "zombies"
+        ]
+      ],
+      "labels": [
+        [
+          "Action",
+          "Adaptation",
+          "Adult",
+          "Adventure",
+          "Anthology",
+          "Comedy",
+          "Comic",
+          "Cooking",
+          "Demons",
+          "Doujinshi",
+          "Drama",
+          "Ecchi",
+          "Fantasy",
+          "Full Color",
+          "Game",
+          "Gender bender",
+          "Ghosts",
+          "Harem",
+          "Hentai",
+          "Historical",
+          "Horror",
+          "Isekai",
+          "Josei",
+          "Long strip",
+          "Magic",
+          "Manga",
+          "Manhua",
+          "Manhwa",
+          "Martial arts",
+          "Mature",
+          "Mecha",
+          "Medical",
+          "Military",
+          "Monster",
+          "Monster girls",
+          "Monsters",
+          "Music",
+          "Mystery",
+          "Office workers",
+          "One shot",
+          "Police",
+          "Psychological",
+          "Reincarnation",
+          "Romance",
+          "School life",
+          "Sci fi",
+          "Science fiction",
+          "Shoujo",
+          "Shoujo ai",
+          "Shounen",
+          "Shounen ai",
+          "Slice of life",
+          "Smut",
+          "Soft Yaoi",
+          "Sports",
+          "Super Power",
+          "Superhero",
+          "Supernatural",
+          "Thriller",
+          "Time travel",
+          "Tragedy",
+          "Vampire",
+          "Vampires",
+          "Video games",
+          "Villainess",
+          "Web comic",
+          "Webtoons",
+          "Worth the read",
+          "Yaoi",
+          "Yuri",
+          "Zombies"
+        ]
+      ]
+    }
+  ]
+}
