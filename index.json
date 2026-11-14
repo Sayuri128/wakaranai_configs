@@ -10120,6 +10120,186 @@
     },
     {
       "category": "anime",
+      "path": "anime/bambooua",
+      "revision": "087f01e6969a8ac3",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "BambooUA",
+        "uid": "b44bd62a-a6f5-43ae-8c3b-d822dbf13a18",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/bambooua/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "pricing": "partial",
+        "contentKinds": [
+          "series",
+          "movie",
+          "anime"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 2,
+            "perSeconds": 1
+          }
+        },
+        "feeds": [
+          {
+            "id": "lastnews",
+            "title": "Новинки"
+          },
+          {
+            "id": "dorama",
+            "title": "Дорами"
+          },
+          {
+            "id": "lakorn",
+            "title": "Лакхон"
+          },
+          {
+            "id": "anime",
+            "title": "Аніме"
+          },
+          {
+            "id": "cinema",
+            "title": "Фільми"
+          },
+          {
+            "id": "tv-show",
+            "title": "ТВ-шоу"
+          }
+        ],
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Жанр",
+            "param": "genre",
+            "values": [
+              "any",
+              "art-khaus",
+              "biografiia",
+              "boiovyk",
+              "boiovi-mystectva",
+              "war",
+              "genderna-intryga",
+              "detektyv",
+              "drama",
+              "druzhba",
+              "dokumentalnyi",
+              "ekshn",
+              "zhakhy",
+              "igry",
+              "history",
+              "katastrofa",
+              "komediia",
+              "kostumovani",
+              "shorts",
+              "kryminal",
+              "kulinariia",
+              "medycyna",
+              "melodrama",
+              "mistyka",
+              "muzykalni",
+              "nadpryrodne",
+              "naukova-fantastyka",
+              "nuar",
+              "povsiakdennist",
+              "polityka",
+              "prygody",
+              "psykhologiia",
+              "pinku-eiga",
+              "romantyka",
+              "saspens",
+              "sport",
+              "siansia",
+              "social",
+              "tryler",
+              "fantastyka",
+              "fentezi",
+              "shkola",
+              "yurysprudenciia",
+              "usia",
+              "bl",
+              "web-drama",
+              "gl",
+              "18"
+            ],
+            "labels": [
+              "Будь-який",
+              "Арт-хаус",
+              "Біографія",
+              "Бойовик",
+              "Бойові мистецтва",
+              "Військові",
+              "Гендерна інтрига",
+              "Детектив",
+              "Драма",
+              "Дружба",
+              "Документальний",
+              "Екшн",
+              "Жахи",
+              "Ігри",
+              "Історичні",
+              "Катастрофа",
+              "Комедія",
+              "Костюмовані",
+              "Короткометражки",
+              "Кримінал",
+              "Кулінарія",
+              "Медицина",
+              "Мелодрама",
+              "Містика",
+              "Музичні",
+              "Надприродне",
+              "Наукова фантастика",
+              "Нуар",
+              "Повсякденність",
+              "Політика",
+              "Пригоди",
+              "Психологія",
+              "Рожевий фільм",
+              "Романтика",
+              "Саспенс",
+              "Спорт",
+              "Сянься",
+              "Соціальні",
+              "Трилер",
+              "Фантастика",
+              "Фентезі",
+              "Школа",
+              "Юриспруденція",
+              "Уся",
+              "BL",
+              "Web Drama",
+              "GL",
+              "18+"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Статус",
+            "param": "status",
+            "values": [
+              "any",
+              "now",
+              "done"
+            ],
+            "labels": [
+              "Будь-який",
+              "Поточні",
+              "Завершені"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/cikava_ideya",
       "revision": "8bd5615cdb8b64a1",
       "apiVersion": 1,

@@ -58,6 +58,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | AniHub | Ukrainian | Recently updated, new episodes, popular, top rated and newly added feeds |
 | Unimay | Ukrainian | Unimay dub team; JSON API with 1080/720/480 HLS per episode; search |
 | AnimeON | Ukrainian | animeon.club JSON API; new, popular and rating feeds; genre, type and status filters, search; one group per dub and player, Ashdi plays natively, Moon and Fenix open in the web player |
+| BambooUA (partly paid) | Ukrainian | Dorama, lakorn, anime and film dub team; section feeds, genre and status filters, search; subtitles and dub as separate tracks of direct HLS; supporter-only episodes hidden |
 | Anitube.in.ua | Ukrainian | Player and dub preferences; opening and ending skips |
 | UAFlix | Ukrainian | Movies, series, cartoons and anime; section filter |
 | KinoUkr | Ukrainian | Movies, series and cartoons; section filter; Ashdi players resolved natively, series split into seasons with one audio track per dub; no search (the site guards it with a Cloudflare challenge) |
