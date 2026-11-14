@@ -34,6 +34,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | Extension | Language | Notes |
 |---|---|---|
 | AniLibria | Russian | AniLibria (AniLiberty) dubs; updates, popular, ongoing and new feeds; genre, type, season, year and status filters; 1080/720/480 HLS with opening and ending skips |
+| AnimeLib | Russian | Requires login, shares the MangaLib session; popular, new episodes and new feeds; genre, type, status, year and rating filters; Kodik dubs play natively, the most watched or preferred teams first (count and team names in the extension settings) |
 | AnimeVost | Russian | Latest and ongoing feeds; genre, type or year filter; HD and SD MP4 |
 | YummyAnime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; an optional application token can be set in the extension settings |
 | Anime365 (paid) | Russian | Browsing is free, watching needs an Anime365 subscription (sign in through the in-app browser); subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |
@@ -84,6 +85,7 @@ tests/               integration tests for each extension
 - `main.capyscript`: implements `getGallery`, `getConcrete`, then `getPages` (manga), `getVideoSources` (video), `getChapterText` (novels) or `getAudioSources` (audiobooks), and optionally `passProtector`. Shared code comes in through relative imports such as `import "../../shared/lib_social_api";`.
 - Extensions that use any API 2 feature declare `"apiVersion": 2` and `"minAppVersion": "1.0.0"`. Novel and audiobook extensions always need both, since older apps can't read those types.
 - `shared/madara.capyscript`: a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
+- `shared/kodik.capyscript`: resolves Kodik player links (`kodikResolveSources(url, referer)`) to HLS/MP4 sources at 1080/720/480/360p. It blanks cookies, `Authorization` and other session headers on its own requests, so a source's `useHeaders` session never reaches Kodik.
 
 The full authoring guide is in the app repository: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).
 

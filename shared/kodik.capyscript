@@ -1,0 +1,253 @@
+import "http";
+import "json";
+import "converter";
+import "storage";
+
+function kodikDefaultPostPath() {
+    return "/ftor";
+}
+
+function kodikAbsoluteUrl(rawKodikLink) {
+    if (rawKodikLink == null) {
+        return "";
+    }
+    kodikLinkText = parseString(rawKodikLink).trim();
+    if (kodikLinkText.startsWith("//")) {
+        return "https:" + kodikLinkText;
+    }
+    if (kodikLinkText.startsWith("http://")) {
+        return "https://" + kodikLinkText.substring(7);
+    }
+    return kodikLinkText;
+}
+
+function kodikHostOf(kodikPageUrl) {
+    if (kodikPageUrl.contains("://") == false) {
+        return "";
+    }
+    kodikAfterScheme = kodikPageUrl.split("://")[1];
+    return kodikAfterScheme.split("/")[0].split("?")[0].toLowerCase();
+}
+
+function kodikIsKodikUrl(candidateKodikUrl) {
+    return kodikHostOf(kodikAbsoluteUrl(candidateKodikUrl)).contains("kodik");
+}
+
+function kodikTextBetween(kodikHaystack, kodikStart, kodikEnd) {
+    if (kodikHaystack == null) {
+        return null;
+    }
+    kodikStartAt = kodikHaystack.indexOf(kodikStart);
+    if (kodikStartAt < 0) {
+        return null;
+    }
+    kodikRest = kodikHaystack.substring(kodikStartAt + kodikStart.length);
+    kodikEndAt = kodikRest.indexOf(kodikEnd);
+    if (kodikEndAt < 0) {
+        return null;
+    }
+    return kodikRest.substring(0, kodikEndAt);
+}
+
+function kodikIsolatedHeaders(kodikRefererHeader) {
+    kodikHeaders = {
+        "Cookie": "",
+        "Authorization": "",
+        "x-csrf-token": "",
+        "x-xsrf-token": "",
+        "x-requested-with": "",
+        "site-id": "",
+        "Content-Type": "application/x-www-form-urlencoded"
+    };
+    if (kodikRefererHeader != null && kodikRefererHeader != "") {
+        kodikHeaders["Referer"] = kodikRefererHeader;
+    }
+    return kodikHeaders;
+}
+
+function kodikFetchText(kodikFetchUrl, kodikFetchReferer) {
+    kodikFetchResponse = httpGet({
+        "url": kodikFetchUrl,
+        "params": {},
+        "paths": {},
+        "headers": kodikIsolatedHeaders(kodikFetchReferer),
+        "throughWeb": false
+    });
+    if (kodikFetchResponse["statusCode"] != 200) {
+        return null;
+    }
+    return kodikFetchResponse["body"];
+}
+
+function kodikRotateLetters(kodikRotText, kodikRotShift) {
+    kodikUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    kodikLower = "abcdefghijklmnopqrstuvwxyz";
+    kodikRotChars = [];
+    for (kr = 0; kr < kodikRotText.length; kr = kr + 1) {
+        kodikRotChar = kodikRotText.substring(kr, kr + 1);
+        kodikUpperAt = kodikUpper.indexOf(kodikRotChar);
+        if (kodikUpperAt >= 0) {
+            kodikUpperIndex = (kodikUpperAt + kodikRotShift) % 26;
+            kodikRotChars.push(kodikUpper.substring(kodikUpperIndex, kodikUpperIndex + 1));
+            continue;
+        }
+        kodikLowerAt = kodikLower.indexOf(kodikRotChar);
+        if (kodikLowerAt >= 0) {
+            kodikLowerIndex = (kodikLowerAt + kodikRotShift) % 26;
+            kodikRotChars.push(kodikLower.substring(kodikLowerIndex, kodikLowerIndex + 1));
+            continue;
+        }
+        kodikRotChars.push(kodikRotChar);
+    }
+    return kodikRotChars.join("");
+}
+
+function kodikLooksLikeStream(kodikStreamCandidate) {
+    if (kodikStreamCandidate == null) {
+        return false;
+    }
+    if (kodikStreamCandidate.startsWith("//") == false && kodikStreamCandidate.startsWith("http") == false) {
+        return false;
+    }
+    return kodikStreamCandidate.contains(".m3u8") || kodikStreamCandidate.contains(".mp4");
+}
+
+function kodikDecodeLink(kodikEncodedLink, kodikLinkShift) {
+    if (kodikLooksLikeStream(kodikEncodedLink)) {
+        return kodikEncodedLink;
+    }
+    kodikShifted = kodikRotateLetters(kodikEncodedLink, kodikLinkShift);
+    kodikDecoded = null;
+    try {
+        kodikDecoded = base64Decode(kodikShifted);
+    } catch (e) {
+        kodikDecoded = null;
+    }
+    if (kodikLooksLikeStream(kodikDecoded)) {
+        return kodikDecoded;
+    }
+    return null;
+}
+
+function kodikFindShift(kodikSampleLink) {
+    kodikShiftOrder = [18, 13];
+    for (ks = 0; ks < 26; ks = ks + 1) {
+        if (kodikShiftOrder.contains(ks) == false) {
+            kodikShiftOrder.push(ks);
+        }
+    }
+    for (kt = 0; kt < kodikShiftOrder.length; kt = kt + 1) {
+        if (kodikDecodeLink(kodikSampleLink, kodikShiftOrder[kt]) != null) {
+            return kodikShiftOrder[kt];
+        }
+    }
+    return null;
+}
+
+function kodikPostPath(kodikEndpointHost, kodikPlayerPage) {
+    kodikPlayerScript = kodikTextBetween(kodikPlayerPage, 'src="/assets/js/app.player_single.', '"');
+    if (kodikPlayerScript == null) {
+        return kodikDefaultPostPath();
+    }
+    kodikScriptPath = "/assets/js/app.player_single." + kodikPlayerScript;
+    kodikCacheKey = "kodikEndpoint:" + kodikEndpointHost + kodikScriptPath;
+    kodikCached = storageGet(kodikCacheKey);
+    if (kodikCached != null && kodikCached != "") {
+        return kodikCached;
+    }
+    kodikScriptText = kodikFetchText("https://" + kodikEndpointHost + kodikScriptPath, "");
+    kodikEncodedPath = kodikTextBetween(kodikScriptText, 'type:"POST",url:atob("', '"');
+    if (kodikEncodedPath == null) {
+        return kodikDefaultPostPath();
+    }
+    kodikDecodedPath = base64Decode(kodikEncodedPath);
+    if (kodikDecodedPath.startsWith("/") == false) {
+        return kodikDefaultPostPath();
+    }
+    storageSet(kodikCacheKey, kodikDecodedPath, 86400);
+    return kodikDecodedPath;
+}
+
+function kodikResolveSources(rawKodikUrl, kodikReferer) {
+    kodikUrl = kodikAbsoluteUrl(rawKodikUrl);
+    kodikHost = kodikHostOf(kodikUrl);
+    kodikPage = kodikFetchText(kodikUrl, kodikReferer);
+    if (kodikPage == null) {
+        return [];
+    }
+    kodikParamsText = kodikTextBetween(kodikPage, "var urlParams = '", "';");
+    kodikVideoType = kodikTextBetween(kodikPage, "vInfo.type = '", "'");
+    kodikVideoHash = kodikTextBetween(kodikPage, "vInfo.hash = '", "'");
+    kodikVideoId = kodikTextBetween(kodikPage, "vInfo.id = '", "'");
+    if (kodikParamsText == null || kodikVideoType == null || kodikVideoHash == null || kodikVideoId == null) {
+        return [];
+    }
+    kodikParams = jsonDecode(kodikParamsText);
+    kodikForm = {
+        "d": parseString(kodikParams["d"]),
+        "d_sign": parseString(kodikParams["d_sign"]),
+        "pd": parseString(kodikParams["pd"]),
+        "pd_sign": parseString(kodikParams["pd_sign"]),
+        "ref": urlDecode(parseString(kodikParams["ref"])),
+        "ref_sign": parseString(kodikParams["ref_sign"]),
+        "bad_user": "true",
+        "cdn_is_working": "true",
+        "type": kodikVideoType,
+        "hash": kodikVideoHash,
+        "id": kodikVideoId,
+        "info": "{}"
+    };
+    kodikLinksResponse = httpPost({
+        "url": "https://" + kodikHost + kodikPostPath(kodikHost, kodikPage),
+        "params": {},
+        "paths": {},
+        "body": kodikForm,
+        "headers": kodikIsolatedHeaders(kodikUrl),
+        "throughWeb": false
+    });
+    if (kodikLinksResponse["statusCode"] != 200) {
+        return [];
+    }
+    kodikLinks = jsonDecode(kodikLinksResponse["body"])["links"];
+    if (kodikLinks == null) {
+        return [];
+    }
+    kodikQualities = ["1080", "720", "480", "360"];
+    kodikShift = null;
+    kodikSources = [];
+    for (kq = 0; kq < kodikQualities.length; kq = kq + 1) {
+        kodikQualityLinks = kodikLinks[kodikQualities[kq]];
+        if (kodikQualityLinks == null) {
+            continue;
+        }
+        if (kodikQualityLinks.isEmpty) {
+            continue;
+        }
+        kodikEncodedSrc = kodikQualityLinks[0]["src"];
+        if (kodikEncodedSrc == null) {
+            continue;
+        }
+        if (kodikShift == null) {
+            kodikShift = kodikFindShift(kodikEncodedSrc);
+        }
+        if (kodikShift == null) {
+            continue;
+        }
+        kodikDecodedSrc = kodikDecodeLink(kodikEncodedSrc, kodikShift);
+        if (kodikDecodedSrc == null) {
+            continue;
+        }
+        kodikStream = kodikAbsoluteUrl(kodikDecodedSrc);
+        kodikFormat = "mp4";
+        if (kodikStream.contains(".m3u8")) {
+            kodikFormat = "hls";
+        }
+        kodikSources.push({
+            "url": kodikStream,
+            "quality": kodikQualities[kq] + "p",
+            "format": kodikFormat,
+            "headers": {}
+        });
+    }
+    return kodikSources;
+}

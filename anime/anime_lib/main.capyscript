@@ -1,0 +1,563 @@
+import "http";
+import "html";
+import "io";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "anime_models";
+import "../../shared/kodik";
+
+function animeLibApiBase() {
+    return "https://api.cdnlibs.org/api";
+}
+
+function animeLibSiteUrl() {
+    return "https://anilib.me";
+}
+
+function animeLibSiteId() {
+    return 5;
+}
+
+function animeLibRequest(requestUrl, requestParams, requestLabel) {
+    requestResponse = httpGet({
+        "url": requestUrl,
+        "params": requestParams,
+        "paths": {"releaseDate?": "releaseDate"},
+        "headers": {"Accept": "application/json"},
+        "throughWeb": false
+    });
+    return animeLibDecode(requestResponse, requestLabel);
+}
+
+function animeLibDecode(decodeResponse, decodeLabel) {
+    decodeStatus = decodeResponse["statusCode"];
+    if (decodeStatus >= 200 && decodeStatus < 300) {
+        return jsonDecode(decodeResponse["body"]);
+    }
+    if (decodeStatus == 401) {
+        throwSourceError("loginRequired", "sign in to continue (" + decodeLabel + ")");
+    }
+    if (decodeStatus == 403) {
+        throw "HTTP 403 from the API host's DDoS guard, try another mirror (" + decodeLabel + ")";
+    }
+    if (decodeStatus == 404) {
+        throwSourceError("notFound", "not found on AnimeLib (" + decodeLabel + ")");
+    }
+    if (decodeStatus == 429) {
+        throwSourceError("rateLimited", "too many requests (" + decodeLabel + ")");
+    }
+    if (decodeStatus >= 500) {
+        throwSourceError("sourceDown", "HTTP " + parseString(decodeStatus) + " (" + decodeLabel + ")");
+    }
+    throw "HTTP " + parseString(decodeStatus) + " (" + decodeLabel + ")";
+}
+
+function animeLibFeedSort(feedId) {
+    if (feedId == "popular") {
+        return "rating_score";
+    }
+    if (feedId == "updates") {
+        return "last_episode_at";
+    }
+    if (feedId == "new") {
+        return "created_at";
+    }
+    return "";
+}
+
+function animeLibApplyFilters(filterParams, appliedFilters) {
+    if (appliedFilters == null) {
+        return filterParams;
+    }
+    for (af = 0; af < appliedFilters.length; af = af + 1) {
+        appliedData = appliedFilters[af];
+        appliedFilter = appliedData["filter"];
+        appliedType = appliedFilter["type"];
+        if (appliedType == "MULTIPLE_OF_MULTIPLE") {
+            selectedIds = [];
+            selectedGroups = appliedData["selected"];
+            for (sg = 0; sg < selectedGroups.length; sg = sg + 1) {
+                selectedGroup = selectedGroups[sg];
+                for (si = 0; si < selectedGroup.length; si = si + 1) {
+                    selectedIds.push(selectedGroup[si]);
+                }
+            }
+            if (selectedIds.isNotEmpty) {
+                filterParams[appliedFilter["param"]] = selectedIds;
+            }
+        } else if (appliedType == "RANGE") {
+            rangeFrom = appliedData["from"];
+            rangeTo = appliedData["to"];
+            if (rangeFrom != null && rangeFrom != "") {
+                filterParams[appliedFilter["paramMin"]] = rangeFrom;
+            }
+            if (rangeTo != null && rangeTo != "") {
+                filterParams[appliedFilter["paramMax"]] = rangeTo;
+            }
+        }
+    }
+    return filterParams;
+}
+
+function animeLibTitle(titleItem) {
+    titleKeys = ["rus_name", "eng_name", "name"];
+    for (tk = 0; tk < titleKeys.length; tk = tk + 1) {
+        titleValue = titleItem[titleKeys[tk]];
+        if (titleValue != null && titleValue != "") {
+            return titleValue;
+        }
+    }
+    return "";
+}
+
+function animeLibCover(coverItem) {
+    coverData = coverItem["cover"];
+    if (coverData == null) {
+        return "";
+    }
+    if (coverData["default"] != null) {
+        return coverData["default"];
+    }
+    return "";
+}
+
+function animeLibStatus(statusData) {
+    if (statusData == null) {
+        return statusUndefined();
+    }
+    statusId = statusData["id"];
+    if (statusId == 1) {
+        return statusOngoing();
+    }
+    if (statusId == 2) {
+        return statusReleased();
+    }
+    if (statusId == 3) {
+        return statusAnnounce();
+    }
+    if (statusId == 4) {
+        return statusPaused();
+    }
+    if (statusId == 5) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function animeLibYear(yearItem) {
+    yearKeys = ["releaseDate", "releaseDateString"];
+    for (yk = 0; yk < yearKeys.length; yk = yk + 1) {
+        yearValue = yearItem[yearKeys[yk]];
+        if (yearValue != null) {
+            yearText = parseString(yearValue);
+            if (yearText.length >= 4) {
+                return yearText.substring(0, 4);
+            }
+        }
+    }
+    return null;
+}
+
+function animeLibRating(ratingItem) {
+    ratingData = ratingItem["rating"];
+    if (ratingData == null) {
+        return null;
+    }
+    return ratingData["average"];
+}
+
+function animeLibSubtitle(subtitleItem, subtitleMain) {
+    subtitleKeys = ["eng_name", "name"];
+    for (sk = 0; sk < subtitleKeys.length; sk = sk + 1) {
+        subtitleValue = subtitleItem[subtitleKeys[sk]];
+        if (subtitleValue != null && subtitleValue != "" && subtitleValue != subtitleMain) {
+            return subtitleValue;
+        }
+    }
+    return null;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    galleryParams = {
+        "site_id": [animeLibSiteId()],
+        "caution_list": ["Отсутствует", "16+", "18+"]
+    };
+    gallerySort = animeLibFeedSort(feed);
+    if (gallerySort != "") {
+        galleryParams["sort_by"] = gallerySort;
+        galleryParams["sort_type"] = "desc";
+    }
+    galleryParams = animeLibApplyFilters(galleryParams, filters);
+    if (query.isNotEmpty) {
+        galleryParams["q"] = query;
+    }
+    if (page > 1) {
+        galleryParams["page"] = page;
+    }
+    if (pageSize > 0) {
+        galleryParams["limit"] = pageSize;
+    }
+    galleryJson = animeLibRequest(animeLibApiBase() + "/anime", galleryParams, "AnimeLib catalog");
+    galleryItems = [];
+    galleryData = galleryJson["data"];
+    for (gi = 0; gi < galleryData.length; gi = gi + 1) {
+        galleryEntry = galleryData[gi];
+        galleryName = animeLibTitle(galleryEntry);
+        galleryItems.push(buildGallery({
+            "uid": galleryEntry["slug_url"],
+            "title": galleryName,
+            "cover": animeLibCover(galleryEntry),
+            "data": {"slug": galleryEntry["slug_url"]},
+            "status": animeLibStatus(galleryEntry["status"]),
+            "subtitle": animeLibSubtitle(galleryEntry, galleryName),
+            "year": animeLibYear(galleryEntry),
+            "rating": animeLibRating(galleryEntry)
+        }));
+    }
+    return galleryItems;
+}
+
+function animeLibRichText(richNode) {
+    if (richNode == null) {
+        return "";
+    }
+    if (richNode["type"] == null) {
+        return parseString(richNode);
+    }
+    if (richNode["type"] == "text") {
+        if (richNode["text"] == null) {
+            return "";
+        }
+        return richNode["text"];
+    }
+    richParts = [];
+    richContent = richNode["content"];
+    if (richContent != null) {
+        for (rc = 0; rc < richContent.length; rc = rc + 1) {
+            richParts.push(animeLibRichText(richContent[rc]));
+        }
+    }
+    richText = richParts.join("");
+    if (richNode["type"] == "paragraph" || richNode["type"] == "heading") {
+        richText = richText + "\n";
+    }
+    return richText;
+}
+
+function animeLibNames(namedEntries) {
+    entryNames = [];
+    if (namedEntries == null) {
+        return entryNames;
+    }
+    for (ne = 0; ne < namedEntries.length; ne = ne + 1) {
+        entryName = namedEntries[ne]["name"];
+        if (entryName != null && entryNames.contains(entryName) == false) {
+            entryNames.push(entryName);
+        }
+    }
+    return entryNames;
+}
+
+function animeLibEpisodeTitle(episodeEntry) {
+    episodeNumber = parseString(episodeEntry["number"]).trim();
+    episodeLabel = "Серия " + episodeNumber;
+    episodeName = episodeEntry["name"];
+    if (episodeName != null) {
+        episodeNameText = parseString(episodeName).trim();
+        if (episodeNameText != "") {
+            episodeLabel = episodeLabel + " — " + episodeNameText;
+        }
+    }
+    return episodeLabel;
+}
+
+function animeLibEpisodeVideo(videoEpisode, videoSlug) {
+    videoId = parseString(videoEpisode["id"]);
+    return buildAnimeVideo({
+        "uid": videoId,
+        "src": animeLibSiteUrl() + "/ru/anime/" + videoSlug + "/watch?episode=" + videoId,
+        "title": animeLibEpisodeTitle(videoEpisode),
+        "timestamp": videoEpisode["created_at"],
+        "type": typeIframe(),
+        "data": {"episodeId": videoId, "slug": videoSlug},
+        "number": parseString(videoEpisode["number"]).trim()
+    });
+}
+
+function animeLibEpisodeGroups(groupEpisodes, groupSlug) {
+    seasonKeys = [];
+    seasonVideos = {};
+    for (ge = 0; ge < groupEpisodes.length; ge = ge + 1) {
+        seasonEpisode = groupEpisodes[ge];
+        seasonKey = parseString(seasonEpisode["season"]).trim();
+        if (seasonKey == "" || seasonKey == "null") {
+            seasonKey = "1";
+        }
+        if (seasonVideos[seasonKey] == null) {
+            seasonKeys.push(seasonKey);
+            seasonVideos[seasonKey] = [];
+        }
+        seasonList = seasonVideos[seasonKey];
+        seasonList.push(animeLibEpisodeVideo(seasonEpisode, groupSlug));
+    }
+    episodeGroups = [];
+    for (gk = 0; gk < seasonKeys.length; gk = gk + 1) {
+        groupTitle = "Серии";
+        if (seasonKeys.length > 1) {
+            groupTitle = "Сезон " + seasonKeys[gk];
+        }
+        episodeGroups.push(buildAnimeVideoGroup({
+            "title": groupTitle,
+            "videos": seasonVideos[seasonKeys[gk]]
+        }));
+    }
+    return episodeGroups;
+}
+
+function getConcrete(uid, data) {
+    titleJson = animeLibRequest(
+        animeLibApiBase() + "/anime/" + uid + "?fields[]=summary&fields[]=genres&fields[]=tags&fields[]=otherNames&fields[]=authors&fields[]=releaseDate",
+        {},
+        "AnimeLib title " + uid
+    );
+    titleData = titleJson["data"];
+    episodesJson = animeLibRequest(animeLibApiBase() + "/episodes", {"anime_id": uid}, "AnimeLib episodes " + uid);
+    concreteTitle = animeLibTitle(titleData);
+    concreteTags = animeLibNames(titleData["genres"]);
+    tagNames = animeLibNames(titleData["tags"]);
+    for (tn = 0; tn < tagNames.length; tn = tn + 1) {
+        if (concreteTags.contains(tagNames[tn]) == false) {
+            concreteTags.push(tagNames[tn]);
+        }
+    }
+    concreteAlternatives = [];
+    if (titleData["eng_name"] != null && titleData["eng_name"] != concreteTitle) {
+        concreteAlternatives.push(titleData["eng_name"]);
+    }
+    otherNames = titleData["otherNames"];
+    if (otherNames != null) {
+        for (on = 0; on < otherNames.length; on = on + 1) {
+            if (concreteAlternatives.contains(otherNames[on]) == false && otherNames[on] != concreteTitle) {
+                concreteAlternatives.push(otherNames[on]);
+            }
+        }
+    }
+    return buildConcrete({
+        "uid": uid,
+        "cover": animeLibCover(titleData),
+        "title": concreteTitle,
+        "alternativeTitles": concreteAlternatives,
+        "description": animeLibRichText(titleData["summary"]).trim(),
+        "tags": concreteTags,
+        "status": animeLibStatus(titleData["status"]),
+        "groups": animeLibEpisodeGroups(episodesJson["data"], uid),
+        "authors": animeLibNames(titleData["authors"]),
+        "year": animeLibYear(titleData),
+        "rating": animeLibRating(titleData),
+        "url": animeLibSiteUrl() + "/ru/anime/" + uid
+    });
+}
+
+function animeLibTranslationAllowed(translationPlayer, translationMode) {
+    if (translationMode == "any") {
+        return true;
+    }
+    translationType = translationPlayer["translation_type"];
+    if (translationType == null) {
+        return true;
+    }
+    if (translationMode == "subtitles") {
+        return translationType["id"] == 1;
+    }
+    return translationType["id"] != 1;
+}
+
+function animeLibTeamName(teamPlayer) {
+    teamData = teamPlayer["team"];
+    if (teamData == null) {
+        return "AnimeLib";
+    }
+    if (teamData["name"] == null) {
+        return "AnimeLib";
+    }
+    return parseString(teamData["name"]).trim();
+}
+
+function animeLibPreferredTeams() {
+    preferredText = getPreference("preferredTeams");
+    preferredTeams = [];
+    if (preferredText == null) {
+        return preferredTeams;
+    }
+    preferredParts = parseString(preferredText).split(",");
+    for (pp = 0; pp < preferredParts.length; pp = pp + 1) {
+        preferredPart = preferredParts[pp].trim().toLowerCase();
+        if (preferredPart != "") {
+            preferredTeams.push(preferredPart);
+        }
+    }
+    return preferredTeams;
+}
+
+function animeLibPlayerScore(scorePlayer, scoreTeams) {
+    scoreName = animeLibTeamName(scorePlayer).toLowerCase();
+    for (st = 0; st < scoreTeams.length; st = st + 1) {
+        if (scoreName.contains(scoreTeams[st])) {
+            return 0 - 1000000000 + st;
+        }
+    }
+    scoreViews = scorePlayer["views"];
+    if (scoreViews == null) {
+        return 0;
+    }
+    return 0 - scoreViews;
+}
+
+function animeLibRankPlayers(rankCandidates, rankTeams) {
+    rankedPlayers = [];
+    for (rp = 0; rp < rankCandidates.length; rp = rp + 1) {
+        rankPlayer = rankCandidates[rp];
+        rankScore = animeLibPlayerScore(rankPlayer, rankTeams);
+        rankAt = rankedPlayers.length;
+        for (ri = 0; ri < rankedPlayers.length; ri = ri + 1) {
+            if (rankAt == rankedPlayers.length && rankScore < rankedPlayers[ri]["score"]) {
+                rankAt = ri;
+            }
+        }
+        rankedPlayers.insert(rankAt, {"score": rankScore, "player": rankPlayer});
+    }
+    return rankedPlayers;
+}
+
+function animeLibPlayerCandidates(candidatePlayers) {
+    candidateMode = getPreference("translationType");
+    kodikPlayers = [];
+    allowedPlayers = [];
+    for (cp = 0; cp < candidatePlayers.length; cp = cp + 1) {
+        candidatePlayer = candidatePlayers[cp];
+        if (kodikIsKodikUrl(candidatePlayer["src"]) == false) {
+            continue;
+        }
+        kodikPlayers.push(candidatePlayer);
+        if (animeLibTranslationAllowed(candidatePlayer, candidateMode)) {
+            allowedPlayers.push(candidatePlayer);
+        }
+    }
+    if (allowedPlayers.isEmpty) {
+        return kodikPlayers;
+    }
+    return allowedPlayers;
+}
+
+function animeLibAudioLabel(labelPlayer) {
+    labelText = animeLibTeamName(labelPlayer);
+    labelType = labelPlayer["translation_type"];
+    if (labelType != null && labelType["id"] == 1) {
+        labelText = labelText + " (субтитры)";
+    }
+    return labelText;
+}
+
+function getVideoSources(uid, src, data) {
+    episodeId = uid;
+    if (data != null && data["episodeId"] != null) {
+        episodeId = data["episodeId"];
+    }
+    episodeJson = animeLibRequest(animeLibApiBase() + "/episodes/" + episodeId, {}, "AnimeLib episode " + episodeId);
+    episodePlayers = episodeJson["data"]["players"];
+    if (episodePlayers == null) {
+        episodePlayers = [];
+    }
+    rankedPlayers = animeLibRankPlayers(animeLibPlayerCandidates(episodePlayers), animeLibPreferredTeams());
+    teamLimit = parseInt(parseString(getPreference("teamsPerEpisode")));
+    if (teamLimit == null || teamLimit < 1) {
+        teamLimit = 3;
+    }
+    resolvedSources = [];
+    resolvedTeams = 0;
+    for (rk = 0; rk < rankedPlayers.length; rk = rk + 1) {
+        if (resolvedTeams >= teamLimit) {
+            continue;
+        }
+        rankedPlayer = rankedPlayers[rk]["player"];
+        teamSources = [];
+        try {
+            teamSources = kodikResolveSources(rankedPlayer["src"], animeLibSiteUrl() + "/");
+        } catch (e) {
+            teamSources = [];
+        }
+        if (teamSources.isEmpty) {
+            continue;
+        }
+        resolvedTeams = resolvedTeams + 1;
+        teamLabel = animeLibAudioLabel(rankedPlayer);
+        for (ts = 0; ts < teamSources.length; ts = ts + 1) {
+            teamSource = teamSources[ts];
+            teamSource["audioLabel"] = teamLabel;
+            resolvedSources.push(teamSource);
+        }
+    }
+    if (resolvedSources.isEmpty) {
+        throwSourceError("unsupported", "no playable Kodik stream for episode " + episodeId);
+    }
+    return resolvedSources;
+}
+
+function passProtector(body, headers, cookies) {
+    protectorBody = body;
+    protectorCookies = cookies;
+    try {
+        protectorPage = httpGet({
+            "url": "https://mangalib.me/manga-list",
+            "params": {},
+            "paths": {},
+            "headers": {},
+            "throughWeb": true
+        });
+        if (protectorPage["body"] != null) {
+            protectorBody = protectorPage["body"];
+        }
+        if (protectorPage["cookies"] != null) {
+            protectorCookies = protectorPage["cookies"];
+        }
+    } catch (e) {
+        print("AnimeLib: using the cached protector page: " + e);
+    }
+    sessionHeaders = {};
+    if (headers["cookie"] != null) {
+        sessionHeaders["Cookie"] = headers["cookie"];
+    }
+    if (headers["user-agent"] != null) {
+        sessionHeaders["user-agent"] = headers["user-agent"];
+    }
+    if (protectorCookies != null && protectorCookies["XSRF-TOKEN"] != null) {
+        sessionHeaders["x-xsrf-token"] = protectorCookies["XSRF-TOKEN"].replaceAll("%3D", "=");
+    }
+    sessionHeaders["x-requested-with"] = "XMLHttpRequest";
+    sessionHeaders["Content-Type"] = "application/json;charset=UTF-8";
+    sessionHeaders["site-id"] = parseString(animeLibSiteId());
+    sessionHeaders["Referer"] = animeLibSiteUrl() + "/";
+    if (protectorBody != null) {
+        protectorDocument = createHTMLParser(protectorBody);
+        protectorMetas = protectorDocument.getElementsByTagName("meta");
+        for (pm = 0; pm < protectorMetas.length; pm = pm + 1) {
+            if (protectorMetas[pm].attributes["name"] == "_token") {
+                sessionHeaders["x-csrf-token"] = protectorMetas[pm].attributes["content"];
+            }
+        }
+    }
+    storedAuth = executeJsScript({"code": "return window.localStorage.auth"});
+    if (storedAuth != null) {
+        decodedAuth = jsonDecode(storedAuth);
+        if (decodedAuth["token"] != null) {
+            sessionHeaders["Authorization"] = "Bearer " + decodedAuth["token"]["access_token"];
+        }
+    }
+    useHeaders({"headers": sessionHeaders});
+}
+
+function passWebBrowserInterceptorController(controller) {
+    registerInterceptorController(controller);
+}
