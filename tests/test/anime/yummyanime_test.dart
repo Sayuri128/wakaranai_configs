@@ -16,6 +16,8 @@ import 'package:logger/logger.dart';
 import 'package:test/test.dart';
 
 import '../helpers/extension_host_helpers.dart';
+import '../helpers/scraper_helpers.dart';
+import '../helpers/script_bundle.dart';
 
 const String extensionDirectory = 'anime/yummyanime';
 const Duration appVideoSourcesTimeout = Duration(seconds: 20);
@@ -36,7 +38,7 @@ class YummySession {
   factory YummySession.open({Map<String, Object?> preferences = const {}}) {
     final config = loadConfig(extensionDirectory);
     final client = AnimeApiClient(
-      code: readScript(extensionDirectory),
+      code: bundleScript(scriptPath('$extensionDirectory/main.capyscript')),
       host: hostFor(
         config,
         preferences: <String, Object?>{

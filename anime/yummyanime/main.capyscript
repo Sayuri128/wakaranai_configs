@@ -5,6 +5,7 @@ import "converter";
 import "preferences";
 import "storage";
 import "errors";
+import "../../shared/kodik";
 
 function apiBase() {
     return "https://api.yani.tv";
@@ -22,10 +23,6 @@ function searchOffsetLimit() {
     return 300;
 }
 
-function kodikDefaultEndpoint() {
-    return "/ftor";
-}
-
 function cvhApiBase() {
     return "https://plapi.cdnvideohub.com/api/v1/player/sv";
 }
@@ -36,14 +33,6 @@ function cvhEmbedOrigin() {
 
 function digitsAlphabet() {
     return "0123456789";
-}
-
-function upperLetters() {
-    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-}
-
-function lowerLetters() {
-    return "abcdefghijklmnopqrstuvwxyz";
 }
 
 function leadingNumber(numberSource) {
@@ -797,178 +786,8 @@ function fetchJson(jsonUrl, jsonHeaders) {
     return jsonDecode(jsonText);
 }
 
-function rotateLetters(rotText, rotShift) {
-    rotUpper = upperLetters();
-    rotLower = lowerLetters();
-    rotChars = [];
-    for (rc = 0; rc < rotText.length; rc = rc + 1) {
-        rotChar = rotText.substring(rc, rc + 1);
-        upperAt = rotUpper.indexOf(rotChar);
-        if (upperAt >= 0) {
-            rotIndex = (upperAt + rotShift) % 26;
-            rotChars.push(rotUpper.substring(rotIndex, rotIndex + 1));
-            continue;
-        }
-        lowerAt = rotLower.indexOf(rotChar);
-        if (lowerAt >= 0) {
-            rotIndex = (lowerAt + rotShift) % 26;
-            rotChars.push(rotLower.substring(rotIndex, rotIndex + 1));
-            continue;
-        }
-        rotChars.push(rotChar);
-    }
-    return rotChars.join("");
-}
-
-function looksLikeStreamLink(linkCandidate) {
-    if (linkCandidate == null) {
-        return false;
-    }
-    if (linkCandidate.startsWith("//") == false && linkCandidate.startsWith("http") == false) {
-        return false;
-    }
-    return linkCandidate.contains(".m3u8") || linkCandidate.contains(".mp4");
-}
-
-function decodeKodikLink(encodedLink, linkShift) {
-    if (looksLikeStreamLink(encodedLink)) {
-        return encodedLink;
-    }
-    shiftedLink = rotateLetters(encodedLink, linkShift);
-    decodedLink = null;
-    try {
-        decodedLink = base64Decode(shiftedLink);
-    } catch (e) {
-        decodedLink = null;
-    }
-    if (looksLikeStreamLink(decodedLink)) {
-        return decodedLink;
-    }
-    return null;
-}
-
-function findKodikShift(sampleLink) {
-    shiftOrder = [18, 13];
-    for (so = 0; so < 26; so = so + 1) {
-        if (shiftOrder.contains(so) == false) {
-            shiftOrder.push(so);
-        }
-    }
-    for (sh = 0; sh < shiftOrder.length; sh = sh + 1) {
-        if (decodeKodikLink(sampleLink, shiftOrder[sh]) != null) {
-            return shiftOrder[sh];
-        }
-    }
-    return null;
-}
-
-function kodikEndpoint(endpointHost, playerPage) {
-    playerScript = textBetween(playerPage, 'src="/assets/js/app.player_single.', '"');
-    if (playerScript == null) {
-        return kodikDefaultEndpoint();
-    }
-    playerScriptPath = "/assets/js/app.player_single." + playerScript;
-    endpointKey = "kodikEndpoint:" + endpointHost + playerScriptPath;
-    cachedEndpoint = storageGet(endpointKey);
-    if (cachedEndpoint != null && cachedEndpoint != "") {
-        return cachedEndpoint;
-    }
-    scriptText = fetchText("https://" + endpointHost + playerScriptPath, {});
-    encodedEndpoint = textBetween(scriptText, 'type:"POST",url:atob("', '"');
-    if (encodedEndpoint == null) {
-        return kodikDefaultEndpoint();
-    }
-    decodedEndpoint = base64Decode(encodedEndpoint);
-    if (decodedEndpoint.startsWith("/") == false) {
-        return kodikDefaultEndpoint();
-    }
-    storageSet(endpointKey, decodedEndpoint, 86400);
-    return decodedEndpoint;
-}
-
 function resolveKodikSources(kodikUrl) {
-    kodikHost = embedHost(kodikUrl);
-    kodikPage = fetchText(kodikUrl, {"Referer": siteOrigin() + "/"});
-    if (kodikPage == null) {
-        return [];
-    }
-    urlParamsText = textBetween(kodikPage, "var urlParams = '", "';");
-    videoType = textBetween(kodikPage, "vInfo.type = '", "'");
-    videoHash = textBetween(kodikPage, "vInfo.hash = '", "'");
-    videoId = textBetween(kodikPage, "vInfo.id = '", "'");
-    if (urlParamsText == null || videoType == null || videoHash == null || videoId == null) {
-        return [];
-    }
-    urlParams = jsonDecode(urlParamsText);
-    kodikForm = {
-        "d": parseString(urlParams["d"]),
-        "d_sign": parseString(urlParams["d_sign"]),
-        "pd": parseString(urlParams["pd"]),
-        "pd_sign": parseString(urlParams["pd_sign"]),
-        "ref": urlDecode(parseString(urlParams["ref"])),
-        "ref_sign": parseString(urlParams["ref_sign"]),
-        "bad_user": "true",
-        "cdn_is_working": "true",
-        "type": videoType,
-        "hash": videoHash,
-        "id": videoId,
-        "info": "{}"
-    };
-    kodikPath = kodikEndpoint(kodikHost, kodikPage);
-    linksResponse = httpPost({
-        "url": "https://" + kodikHost + kodikPath,
-        "params": {},
-        "paths": {},
-        "body": kodikForm,
-        "headers": {"Referer": kodikUrl},
-        "throughWeb": false
-    });
-    if (linksResponse["statusCode"] != 200) {
-        return [];
-    }
-    linksJson = jsonDecode(linksResponse["body"]);
-    kodikLinks = linksJson["links"];
-    if (kodikLinks == null) {
-        return [];
-    }
-    kodikQualities = ["1080", "720", "480", "360"];
-    kodikShift = null;
-    kodikSources = [];
-    for (kq = 0; kq < kodikQualities.length; kq = kq + 1) {
-        qualityLinks = kodikLinks[kodikQualities[kq]];
-        if (qualityLinks == null) {
-            continue;
-        }
-        if (qualityLinks.isEmpty) {
-            continue;
-        }
-        encodedSrc = qualityLinks[0]["src"];
-        if (encodedSrc == null) {
-            continue;
-        }
-        if (kodikShift == null) {
-            kodikShift = findKodikShift(encodedSrc);
-        }
-        if (kodikShift == null) {
-            continue;
-        }
-        decodedSrc = decodeKodikLink(encodedSrc, kodikShift);
-        if (decodedSrc == null) {
-            continue;
-        }
-        streamLink = absoluteUrl(decodedSrc);
-        streamFormat = "mp4";
-        if (streamLink.contains(".m3u8")) {
-            streamFormat = "hls";
-        }
-        kodikSources.push({
-            "url": streamLink,
-            "quality": kodikQualities[kq] + "p",
-            "format": streamFormat,
-            "headers": {}
-        });
-    }
-    return kodikSources;
+    return kodikResolveSources(kodikUrl, siteOrigin() + "/");
 }
 
 function queryValue(queryUrl, queryName) {
