@@ -2902,6 +2902,69 @@
     },
     {
       "category": "manga",
+      "path": "manga/manhua_plus",
+      "revision": "b9247043898c1520",
+      "apiVersion": 1,
+      "config": {
+        "name": "ManhuaPlus",
+        "uid": "0d052917-8201-4b57-ba89-72164e9deaec",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/manhua_plus/logo.png?raw=true",
+        "type": 0,
+        "nsfw": false,
+        "language": "English",
+        "version": 1,
+        "contentKinds": [
+          "manhua",
+          "manhwa"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "filters": [
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Order",
+            "param": "m_orderby",
+            "values": [
+              "latest",
+              "alphabet",
+              "rating",
+              "trending",
+              "views",
+              "new-manga"
+            ],
+            "labels": [
+              "Latest updates",
+              "A-Z",
+              "Rating",
+              "Trending",
+              "Most views",
+              "New"
+            ]
+          },
+          {
+            "type": "ONE_OF_MULTIPLE",
+            "paramName": "Status",
+            "param": "status[]",
+            "values": [
+              "on-going",
+              "end",
+              "on-hold",
+              "canceled",
+              "upcoming"
+            ],
+            "labels": [
+              "Ongoing",
+              "Completed",
+              "On hold",
+              "Canceled",
+              "Upcoming"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "category": "manga",
       "path": "manga/nhentai",
       "revision": "7d6fb194a9fa6d24",
       "apiVersion": 1,

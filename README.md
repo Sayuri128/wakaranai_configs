@@ -21,6 +21,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | MangaRead | English | Madara engine |
 | Mangasushi | English | Madara engine |
 | LHTranslation | English | Madara engine |
+| ManhuaPlus | English | Madara engine |
 | Dynasty Scans (NSFW) | English | Yuri series, anthologies, doujins and issues; type, status and tag filters; optional NSFW hiding |
 | LilyManga (NSFW) | English | Madara engine |
 | HentaiLib (NSFW) | Russian | Requires login |
