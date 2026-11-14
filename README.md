@@ -14,6 +14,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | MangaLib | Russian | Requires login; shares the session with HentaiLib and RanobeLib |
 | ReManga | Russian | Translation branches; type, status, genre and age filters; paid chapters hidden |
 | Senkuro | Russian | GraphQL API; popular, updates, new and best feeds; type, status and label filters; chapters grouped by translation branch; explicit titles hidden unless enabled in the extension settings |
+| MangaBuff | Russian | Popular, updated, new and top rated feeds; type, status, genre and tag filters; many titles answer 404 to guests |
 | Desu | Russian | desu.uno; popular, updates and new feeds; type, status and genre filters |
 | Honey Manga | Ukrainian | Type, status and genre filters; paid early-access chapters hidden |
 | Zenko | Ukrainian | Type, status and genre filters; chapters grouped by team |

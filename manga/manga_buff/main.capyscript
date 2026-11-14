@@ -1,0 +1,408 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function mangaBuffBaseUrl() {
+    return "https://mangabuff.ru";
+}
+
+function mangaBuffUserAgent() {
+    return "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
+}
+
+function mangaBuffCheck(response, label) {
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "MangaBuff answers 404 for this page; the site hides many titles from guests (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "MangaBuff asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "MangaBuff answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function mangaBuffGet(path, requestParams, label) {
+    return httpGet({
+        "url": mangaBuffBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": mangaBuffUserAgent(),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9"
+        },
+        "throughWeb": false
+    });
+}
+
+function mangaBuffAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function mangaBuffAbsolute(link) {
+    if(link == "" || link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    return mangaBuffBaseUrl() + link;
+}
+
+function mangaBuffBackground(styleText) {
+    urlStart = styleText.indexOf("url('");
+    if(urlStart < 0) {
+        return "";
+    }
+    rest = styleText.substring(urlStart + 5);
+    return rest.substring(0, rest.indexOf("'"));
+}
+
+function mangaBuffSlug(href) {
+    marker = "/manga/";
+    markerAt = href.indexOf(marker);
+    if(markerAt < 0) {
+        return "";
+    }
+    return href.substring(markerAt + marker.length).split("?")[0].split("#")[0];
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        if(page > 1) {
+            return [];
+        }
+        return mangaBuffCards(mangaBuffCheck(mangaBuffGet("/search", {"q": trimmedQuery}, "mangabuff search"), "mangabuff search"));
+    }
+    catalogParams = {"sort": "real_views"};
+    if(feed != null && feed != "") {
+        catalogParams["sort"] = feed;
+    }
+    if(page > 1) {
+        catalogParams["page"] = parseString(page);
+    }
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            selectedGroups = filters[i]["selected"];
+            if(filterInfo == null || selectedGroups == null) {
+                continue;
+            }
+            chosenValues = [];
+            for(g = 0; g < selectedGroups.length; g = g + 1) {
+                for(v = 0; v < selectedGroups[g].length; v = v + 1) {
+                    chosenValues.push(parseString(selectedGroups[g][v]));
+                }
+            }
+            if(chosenValues.length > 0) {
+                catalogParams[filterInfo["param"]] = chosenValues;
+            }
+        }
+    }
+    return mangaBuffCards(mangaBuffCheck(mangaBuffGet("/manga", catalogParams, "mangabuff catalog"), "mangabuff catalog"));
+}
+
+function mangaBuffCards(body) {
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll("a.cards__item");
+    items = [];
+    seen = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        slug = mangaBuffSlug(mangaBuffAttribute(cards[c], "href"));
+        if(slug == "" || slug.contains("/") || seen.contains(slug)) {
+            continue;
+        }
+        seen.push(slug);
+        nameElement = cards[c].querySelector(".cards__name");
+        coverElement = cards[c].querySelector(".cards__img");
+        coverUrl = "";
+        if(coverElement != null) {
+            coverUrl = mangaBuffAbsolute(mangaBuffBackground(mangaBuffAttribute(coverElement, "style")).replaceFirst("/x180/", "/"));
+        }
+        shownTitle = slug;
+        if(nameElement != null) {
+            shownTitle = nameElement.text.trim();
+        }
+        items.push(buildGallery({
+            "uid": slug,
+            "title": shownTitle,
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function mangaBuffTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function mangaBuffStatus(statusText) {
+    loweredStatus = statusText.toLowerCase();
+    if(loweredStatus.contains("продолжается")) {
+        return statusOngoing();
+    }
+    if(loweredStatus.contains("завершен")) {
+        return statusReleased();
+    }
+    if(loweredStatus.contains("заморожен") || loweredStatus.contains("перерыв")) {
+        return statusPaused();
+    }
+    if(loweredStatus.contains("заброшен") || loweredStatus.contains("прекращ")) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function mangaBuffCookieHeader(responseHeaders) {
+    if(responseHeaders == null) {
+        return "";
+    }
+    rawCookies = responseHeaders["set-cookie"];
+    if(rawCookies == null) {
+        return "";
+    }
+    attributeNames = ["path", "expires", "max-age", "domain", "samesite", "secure", "httponly", "priority"];
+    pairs = [];
+    pieces = parseString(rawCookies).replaceAll(",", ";").split(";");
+    for(p = 0; p < pieces.length; p = p + 1) {
+        piece = pieces[p].trim();
+        if(piece.contains("=") == false) {
+            continue;
+        }
+        cookieName = piece.split("=")[0].trim();
+        if(cookieName == "" || cookieName.contains(" ") || attributeNames.contains(cookieName.toLowerCase())) {
+            continue;
+        }
+        pairs.push(piece);
+    }
+    return pairs.join("; ");
+}
+
+function getConcrete(uid, data) {
+    response = mangaBuffGet("/manga/" + uid, {}, "mangabuff title");
+    body = mangaBuffCheck(response, "mangabuff title");
+    document = createHTMLParser(body);
+    heading = document.querySelector("h1.manga-mobile__name");
+    if(heading == null) {
+        heading = document.querySelector("h1");
+    }
+    if(heading == null) {
+        throw "MangaBuff returned an unexpected page (mangabuff title)";
+    }
+    coverUrl = "";
+    coverImage = document.querySelector("img.manga-mobile__image");
+    if(coverImage == null) {
+        coverImage = document.querySelector(".manga__poster img");
+    }
+    if(coverImage != null) {
+        coverUrl = mangaBuffAbsolute(mangaBuffAttribute(coverImage, "src"));
+    }
+    alternativeTitles = [];
+    alternativeMetas = document.querySelectorAll("meta[itemprop='alternateName']");
+    for(a = 0; a < alternativeMetas.length; a = a + 1) {
+        alternativeName = mangaBuffAttribute(alternativeMetas[a], "content").trim();
+        if(alternativeName != "" && alternativeTitles.contains(alternativeName) == false) {
+            alternativeTitles.push(alternativeName);
+        }
+    }
+    description = "";
+    descriptionElement = document.querySelector(".manga__description");
+    if(descriptionElement != null) {
+        description = descriptionElement.text.trim();
+    }
+    statusValue = statusUndefined();
+    year = null;
+    middleLinks = document.querySelectorAll("a.manga__middle-link");
+    tags = [];
+    for(m = 0; m < middleLinks.length; m = m + 1) {
+        linkHref = mangaBuffAttribute(middleLinks[m], "href");
+        linkText = middleLinks[m].text.trim();
+        if(linkHref.contains("status_id")) {
+            statusValue = mangaBuffStatus(linkText);
+            continue;
+        }
+        if(linkHref.contains("/types/") && linkText.length == 4) {
+            year = parseInt(linkText);
+            continue;
+        }
+        if(linkHref.contains("/types/") && tags.contains(linkText) == false) {
+            tags.push(linkText);
+        }
+    }
+    genreTags = mangaBuffTexts(document, ".tags .tags__item");
+    for(t = 0; t < genreTags.length; t = t + 1) {
+        if(tags.contains(genreTags[t]) == false) {
+            tags.push(genreTags[t]);
+        }
+    }
+    authors = [];
+    authorLinks = document.querySelectorAll("#manga-details-author a");
+    for(a = 0; a < authorLinks.length; a = a + 1) {
+        authorName = mangaBuffAttribute(authorLinks[a], "title").trim();
+        if(authorName != "" && authors.contains(authorName) == false) {
+            authors.push(authorName);
+        }
+    }
+    artists = [];
+    artistLinks = document.querySelectorAll("#manga-details-artist a");
+    for(a = 0; a < artistLinks.length; a = a + 1) {
+        artistName = mangaBuffAttribute(artistLinks[a], "title").trim();
+        if(artistName != "" && artists.contains(artistName) == false) {
+            artists.push(artistName);
+        }
+    }
+    chapterItems = document.querySelectorAll(".chapters__list a.chapters__item");
+    chapters = [];
+    seenChapters = [];
+    mangaBuffAddChapters(chapters, seenChapters, chapterItems);
+    if(document.querySelector(".load-chapters-trigger") != null) {
+        mangaBuffAddChapters(chapters, seenChapters, mangaBuffMoreChapters(document, response, uid));
+    }
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Главы",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": statusValue,
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "artists": artists,
+        "year": year,
+        "url": mangaBuffBaseUrl() + "/manga/" + uid,
+        "groups": groups
+    });
+}
+
+function mangaBuffMoreChapters(document, titleResponse, uid) {
+    mangaElement = document.querySelector(".manga[data-id]");
+    tokenMeta = document.querySelector("meta[name='csrf-token']");
+    if(mangaElement == null || tokenMeta == null) {
+        return [];
+    }
+    loadResponse = httpPost({
+        "url": mangaBuffBaseUrl() + "/chapters/load",
+        "params": {},
+        "paths": {},
+        "headers": {
+            "User-Agent": mangaBuffUserAgent(),
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRF-TOKEN": mangaBuffAttribute(tokenMeta, "content"),
+            "Cookie": mangaBuffCookieHeader(titleResponse["headers"]),
+            "Referer": mangaBuffBaseUrl() + "/manga/" + uid
+        },
+        "body": {"manga_id": mangaBuffAttribute(mangaElement, "data-id")},
+        "throughWeb": false
+    });
+    loadResult = jsonDecode(mangaBuffCheck(loadResponse, "mangabuff chapters"));
+    if(loadResult["content"] == null) {
+        return [];
+    }
+    return createHTMLParser("<div>" + parseString(loadResult["content"]) + "</div>").querySelectorAll("a.chapters__item");
+}
+
+function mangaBuffDate(dateText) {
+    parts = dateText.trim().split(".");
+    if(parts.length != 3) {
+        return null;
+    }
+    return parts[2] + "-" + parts[1] + "-" + parts[0];
+}
+
+function mangaBuffAddChapters(chapters, seenChapters, chapterItems) {
+    for(c = 0; c < chapterItems.length; c = c + 1) {
+        item = chapterItems[c];
+        chapterUid = mangaBuffSlug(mangaBuffAttribute(item, "href"));
+        if(chapterUid == "" || seenChapters.contains(chapterUid)) {
+            continue;
+        }
+        seenChapters.push(chapterUid);
+        uidParts = chapterUid.split("/");
+        volumeText = "";
+        if(uidParts.length >= 3) {
+            volumeText = uidParts[1];
+        }
+        numberText = mangaBuffAttribute(item, "data-chapter");
+        if(numberText == "" && uidParts.length >= 3) {
+            numberText = uidParts[2];
+        }
+        chapterTitle = "Том " + volumeText + " Глава " + numberText;
+        nameElement = item.querySelector(".chapters__name");
+        if(nameElement != null && nameElement.text.trim() != "") {
+            chapterTitle = chapterTitle + " - " + nameElement.text.trim();
+        }
+        chapters.push(buildChapter({
+            "uid": chapterUid,
+            "title": chapterTitle,
+            "timestamp": mangaBuffDate(mangaBuffAttribute(item, "data-chapter-date")),
+            "data": {},
+            "number": numberText,
+            "volume": volumeText
+        }));
+    }
+}
+
+function getPages(uid, data) {
+    body = mangaBuffCheck(mangaBuffGet("/manga/" + uid, {}, "mangabuff chapter"), "mangabuff chapter");
+    document = createHTMLParser(body);
+    images = document.querySelectorAll(".reader__item img");
+    pageLinks = [];
+    for(i = 0; i < images.length; i = i + 1) {
+        imageUrl = mangaBuffAttribute(images[i], "data-src");
+        if(imageUrl == "") {
+            imageUrl = mangaBuffAttribute(images[i], "src");
+        }
+        if(imageUrl != "" && imageUrl.startsWith("data:") == false) {
+            pageLinks.push(mangaBuffAbsolute(imageUrl));
+        }
+    }
+    if(pageLinks.isEmpty) {
+        throwSourceError("notFound", "MangaBuff shows no pages for this chapter");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "User-Agent": mangaBuffUserAgent(),
+        "Referer": mangaBuffBaseUrl() + "/"
+    };
+}
