@@ -1,0 +1,346 @@
+import "http";
+import "html";
+import "converter";
+import "errors";
+import "manga_models";
+
+function acomicsBaseUrl() {
+    return "https://acomics.ru";
+}
+
+function acomicsIssuesPerChapter() {
+    return 24;
+}
+
+function acomicsCatalogPageSize() {
+    return 10;
+}
+
+function acomicsSafeRatings() {
+    return ["1", "2", "3", "4"];
+}
+
+function acomicsRequest(path, requestParams, label) {
+    response = httpGet({
+        "url": acomicsBaseUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "ru-RU,ru;q=0.9"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return response["body"];
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "AComics has no such comic (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "AComics asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403 || statusCode >= 500) {
+        throwSourceError("sourceDown", "AComics answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function acomicsRejectAgeGate(body) {
+    if(body.contains("darks-censored")) {
+        throwSourceError("unsupported", "AComics asks for age confirmation for this comic; open it on the site");
+    }
+}
+
+function acomicsAbsolute(link) {
+    if(link == null || link == "") {
+        return "";
+    }
+    if(link.startsWith("http")) {
+        return link;
+    }
+    if(link.startsWith("//")) {
+        return "https:" + link;
+    }
+    return acomicsBaseUrl() + link;
+}
+
+function acomicsAttribute(element, attributeName) {
+    elementAttributes = element.attributes;
+    if(elementAttributes[attributeName] == null) {
+        return "";
+    }
+    return parseString(elementAttributes[attributeName]);
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    trimmedQuery = "";
+    if(query != null) {
+        trimmedQuery = parseString(query).trim();
+    }
+    if(trimmedQuery != "") {
+        if(page > 1 || trimmedQuery.length < 3) {
+            return [];
+        }
+        return acomicsCards(acomicsRequest("/search", {"keyword": trimmedQuery}, "acomics search"));
+    }
+    catalogParams = acomicsCatalogParams(filters, feed);
+    if(page > 1) {
+        catalogParams["skip"] = parseString((page - 1) * acomicsCatalogPageSize());
+    }
+    return acomicsCards(acomicsRequest("/comics", catalogParams, "acomics catalog"));
+}
+
+function acomicsCatalogParams(filters, feed) {
+    sortId = "last_update";
+    if(feed != null && feed != "") {
+        sortId = feed;
+    }
+    catalogParams = {
+        "sort": sortId,
+        "issue_count": "2"
+    };
+    chosenCategories = [];
+    chosenRatings = [];
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterData = filters[i];
+            filterInfo = filterData["filter"];
+            if(filterInfo == null) {
+                continue;
+            }
+            filterParam = filterInfo["param"];
+            chosen = filterData["selected"];
+            if(chosen == null) {
+                continue;
+            }
+            if(filterInfo["type"] == "ONE_OF_MULTIPLE") {
+                if(chosen != "" && chosen != "0") {
+                    catalogParams[filterParam] = parseString(chosen);
+                }
+                continue;
+            }
+            for(g = 0; g < chosen.length; g = g + 1) {
+                for(v = 0; v < chosen[g].length; v = v + 1) {
+                    chosenValue = parseString(chosen[g][v]);
+                    if(filterParam == "categories") {
+                        chosenCategories.push(chosenValue);
+                    }
+                    if(filterParam == "ratings" && acomicsSafeRatings().contains(chosenValue)) {
+                        chosenRatings.push(chosenValue);
+                    }
+                }
+            }
+        }
+    }
+    if(chosenRatings.isEmpty) {
+        chosenRatings = acomicsSafeRatings();
+    }
+    catalogParams["ratings"] = chosenRatings;
+    if(chosenCategories.length > 0) {
+        catalogParams["categories"] = chosenCategories;
+    }
+    return catalogParams;
+}
+
+function acomicsSlug(href) {
+    trimmedHref = href.trim();
+    if(trimmedHref.startsWith(acomicsBaseUrl())) {
+        trimmedHref = trimmedHref.substring(acomicsBaseUrl().length);
+    }
+    if(trimmedHref.startsWith("/~") == false) {
+        return "";
+    }
+    return trimmedHref.substring(2).split("/")[0].split("?")[0];
+}
+
+function acomicsCards(body) {
+    document = createHTMLParser(body);
+    cards = document.querySelectorAll("section.serial-card");
+    items = [];
+    for(c = 0; c < cards.length; c = c + 1) {
+        card = cards[c];
+        ratingLabel = card.querySelector(".age-rating-label");
+        if(ratingLabel != null) {
+            ratingText = ratingLabel.text.trim();
+            if(ratingText == "R" || ratingText == "NC-17") {
+                continue;
+            }
+        }
+        titleLink = card.querySelector("h2.title a");
+        if(titleLink == null) {
+            continue;
+        }
+        slug = acomicsSlug(acomicsAttribute(titleLink, "href"));
+        if(slug == "") {
+            continue;
+        }
+        coverUrl = "";
+        coverImage = card.querySelector("a.cover img");
+        if(coverImage != null) {
+            coverUrl = acomicsAbsolute(acomicsAttribute(coverImage, "data-real-src"));
+        }
+        items.push(buildGallery({
+            "uid": slug,
+            "title": titleLink.text.trim(),
+            "cover": coverUrl,
+            "data": {}
+        }));
+    }
+    return items;
+}
+
+function acomicsNewline() {
+    lineBreak = `
+`;
+    if(lineBreak.length > 1) {
+        lineBreak = lineBreak.substring(lineBreak.length - 1);
+    }
+    return lineBreak;
+}
+
+function acomicsInfoValue(document, labelText) {
+    lines = document.querySelectorAll("article.common-article p");
+    for(l = 0; l < lines.length; l = l + 1) {
+        bold = lines[l].querySelector("b");
+        if(bold == null) {
+            continue;
+        }
+        if(bold.text.trim() == labelText) {
+            return lines[l].text.substring(lines[l].text.indexOf(labelText) + labelText.length).trim();
+        }
+    }
+    return "";
+}
+
+function acomicsTexts(container, selector) {
+    elements = container.querySelectorAll(selector);
+    texts = [];
+    for(e = 0; e < elements.length; e = e + 1) {
+        elementText = elements[e].text.trim();
+        if(elementText != "" && texts.contains(elementText) == false) {
+            texts.push(elementText);
+        }
+    }
+    return texts;
+}
+
+function getConcrete(uid, data) {
+    body = acomicsRequest("/~" + uid + "/about", {}, "acomics about");
+    acomicsRejectAgeGate(body);
+    document = createHTMLParser(body);
+    heading = document.querySelector(".page-header-with-menu h1");
+    if(heading == null) {
+        throw "AComics returned an unexpected page (acomics about)";
+    }
+    description = "";
+    aboutText = document.querySelector(".serial-about-text");
+    if(aboutText != null) {
+        paragraphs = acomicsTexts(aboutText, "p");
+        if(paragraphs.isEmpty) {
+            description = aboutText.text.trim();
+        } else {
+            description = paragraphs.join(acomicsNewline());
+        }
+    }
+    coverUrl = "";
+    coverMeta = document.querySelector("meta[property='og:image']");
+    if(coverMeta != null) {
+        coverUrl = acomicsAbsolute(acomicsAttribute(coverMeta, "content"));
+    }
+    tags = acomicsTexts(document, ".serial-about-badges a");
+    ratingText = acomicsInfoValue(document, "Возрастной рейтинг:");
+    if(ratingText != "") {
+        tags.push(ratingText);
+    }
+    issueCount = 0;
+    issueCountText = acomicsInfoValue(document, "Количество выпусков:");
+    if(issueCountText != "") {
+        issueCount = parseInt(issueCountText.split(" ")[0]);
+    }
+    chapters = acomicsChapters(uid, issueCount);
+    groups = [];
+    if(chapters.length > 0) {
+        groups.push(buildChapterGroups({
+            "title": "Выпуски",
+            "elements": chapters
+        }));
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": heading.text.trim(),
+        "cover": coverUrl,
+        "description": description,
+        "tags": tags,
+        "status": statusUndefined(),
+        "alternativeTitles": [],
+        "authors": acomicsTexts(document, ".serial-about-authors a"),
+        "url": acomicsBaseUrl() + "/~" + uid,
+        "groups": groups
+    });
+}
+
+function acomicsChapters(slug, issueCount) {
+    chapters = [];
+    blockSize = acomicsIssuesPerChapter();
+    blockCount = 0;
+    for(counted = 0; counted < issueCount; counted = counted + blockSize) {
+        blockCount = blockCount + 1;
+    }
+    for(b = blockCount - 1; b >= 0; b = b - 1) {
+        firstIssue = b * blockSize + 1;
+        lastIssue = (b + 1) * blockSize;
+        if(lastIssue > issueCount) {
+            lastIssue = issueCount;
+        }
+        chapterTitle = "Выпуски " + parseString(firstIssue) + "–" + parseString(lastIssue);
+        if(firstIssue == lastIssue) {
+            chapterTitle = "Выпуск " + parseString(firstIssue);
+        }
+        chapters.push(buildChapter({
+            "uid": slug + "/" + parseString(b * blockSize),
+            "title": chapterTitle,
+            "timestamp": null,
+            "data": {},
+            "number": b + 1
+        }));
+    }
+    return chapters;
+}
+
+function getPages(uid, data) {
+    uidParts = uid.split("/");
+    contentParams = {};
+    if(uidParts[1] != "0") {
+        contentParams["skip"] = uidParts[1];
+    }
+    body = acomicsRequest("/~" + uidParts[0] + "/content", contentParams, "acomics content");
+    acomicsRejectAgeGate(body);
+    document = createHTMLParser(body);
+    previews = document.querySelectorAll(".serial-content-issues a.issue-preview img");
+    pageLinks = [];
+    for(p = 0; p < previews.length; p = p + 1) {
+        thumbnail = acomicsAttribute(previews[p], "data-real-src");
+        if(thumbnail == "") {
+            thumbnail = acomicsAttribute(previews[p], "src");
+        }
+        if(thumbnail.contains("/upload/") == false) {
+            continue;
+        }
+        pageLinks.push(acomicsAbsolute(thumbnail.replaceFirst("/thumb/upload/", "/upload/")));
+    }
+    if(pageLinks.isEmpty) {
+        throwSourceError("notFound", "AComics has no issues on this page");
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": acomicsBaseUrl() + "/"
+    };
+}

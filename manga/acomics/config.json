@@ -1,0 +1,132 @@
+{
+  "name": "AComics",
+  "uid": "e81de5c5-bdb0-43cb-a3d4-a8486ac9ffb0",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/acomics/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "language": "Русский",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "comic"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "last_update",
+      "title": "Обновления"
+    },
+    {
+      "id": "subscr_count",
+      "title": "Популярное"
+    },
+    {
+      "id": "issue_count",
+      "title": "Больше всего выпусков"
+    }
+  ],
+  "filters": [
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Жанры",
+      "param": "categories",
+      "values": [
+        [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15"
+        ]
+      ],
+      "labels": [
+        [
+          "Животные",
+          "Драма",
+          "Фентези",
+          "Игры",
+          "Юмор",
+          "Журнал",
+          "Паранормальное",
+          "Конец света",
+          "Романтика",
+          "Фантастика",
+          "Бытовое",
+          "Стимпанк",
+          "Супергерои",
+          "Детектив",
+          "Историческое"
+        ]
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Возрастной рейтинг",
+      "param": "ratings",
+      "values": [
+        [
+          "1",
+          "2",
+          "3",
+          "4"
+        ]
+      ],
+      "labels": [
+        [
+          "NR",
+          "G",
+          "PG",
+          "PG-13"
+        ]
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Тип комикса",
+      "param": "type",
+      "values": [
+        "0",
+        "orig",
+        "trans"
+      ],
+      "labels": [
+        "Все",
+        "Оригинальный",
+        "Перевод"
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Публикация",
+      "param": "updatable",
+      "values": [
+        "0",
+        "yes",
+        "no"
+      ],
+      "labels": [
+        "Все",
+        "Продолжающийся",
+        "Завершенный"
+      ]
+    }
+  ]
+}
