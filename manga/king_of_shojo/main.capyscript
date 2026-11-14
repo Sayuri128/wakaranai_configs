@@ -1,0 +1,24 @@
+import "../../shared/mangathemesia";
+
+function themesiaSettings() {
+    return {
+        "baseUrl": "https://kingofshojo.com",
+        "directory": "manga"
+    };
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    return mtGetGallery(themesiaSettings(), page, query, filters, feed);
+}
+
+function getConcrete(uid, data) {
+    return mtGetConcrete(themesiaSettings(), uid);
+}
+
+function getPages(uid, data) {
+    return mtGetPages(themesiaSettings(), uid);
+}
+
+function getImageHeaders(uid, data) {
+    return mtGetImageHeaders(themesiaSettings());
+}

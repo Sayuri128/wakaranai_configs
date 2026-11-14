@@ -1,0 +1,480 @@
+import "http";
+import "html";
+import "json";
+import "converter";
+import "errors";
+import "manga_models";
+
+function mtOption(mtSettings, mtKey, mtFallback) {
+    mtValue = mtSettings[mtKey];
+    if(mtValue == null) {
+        return mtFallback;
+    }
+    return mtValue;
+}
+
+function mtBaseUrl(mtSettings) {
+    mtBase = mtSettings["baseUrl"];
+    if(mtBase.endsWith("/")) {
+        mtBase = mtBase.substring(0, mtBase.length - 1);
+    }
+    return mtBase;
+}
+
+function mtDirectory(mtSettings) {
+    return mtOption(mtSettings, "directory", "manga");
+}
+
+function mtUserAgent(mtSettings) {
+    return mtOption(mtSettings, "userAgent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36");
+}
+
+function mtRequest(mtSettings, mtUrl, mtParams, mtLabel, mtMissingIsEmpty) {
+    mtResponse = httpGet({
+        "url": mtUrl,
+        "params": mtParams,
+        "paths": {},
+        "headers": {
+            "User-Agent": mtUserAgent(mtSettings),
+            "Accept": "text/html,application/xhtml+xml",
+            "Referer": mtBaseUrl(mtSettings) + "/"
+        },
+        "throughWeb": false
+    });
+    mtStatus = mtResponse["statusCode"];
+    if(mtStatus == 200) {
+        return mtResponse["body"];
+    }
+    if(mtStatus == 404 && mtMissingIsEmpty) {
+        return "";
+    }
+    if(mtStatus == 404) {
+        throwSourceError("notFound", "the page is gone (" + mtLabel + ")");
+    }
+    if(mtStatus == 429) {
+        throwSourceError("rateLimited", "the site asks to slow down (" + mtLabel + ")");
+    }
+    if(mtStatus == 403 || mtStatus >= 500) {
+        throwSourceError("sourceDown", "the site answered HTTP " + parseString(mtStatus) + " (" + mtLabel + ")");
+    }
+    throw "HTTP " + parseString(mtStatus) + " (" + mtLabel + ")";
+}
+
+function mtAttribute(mtElement, mtName) {
+    mtAttributes = mtElement.attributes;
+    if(mtAttributes[mtName] == null) {
+        return "";
+    }
+    return parseString(mtAttributes[mtName]);
+}
+
+function mtPathOf(mtSettings, mtLink) {
+    mtPath = mtLink.trim();
+    mtBase = mtBaseUrl(mtSettings);
+    if(mtPath.startsWith(mtBase)) {
+        mtPath = mtPath.substring(mtBase.length);
+    } else {
+        if(mtPath.contains("://")) {
+            mtAfterScheme = mtPath.split("://")[1];
+            mtSlash = mtAfterScheme.indexOf("/");
+            if(mtSlash < 0) {
+                return "";
+            }
+            mtPath = mtAfterScheme.substring(mtSlash);
+        }
+    }
+    mtPath = mtPath.split("?")[0].split("#")[0];
+    if(mtPath.startsWith("/")) {
+        mtPath = mtPath.substring(1);
+    }
+    if(mtPath.endsWith("/")) {
+        mtPath = mtPath.substring(0, mtPath.length - 1);
+    }
+    return mtPath;
+}
+
+function mtImageSource(mtImage) {
+    if(mtImage == null) {
+        return "";
+    }
+    mtCandidates = ["data-src", "data-lazy-src", "src"];
+    for(mc = 0; mc < mtCandidates.length; mc = mc + 1) {
+        mtSource = mtAttribute(mtImage, mtCandidates[mc]).trim();
+        if(mtSource != "" && mtSource.startsWith("data:") == false) {
+            if(mtSource.startsWith("//")) {
+                return "https:" + mtSource;
+            }
+            return mtSource;
+        }
+    }
+    return "";
+}
+
+function mtGalleryParams(mtPage, mtFilters, mtFeed) {
+    mtParams = {"order": "update"};
+    if(mtFeed != null && mtFeed != "") {
+        mtParams["order"] = mtFeed;
+    }
+    if(mtPage > 1) {
+        mtParams["page"] = parseString(mtPage);
+    }
+    if(mtFilters == null) {
+        return mtParams;
+    }
+    for(mf = 0; mf < mtFilters.length; mf = mf + 1) {
+        mtInfo = mtFilters[mf]["filter"];
+        mtChosen = mtFilters[mf]["selected"];
+        if(mtInfo == null || mtChosen == null) {
+            continue;
+        }
+        if(mtInfo["type"] == "ONE_OF_MULTIPLE") {
+            if(mtChosen != "") {
+                mtParams[mtInfo["param"]] = parseString(mtChosen);
+            }
+            continue;
+        }
+        mtValues = [];
+        for(mg = 0; mg < mtChosen.length; mg = mg + 1) {
+            for(mv = 0; mv < mtChosen[mg].length; mv = mv + 1) {
+                mtValues.push(parseString(mtChosen[mg][mv]));
+            }
+        }
+        if(mtValues.length > 0) {
+            mtParams[mtInfo["param"]] = mtValues;
+        }
+    }
+    return mtParams;
+}
+
+function mtGetGallery(mtSettings, mtPage, mtQuery, mtFilters, mtFeed) {
+    mtBody = "";
+    mtQueryText = "";
+    if(mtQuery != null) {
+        mtQueryText = parseString(mtQuery).trim();
+    }
+    if(mtQueryText != "") {
+        mtBody = mtRequest(mtSettings, mtBaseUrl(mtSettings) + "/page/" + parseString(mtPage) + "/", {"s": mtQueryText}, "search", true);
+    } else {
+        mtBody = mtRequest(mtSettings, mtBaseUrl(mtSettings) + "/" + mtDirectory(mtSettings) + "/", mtGalleryParams(mtPage, mtFilters, mtFeed), "list", true);
+    }
+    if(mtBody == "") {
+        return [];
+    }
+    mtDocument = createHTMLParser(mtBody);
+    mtCards = mtDocument.querySelectorAll(".listupd .bs .bsx");
+    mtItems = [];
+    mtSeen = [];
+    for(mi = 0; mi < mtCards.length; mi = mi + 1) {
+        mtLink = mtCards[mi].querySelector("a");
+        if(mtLink == null) {
+            continue;
+        }
+        mtUid = mtPathOf(mtSettings, mtAttribute(mtLink, "href"));
+        if(mtUid == "" || mtSeen.contains(mtUid)) {
+            continue;
+        }
+        mtSeen.push(mtUid);
+        mtTitle = mtAttribute(mtLink, "title").trim();
+        mtTitleElement = mtCards[mi].querySelector(".tt");
+        if(mtTitle == "" && mtTitleElement != null) {
+            mtTitle = mtTitleElement.text.trim();
+        }
+        mtItems.push(buildGallery({
+            "uid": mtUid,
+            "title": mtTitle,
+            "cover": mtImageSource(mtCards[mi].querySelector("img")),
+            "data": {}
+        }));
+    }
+    return mtItems;
+}
+
+function mtLower(mtText) {
+    return parseString(mtText).trim().toLowerCase();
+}
+
+function mtStatus(mtStatusText) {
+    mtValue = mtLower(mtStatusText);
+    ongoingWords = ["ongoing", "en cours", "publishing", "berjalan", "on going"];
+    for(ms = 0; ms < ongoingWords.length; ms = ms + 1) {
+        if(mtValue.contains(ongoingWords[ms])) {
+            return statusOngoing();
+        }
+    }
+    doneWords = ["completed", "complete", "terminé", "fini", "tamat", "finished"];
+    for(ms = 0; ms < doneWords.length; ms = ms + 1) {
+        if(mtValue.contains(doneWords[ms])) {
+            return statusReleased();
+        }
+    }
+    if(mtValue.contains("hiatus") || mtValue.contains("pause")) {
+        return statusPaused();
+    }
+    if(mtValue.contains("dropped") || mtValue.contains("cancel") || mtValue.contains("abandonné")) {
+        return statusCanceled();
+    }
+    return statusUndefined();
+}
+
+function mtInfoRows(mtDocument) {
+    mtRows = {};
+    mtTableRows = mtDocument.querySelectorAll("table.infotable tr");
+    for(mr = 0; mr < mtTableRows.length; mr = mr + 1) {
+        mtCells = mtTableRows[mr].querySelectorAll("td");
+        if(mtCells.length >= 2) {
+            mtRows[mtLower(mtCells[0].text)] = mtCells[1].text.trim();
+        }
+    }
+    mtBlocks = mtDocument.querySelectorAll(".tsinfo .imptdt");
+    for(mb = 0; mb < mtBlocks.length; mb = mb + 1) {
+        mtValueElement = mtBlocks[mb].querySelector("i, a");
+        mtBlockText = mtBlocks[mb].text.trim();
+        if(mtValueElement == null) {
+            continue;
+        }
+        mtValueText = mtValueElement.text.trim();
+        mtLabel = mtBlockText.substring(0, mtBlockText.length - mtValueText.length).trim();
+        mtRows[mtLower(mtLabel)] = mtValueText;
+    }
+    mtSideRows = mtDocument.querySelectorAll(".fmed");
+    for(md = 0; md < mtSideRows.length; md = md + 1) {
+        mtHeading = mtSideRows[md].querySelector("b");
+        mtSpan = mtSideRows[md].querySelector("span");
+        if(mtHeading != null && mtSpan != null) {
+            mtRows[mtLower(mtHeading.text)] = mtSpan.text.trim();
+        }
+    }
+    return mtRows;
+}
+
+function mtRowValue(mtRows, mtLabels) {
+    for(ml = 0; ml < mtLabels.length; ml = ml + 1) {
+        if(mtRows[mtLabels[ml]] != null && mtRows[mtLabels[ml]] != "") {
+            return mtRows[mtLabels[ml]];
+        }
+    }
+    return "";
+}
+
+function mtSplitNames(mtText) {
+    mtNames = [];
+    if(mtText == "" || mtLower(mtText) == "n/a" || mtText == "-") {
+        return mtNames;
+    }
+    mtParts = mtText.replaceAll(" / ", ",").replaceAll(";", ",").split(",");
+    for(mp = 0; mp < mtParts.length; mp = mp + 1) {
+        mtName = mtParts[mp].trim();
+        if(mtName != "" && mtNames.contains(mtName) == false) {
+            mtNames.push(mtName);
+        }
+    }
+    return mtNames;
+}
+
+function mtTexts(mtContainer, mtSelector) {
+    mtElements = mtContainer.querySelectorAll(mtSelector);
+    mtValues = [];
+    for(mt = 0; mt < mtElements.length; mt = mt + 1) {
+        mtTextValue = mtElements[mt].text.trim();
+        if(mtTextValue != "" && mtValues.contains(mtTextValue) == false) {
+            mtValues.push(mtTextValue);
+        }
+    }
+    return mtValues;
+}
+
+function mtMonthNumber(mtSettings, mtMonthName) {
+    mtMonths = mtOption(mtSettings, "months", {
+        "january": "01", "february": "02", "march": "03", "april": "04", "may": "05", "june": "06",
+        "july": "07", "august": "08", "september": "09", "october": "10", "november": "11", "december": "12"
+    });
+    return mtMonths[mtLower(mtMonthName).replaceAll(",", "")];
+}
+
+function mtTwoDigits(mtNumberText) {
+    mtClean = mtNumberText.replaceAll(",", "").trim();
+    if(mtClean.length == 1) {
+        return "0" + mtClean;
+    }
+    return mtClean;
+}
+
+function mtDate(mtSettings, mtDateText) {
+    mtWords = mtDateText.trim().split(" ");
+    if(mtWords.length != 3) {
+        return null;
+    }
+    mtMonth = mtMonthNumber(mtSettings, mtWords[0]);
+    if(mtMonth != null) {
+        return mtWords[2] + "-" + mtMonth + "-" + mtTwoDigits(mtWords[1]);
+    }
+    mtMonth = mtMonthNumber(mtSettings, mtWords[1]);
+    if(mtMonth != null) {
+        return mtWords[2] + "-" + mtMonth + "-" + mtTwoDigits(mtWords[0]);
+    }
+    return null;
+}
+
+function mtChapterNumber(mtLabel) {
+    mtWords = mtLabel.replaceAll(":", " ").split(" ");
+    for(mw = 0; mw < mtWords.length; mw = mw + 1) {
+        mtWord = mtWords[mw].trim();
+        if(mtWord == "") {
+            continue;
+        }
+        mtFirst = mtWord.substring(0, 1);
+        if("0123456789".contains(mtFirst)) {
+            return mtWord;
+        }
+    }
+    return null;
+}
+
+function mtGetConcrete(mtSettings, mtUid) {
+    mtBody = mtRequest(mtSettings, mtBaseUrl(mtSettings) + "/" + mtUid + "/", {}, "title", false);
+    mtDocument = createHTMLParser(mtBody);
+    mtHeading = mtDocument.querySelector("h1.entry-title");
+    if(mtHeading == null) {
+        throw "the site returned an unexpected page (title)";
+    }
+    mtRows = mtInfoRows(mtDocument);
+    mtDescription = "";
+    mtDescriptionElement = mtDocument.querySelector("[itemprop='description']");
+    if(mtDescriptionElement != null) {
+        mtDescription = mtDescriptionElement.text.trim();
+    }
+    mtTags = [];
+    mtType = mtRowValue(mtRows, mtOption(mtSettings, "typeLabels", ["type", "tipe"]));
+    if(mtType != "") {
+        mtTags.push(mtType);
+    }
+    mtGenres = mtTexts(mtDocument, ".seriestugenre a, .mgen a, .wd-full .mgen a");
+    for(mn = 0; mn < mtGenres.length; mn = mn + 1) {
+        if(mtTags.contains(mtGenres[mn]) == false) {
+            mtTags.push(mtGenres[mn]);
+        }
+    }
+    mtAlternatives = mtSplitNames(mtRowValue(mtRows, mtOption(mtSettings, "alternativeLabels", ["alternative", "alternative titles", "nom alternatif"])));
+    mtAltElement = mtDocument.querySelector(".seriestualt, .alternative");
+    if(mtAltElement != null) {
+        mtExtra = mtSplitNames(mtAltElement.text.trim());
+        for(mx = 0; mx < mtExtra.length; mx = mx + 1) {
+            if(mtAlternatives.contains(mtExtra[mx]) == false) {
+                mtAlternatives.push(mtExtra[mx]);
+            }
+        }
+    }
+    mtYearText = mtRowValue(mtRows, mtOption(mtSettings, "yearLabels", ["released", "année", "year"]));
+    mtYear = null;
+    if(mtYearText.length >= 4) {
+        mtYear = parseInt(mtYearText.substring(0, 4));
+    }
+    mtChapters = [];
+    mtSeen = [];
+    mtItems = mtDocument.querySelectorAll("#chapterlist li");
+    for(mc = 0; mc < mtItems.length; mc = mc + 1) {
+        mtLink = mtItems[mc].querySelector("a");
+        if(mtLink == null) {
+            continue;
+        }
+        mtChapterUid = mtPathOf(mtSettings, mtAttribute(mtLink, "href"));
+        if(mtChapterUid == "" || mtSeen.contains(mtChapterUid)) {
+            continue;
+        }
+        mtSeen.push(mtChapterUid);
+        mtNumberElement = mtItems[mc].querySelector(".chapternum");
+        mtDateElement = mtItems[mc].querySelector(".chapterdate");
+        mtLabel = mtLink.text.trim();
+        if(mtNumberElement != null) {
+            mtLabel = mtNumberElement.text.trim();
+        }
+        mtTime = null;
+        if(mtDateElement != null) {
+            mtTime = mtDate(mtSettings, mtDateElement.text);
+        }
+        mtChapters.push(buildChapter({
+            "uid": mtChapterUid,
+            "title": mtLabel,
+            "timestamp": mtTime,
+            "data": {},
+            "number": mtChapterNumber(mtAttribute(mtItems[mc], "data-num") + " " + mtLabel)
+        }));
+    }
+    mtGroups = [];
+    if(mtChapters.length > 0) {
+        mtGroups.push(buildChapterGroups({
+            "title": mtOption(mtSettings, "chapterGroupTitle", "Chapters"),
+            "elements": mtChapters
+        }));
+    }
+    return buildConcrete({
+        "uid": mtUid,
+        "title": mtHeading.text.trim(),
+        "cover": mtImageSource(mtDocument.querySelector(".thumb img")),
+        "description": mtDescription,
+        "tags": mtTags,
+        "status": mtStatus(mtRowValue(mtRows, mtOption(mtSettings, "statusLabels", ["status", "statut"]))),
+        "alternativeTitles": mtAlternatives,
+        "authors": mtSplitNames(mtRowValue(mtRows, mtOption(mtSettings, "authorLabels", ["author", "auteur"]))),
+        "artists": mtSplitNames(mtRowValue(mtRows, mtOption(mtSettings, "artistLabels", ["artist", "dessinateur"]))),
+        "year": mtYear,
+        "url": mtBaseUrl(mtSettings) + "/" + mtUid + "/",
+        "groups": mtGroups
+    });
+}
+
+function mtReaderJson(mtBody) {
+    mtMarker = "ts_reader.run(";
+    mtStart = mtBody.indexOf(mtMarker);
+    if(mtStart < 0) {
+        return null;
+    }
+    mtRest = mtBody.substring(mtStart + mtMarker.length);
+    mtEnd = mtRest.indexOf(");</script>");
+    if(mtEnd < 0) {
+        mtEnd = mtRest.indexOf(");");
+    }
+    if(mtEnd < 0) {
+        return null;
+    }
+    return jsonDecode(mtRest.substring(0, mtEnd));
+}
+
+function mtGetPages(mtSettings, mtUid) {
+    mtBody = mtRequest(mtSettings, mtBaseUrl(mtSettings) + "/" + mtUid + "/", {}, "chapter", false);
+    mtLinks = [];
+    mtReader = mtReaderJson(mtBody);
+    if(mtReader != null && mtReader["sources"] != null && mtReader["sources"].isEmpty == false) {
+        mtImages = mtReader["sources"][0]["images"];
+        for(mp = 0; mp < mtImages.length; mp = mp + 1) {
+            mtImage = parseString(mtImages[mp]).trim();
+            if(mtImage != "") {
+                mtLinks.push(mtImage);
+            }
+        }
+    }
+    if(mtLinks.isEmpty) {
+        mtDocument = createHTMLParser(mtBody);
+        mtImageElements = mtDocument.querySelectorAll("#readerarea img");
+        for(mp = 0; mp < mtImageElements.length; mp = mp + 1) {
+            mtSource = mtImageSource(mtImageElements[mp]);
+            if(mtSource != "") {
+                mtLinks.push(mtSource);
+            }
+        }
+    }
+    if(mtLinks.isEmpty) {
+        throwSourceError("notFound", "the chapter has no images yet");
+    }
+    return buildPages({
+        "uid": mtUid,
+        "value": mtLinks
+    });
+}
+
+function mtGetImageHeaders(mtSettings) {
+    return {
+        "User-Agent": mtUserAgent(mtSettings),
+        "Referer": mtBaseUrl(mtSettings) + "/"
+    };
+}

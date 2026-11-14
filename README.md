@@ -23,6 +23,8 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | MangaPill | English | Latest chapters, trending and browse feeds; type, status and genre filters |
 | WeebCentral | English | Popular, latest, new and most subscribed feeds; type, status, official, anime and adult filters; full chapter lists |
 | MangaKatana | English | Latest, new, most chapters and A-Z feeds; genre include/exclude and status filters |
+| Kingofshojo | English | MangaThemesia engine; latest, popular, new and A-Z feeds; status, type and genre filters |
+| Sushiscan | French | MangaThemesia engine; volumes and chapters, same feeds and filters |
 | MangaNato | English | Mangakakalot/MangaNato catalogue; latest, popular, new and completed feeds; genre filter; no search (the site blocks it) |
 | Cubari | English | No catalog: paste a gist, imgur, reddit, imgchest, catbox, MangaDex, WeebCentral or cubari.moe link into search; chapters grouped by scanlation group |
 | MangaRead | English | Madara engine |
@@ -97,6 +99,7 @@ tests/               integration tests for each extension
 - Extensions that use any API 2 feature declare `"apiVersion": 2` and `"minAppVersion": "1.0.0"`. Novel and audiobook extensions always need both, since older apps can't read those types.
 - `shared/madara.capyscript`: a generic engine for WordPress sites on the Madara theme. A Madara site is a `config.json` plus a `main.capyscript` that defines `madaraSettings()` (at least `baseUrl`) and delegates `getGallery` / `getConcrete` / `getPages` / `getImageHeaders` to `madaraGetGallery` / `madaraGetConcrete` / `madaraGetPages` / `madaraGetImageHeaders`. Optional settings: `galleryMode` (`search` or `ajax`), `chaptersMode` (`auto`, `page`, `ajax`, `admin-ajax`), `defaultOrder`, `gallerySelector`, `descriptionSelector`, `pageSelector`, `pageExclude` (URL substrings to drop), `chapterGroupTitle`, `userAgent`.
 - `shared/kodik.capyscript`: resolves Kodik player links (`kodikResolveSources(url, referer)`) to HLS/MP4 sources at 1080/720/480/360p. It blanks cookies, `Authorization` and other session headers on its own requests, so a source's `useHeaders` session never reaches Kodik.
+- `shared/mangathemesia.capyscript`: the MangaThemesia WordPress theme (`mtGetGallery`, `mtGetConcrete`, `mtGetPages`); a site passes `baseUrl`, its catalog `directory`, and optionally localized `months`, info-table labels and the chapter group title.
 
 The full authoring guide is in the app repository: [docs/guides/extensions.md](https://github.com/Sayuri128/wakaranai/blob/master/docs/guides/extensions.md).
 

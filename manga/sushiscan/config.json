@@ -1,0 +1,179 @@
+{
+  "name": "Sushiscan",
+  "uid": "ba666e26-4d84-4616-9325-6453767bd99e",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/manga/sushiscan/logo.png?raw=true",
+  "type": 0,
+  "nsfw": false,
+  "language": "Français",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "manga",
+    "manhwa",
+    "manhua"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 2,
+      "perSeconds": 1
+    }
+  },
+  "feeds": [
+    {
+      "id": "update",
+      "title": "Mises à jour"
+    },
+    {
+      "id": "popular",
+      "title": "Populaires"
+    },
+    {
+      "id": "latest",
+      "title": "Nouveautés"
+    },
+    {
+      "id": "title",
+      "title": "A-Z"
+    }
+  ],
+  "filters": [
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Statut",
+      "param": "status",
+      "values": [
+        "",
+        "ongoing",
+        "completed",
+        "hiatus",
+        "en pause"
+      ],
+      "labels": [
+        "Tout",
+        "En Cours",
+        "Terminé",
+        "Abandonné",
+        "En Pause"
+      ]
+    },
+    {
+      "type": "ONE_OF_MULTIPLE",
+      "paramName": "Type",
+      "param": "type",
+      "values": [
+        "",
+        "manga",
+        "manhwa",
+        "manhua",
+        "comic",
+        "light-novel",
+        "fanfiction",
+        "bande-dessinée",
+        "global-manga",
+        "artbook",
+        "anime-comics",
+        "guidebook"
+      ],
+      "labels": [
+        "Tout",
+        "Manga",
+        "Manhwa",
+        "Manhua",
+        "Comics",
+        "Novel",
+        "Fanfiction",
+        "BD",
+        "Global-Manga",
+        "Artbook",
+        "Anime-Comics",
+        "Guidebook"
+      ]
+    },
+    {
+      "type": "MULTIPLE_OF_MULTIPLE",
+      "paramName": "Genres",
+      "param": "genre",
+      "values": [
+        [
+          "3",
+          "12",
+          "165",
+          "13",
+          "267",
+          "4116",
+          "4",
+          "43",
+          "96",
+          "5",
+          "32",
+          "2455",
+          "3727",
+          "93",
+          "24",
+          "6",
+          "639",
+          "7",
+          "8",
+          "764",
+          "3251",
+          "20",
+          "26",
+          "16",
+          "3443",
+          "37",
+          "173",
+          "599",
+          "28",
+          "18",
+          "9",
+          "79",
+          "305",
+          "10",
+          "819"
+        ]
+      ],
+      "labels": [
+        [
+          "Action",
+          "Aventure",
+          "Biographique",
+          "Comédie",
+          "Crossover",
+          "Documentaire",
+          "Drame",
+          "Ecchi",
+          "Erotique",
+          "Fantastique",
+          "Fantasy",
+          "Furyo",
+          "Gekiga",
+          "Histoires courtes",
+          "Historique",
+          "Horreur",
+          "Isekai",
+          "Mature",
+          "Mystère",
+          "Nekketsu",
+          "Polar",
+          "Psychologique",
+          "Romance",
+          "School-Life",
+          "Science-Fantasy",
+          "Science-Fiction",
+          "Shôjo-aï",
+          "Shônen-aï",
+          "Slice of Life",
+          "Sport",
+          "Surnaturel",
+          "Thriller",
+          "Tournois",
+          "Tragique",
+          "Yonkoma"
+        ]
+      ]
+    }
+  ]
+}

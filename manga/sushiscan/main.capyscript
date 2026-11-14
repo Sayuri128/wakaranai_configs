@@ -1,0 +1,29 @@
+import "../../shared/mangathemesia";
+
+function themesiaSettings() {
+    return {
+        "baseUrl": "https://sushiscan.net",
+        "directory": "catalogue",
+        "chapterGroupTitle": "Chapitres",
+        "months": {
+            "janvier": "01", "février": "02", "mars": "03", "avril": "04", "mai": "05", "juin": "06",
+            "juillet": "07", "août": "08", "septembre": "09", "octobre": "10", "novembre": "11", "décembre": "12"
+        }
+    };
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    return mtGetGallery(themesiaSettings(), page, query, filters, feed);
+}
+
+function getConcrete(uid, data) {
+    return mtGetConcrete(themesiaSettings(), uid);
+}
+
+function getPages(uid, data) {
+    return mtGetPages(themesiaSettings(), uid);
+}
+
+function getImageHeaders(uid, data) {
+    return mtGetImageHeaders(themesiaSettings());
+}
