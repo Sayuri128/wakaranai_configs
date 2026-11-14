@@ -1,0 +1,436 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "preferences";
+import "storage";
+import "manga_models";
+
+function senkuroApiUrl() {
+    return "https://api.senkuro.com/graphql";
+}
+
+function senkuroSiteUrl() {
+    return "https://senkuro.com";
+}
+
+function senkuroCatalogPageSize() {
+    return 30;
+}
+
+function senkuroCoverFields() {
+    return "cover { original { url } }";
+}
+
+function senkuroCardFields() {
+    return "id slug status type rating originalName { lang content } titles { lang content } " + senkuroCoverFields();
+}
+
+function senkuroQuery(queryText, queryVariables, label) {
+    response = httpPost({
+        "url": senkuroApiUrl(),
+        "params": {},
+        "paths": {},
+        "headers": {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": senkuroSiteUrl(),
+            "Referer": senkuroSiteUrl() + "/"
+        },
+        "body": jsonEncode({"query": queryText, "variables": queryVariables}),
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Senkuro asks to slow down (" + label + ")");
+    }
+    if(statusCode == 403) {
+        throwSourceError("regionBlocked", "Senkuro refused the request (" + label + ")");
+    }
+    if(statusCode >= 500) {
+        throwSourceError("sourceDown", "Senkuro answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    if(statusCode != 200) {
+        throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+    }
+    result = jsonDecode(response["body"]);
+    if(result["errors"] != null && result["data"] == null) {
+        throw "Senkuro: " + parseString(result["errors"][0]["message"]) + " (" + label + ")";
+    }
+    return result["data"];
+}
+
+function senkuroPick(localizedTexts, lang) {
+    if(localizedTexts == null) {
+        return null;
+    }
+    for(t = 0; t < localizedTexts.length; t = t + 1) {
+        if(localizedTexts[t]["lang"] == lang) {
+            return localizedTexts[t]["content"];
+        }
+    }
+    return null;
+}
+
+function senkuroTitle(manga) {
+    shownTitle = senkuroPick(manga["titles"], "RU");
+    if(shownTitle == null) {
+        shownTitle = senkuroPick(manga["titles"], "EN");
+    }
+    if(shownTitle == null && manga["originalName"] != null) {
+        shownTitle = manga["originalName"]["content"];
+    }
+    if(shownTitle == null) {
+        shownTitle = manga["slug"];
+    }
+    return shownTitle;
+}
+
+function senkuroCover(manga) {
+    if(manga["cover"] == null || manga["cover"]["original"] == null) {
+        return "";
+    }
+    return manga["cover"]["original"]["url"];
+}
+
+function senkuroStatus(statusValue) {
+    if(statusValue == "ONGOING") {
+        return statusOngoing();
+    }
+    if(statusValue == "RELEASED" || statusValue == "FINISHED") {
+        return statusReleased();
+    }
+    if(statusValue == "SUSPENDED") {
+        return statusPaused();
+    }
+    if(statusValue == "CANCELLED") {
+        return statusCanceled();
+    }
+    if(statusValue == "ANNOUNCE") {
+        return statusAnnounce();
+    }
+    return statusUndefined();
+}
+
+function senkuroFilterVariables(filters, feed, query) {
+    filterVariables = {
+        "first": senkuroCatalogPageSize(),
+        "orderField": "POPULARITY_SCORE",
+        "orderDirection": "DESC"
+    };
+    if(feed != null && feed != "") {
+        filterVariables["orderField"] = feed;
+    }
+    if(query != null && parseString(query).trim() != "") {
+        filterVariables["search"] = parseString(query).trim();
+    }
+    chosen = {"type": [], "status": [], "label": []};
+    if(filters != null) {
+        for(i = 0; i < filters.length; i = i + 1) {
+            filterInfo = filters[i]["filter"];
+            selectedGroups = filters[i]["selected"];
+            if(filterInfo == null || selectedGroups == null) {
+                continue;
+            }
+            chosenValues = chosen[filterInfo["param"]];
+            if(chosenValues == null) {
+                continue;
+            }
+            for(g = 0; g < selectedGroups.length; g = g + 1) {
+                for(v = 0; v < selectedGroups[g].length; v = v + 1) {
+                    chosenValues.push(parseString(selectedGroups[g][v]));
+                }
+            }
+        }
+    }
+    if(chosen["type"].length > 0) {
+        filterVariables["type"] = {"include": chosen["type"]};
+    }
+    if(chosen["status"].length > 0) {
+        filterVariables["status"] = {"include": chosen["status"]};
+    }
+    if(chosen["label"].length > 0) {
+        filterVariables["label"] = {"include": chosen["label"]};
+    }
+    if(getPreference("showExplicit") != true) {
+        filterVariables["rating"] = {"exclude": ["EXPLICIT"]};
+    }
+    return filterVariables;
+}
+
+function senkuroCatalogQuery() {
+    return "query($first: Int, $after: String, $search: String, $type: MangaTypeFilter, $status: MangaStatusFilter, $label: MangaLabelFilter, $rating: MangaRatingFilter, $orderField: MangaOrderField, $orderDirection: OrderDirection) { mangas(first: $first, after: $after, search: $search, type: $type, status: $status, label: $label, rating: $rating, orderBy: {field: $orderField, direction: $orderDirection}) { edges { node { " + senkuroCardFields() + " } } pageInfo { hasNextPage endCursor } } }";
+}
+
+function senkuroCursorKey(baseVariables, page) {
+    return "cursor:" + base64Encode(jsonEncode(baseVariables)) + ":" + parseString(page);
+}
+
+function senkuroCatalogPage(baseVariables, page) {
+    startPage = page;
+    cursor = null;
+    if(page > 1) {
+        cursor = storageGet(senkuroCursorKey(baseVariables, page));
+        if(cursor == null || cursor == "") {
+            startPage = 1;
+        }
+    }
+    connection = null;
+    for(current = startPage; current <= page; current = current + 1) {
+        if(current > startPage && connection == null) {
+            continue;
+        }
+        pageVariables = jsonDecode(jsonEncode(baseVariables));
+        if(current > 1) {
+            pageVariables["after"] = cursor;
+        }
+        connection = senkuroQuery(senkuroCatalogQuery(), pageVariables, "senkuro catalog")["mangas"];
+        pageInfo = connection["pageInfo"];
+        if(pageInfo["hasNextPage"] == true) {
+            cursor = pageInfo["endCursor"];
+            storageSet(senkuroCursorKey(baseVariables, current + 1), cursor, 3600);
+        } else {
+            if(current < page) {
+                connection = null;
+            }
+        }
+    }
+    return connection;
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    baseVariables = senkuroFilterVariables(filters, feed, query);
+    connection = senkuroCatalogPage(baseVariables, page);
+    if(connection == null) {
+        return [];
+    }
+    items = [];
+    edges = connection["edges"];
+    for(e = 0; e < edges.length; e = e + 1) {
+        manga = edges[e]["node"];
+        items.push(buildGallery({
+            "uid": manga["slug"],
+            "title": senkuroTitle(manga),
+            "cover": senkuroCover(manga),
+            "data": {},
+            "status": senkuroStatus(manga["status"])
+        }));
+    }
+    return items;
+}
+
+function senkuroNewline() {
+    lineBreak = `
+`;
+    if(lineBreak.length > 1) {
+        lineBreak = lineBreak.substring(lineBreak.length - 1);
+    }
+    return lineBreak;
+}
+
+function senkuroDescription(localizations) {
+    if(localizations == null) {
+        return "";
+    }
+    chosen = null;
+    for(l = 0; l < localizations.length; l = l + 1) {
+        if(localizations[l]["description"] != null) {
+            if(chosen == null || localizations[l]["lang"] == "RU") {
+                chosen = localizations[l]["description"];
+            }
+        }
+    }
+    if(chosen == null) {
+        return "";
+    }
+    paragraphs = [];
+    for(b = 0; b < chosen.length; b = b + 1) {
+        blockContent = chosen[b]["content"];
+        if(blockContent == null) {
+            continue;
+        }
+        lineParts = [];
+        for(n = 0; n < blockContent.length; n = n + 1) {
+            node = blockContent[n];
+            if(node["type"] == "hardBreak") {
+                lineParts.push(senkuroNewline());
+                continue;
+            }
+            if(node["text"] != null) {
+                lineParts.push(node["text"]);
+            }
+        }
+        paragraph = lineParts.join("").replaceAll("ᅠ", "").trim();
+        if(paragraph != "") {
+            paragraphs.push(paragraph);
+        }
+    }
+    return paragraphs.join(senkuroNewline());
+}
+
+function senkuroTitleQuery() {
+    return "query($slug: String!) { manga(slug: $slug) { " + senkuroCardFields() + " alternativeNames { lang content } localizations { lang description { ... on TiptapNodeNestedBlock { type content { ... on TiptapNodeText { type text } ... on TiptapNodeOnlyBlock { type } } } } } releasedOn score labels { slug rating titles { lang content } } mainStaff { roles person { name } } branches { id lang chapters primaryBranch } } }";
+}
+
+function senkuroChaptersQuery() {
+    return "query($branchId: ID!, $after: String) { mangaChapters(branchId: $branchId, first: 100, after: $after, orderBy: {field: NUMBER, direction: DESC}) { edges { node { slug number volume name createdAt } } pageInfo { hasNextPage endCursor } } }";
+}
+
+function getConcrete(uid, data) {
+    manga = senkuroQuery(senkuroTitleQuery(), {"slug": uid}, "senkuro title")["manga"];
+    if(manga == null) {
+        throwSourceError("notFound", "Senkuro has no such title");
+    }
+    shownTitle = senkuroTitle(manga);
+    alternativeTitles = [];
+    nameSources = [manga["titles"], manga["alternativeNames"]];
+    for(s = 0; s < nameSources.length; s = s + 1) {
+        if(nameSources[s] == null) {
+            continue;
+        }
+        for(n = 0; n < nameSources[s].length; n = n + 1) {
+            altName = nameSources[s][n]["content"];
+            if(altName != null && altName != shownTitle && alternativeTitles.contains(altName) == false) {
+                alternativeTitles.push(altName);
+            }
+        }
+    }
+    if(manga["originalName"] != null) {
+        originalName = manga["originalName"]["content"];
+        if(originalName != shownTitle && alternativeTitles.contains(originalName) == false) {
+            alternativeTitles.push(originalName);
+        }
+    }
+    tags = [];
+    if(manga["labels"] != null) {
+        for(l = 0; l < manga["labels"].length; l = l + 1) {
+            labelName = senkuroPick(manga["labels"][l]["titles"], "RU");
+            if(labelName == null) {
+                labelName = manga["labels"][l]["slug"];
+            }
+            tags.push(labelName);
+        }
+    }
+    authors = [];
+    if(manga["mainStaff"] != null) {
+        for(m = 0; m < manga["mainStaff"].length; m = m + 1) {
+            person = manga["mainStaff"][m]["person"];
+            if(person != null && person["name"] != null && authors.contains(person["name"]) == false) {
+                authors.push(person["name"]);
+            }
+        }
+    }
+    year = null;
+    if(manga["releasedOn"] != null) {
+        year = parseInt(parseString(manga["releasedOn"]).substring(0, 4));
+    }
+    groups = [];
+    branches = manga["branches"];
+    if(branches != null) {
+        for(b = 0; b < branches.length; b = b + 1) {
+            branchChapters = senkuroBranchChapters(branches[b]["id"]);
+            if(branchChapters.isEmpty) {
+                continue;
+            }
+            groupTitle = "Главы";
+            if(branches.length > 1) {
+                groupTitle = "Перевод " + parseString(b + 1) + " (" + parseString(branches[b]["lang"]) + ")";
+            }
+            groups.push(buildChapterGroups({
+                "title": groupTitle,
+                "elements": branchChapters
+            }));
+        }
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": senkuroCover(manga),
+        "description": senkuroDescription(manga["localizations"]),
+        "tags": tags,
+        "status": senkuroStatus(manga["status"]),
+        "alternativeTitles": alternativeTitles,
+        "authors": authors,
+        "year": year,
+        "rating": manga["score"],
+        "url": senkuroSiteUrl() + "/manga/" + uid,
+        "groups": groups
+    });
+}
+
+function senkuroBranchChapters(branchId) {
+    chapters = [];
+    cursor = null;
+    hasMore = true;
+    for(round = 0; round < 200; round = round + 1) {
+        if(hasMore == false) {
+            continue;
+        }
+        chapterVariables = {"branchId": branchId};
+        if(cursor != null) {
+            chapterVariables["after"] = cursor;
+        }
+        connection = senkuroQuery(senkuroChaptersQuery(), chapterVariables, "senkuro chapters")["mangaChapters"];
+        edges = connection["edges"];
+        for(e = 0; e < edges.length; e = e + 1) {
+            chapters.push(senkuroChapter(edges[e]["node"]));
+        }
+        hasMore = connection["pageInfo"]["hasNextPage"] == true;
+        cursor = connection["pageInfo"]["endCursor"];
+    }
+    return chapters;
+}
+
+function senkuroChapter(chapterInfo) {
+    chapterLabel = "";
+    volumeText = chapterInfo["volume"];
+    if(volumeText != null && parseString(volumeText) != "" && parseString(volumeText) != "0") {
+        chapterLabel = "Том " + parseString(volumeText) + " ";
+    }
+    chapterLabel = chapterLabel + "Глава " + parseString(chapterInfo["number"]);
+    if(chapterInfo["name"] != null && parseString(chapterInfo["name"]).trim() != "") {
+        chapterLabel = chapterLabel + " - " + parseString(chapterInfo["name"]).trim();
+    }
+    chapterTime = chapterInfo["createdAt"];
+    if(chapterTime != null) {
+        chapterTime = parseString(chapterTime);
+        if(chapterTime.length >= 16) {
+            chapterTime = chapterTime.substring(0, 16).replaceFirst("T", " ");
+        }
+    }
+    return buildChapter({
+        "uid": chapterInfo["slug"],
+        "title": chapterLabel,
+        "timestamp": chapterTime,
+        "data": {},
+        "number": chapterInfo["number"],
+        "volume": volumeText
+    });
+}
+
+function getPages(uid, data) {
+    chapter = senkuroQuery("query($slug: String!) { mangaChapter(slug: $slug) { pages { image { original { url } } } } }", {"slug": uid}, "senkuro chapter")["mangaChapter"];
+    if(chapter == null) {
+        throwSourceError("notFound", "Senkuro has no such chapter");
+    }
+    pages = chapter["pages"];
+    if(pages == null || pages.isEmpty) {
+        throwSourceError("regionBlocked", "Senkuro shows no pages for this chapter (it may be licensed in your region)");
+    }
+    pageLinks = [];
+    for(p = 0; p < pages.length; p = p + 1) {
+        if(pages[p]["image"] != null && pages[p]["image"]["original"] != null) {
+            pageLinks.push(pages[p]["image"]["original"]["url"]);
+        }
+    }
+    return buildPages({
+        "uid": uid,
+        "value": pageLinks
+    });
+}
+
+function getImageHeaders(uid, data) {
+    return {
+        "Referer": senkuroSiteUrl() + "/"
+    };
+}
