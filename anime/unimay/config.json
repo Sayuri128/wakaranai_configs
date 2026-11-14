@@ -1,0 +1,23 @@
+{
+  "name": "Unimay",
+  "uid": "d0b5e43e-83ef-4d14-ac62-020f26cd0bc5",
+  "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/unimay/logo.png?raw=true",
+  "type": 1,
+  "nsfw": false,
+  "language": "Українська",
+  "version": 1,
+  "apiVersion": 2,
+  "minAppVersion": "1.0.0",
+  "contentKinds": [
+    "anime"
+  ],
+  "searchAvailable": true,
+  "protectorConfig": null,
+  "requestPolicy": {
+    "rateLimit": {
+      "requests": 3,
+      "perSeconds": 1
+    }
+  },
+  "filters": []
+}

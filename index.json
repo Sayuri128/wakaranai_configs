@@ -9356,6 +9356,36 @@
     },
     {
       "category": "anime",
+      "path": "anime/unimay",
+      "revision": "d01acb268403bb01",
+      "apiVersion": 2,
+      "minAppVersion": "1.0.0",
+      "config": {
+        "name": "Unimay",
+        "uid": "d0b5e43e-83ef-4d14-ac62-020f26cd0bc5",
+        "logoUrl": "https://github.com/sayuri128/wakaranai_configs/blob/main/anime/unimay/logo.png?raw=true",
+        "type": 1,
+        "nsfw": false,
+        "language": "Українська",
+        "version": 1,
+        "apiVersion": 2,
+        "minAppVersion": "1.0.0",
+        "contentKinds": [
+          "anime"
+        ],
+        "searchAvailable": true,
+        "protectorConfig": null,
+        "requestPolicy": {
+          "rateLimit": {
+            "requests": 3,
+            "perSeconds": 1
+          }
+        },
+        "filters": []
+      }
+    },
+    {
+      "category": "anime",
       "path": "anime/yummyanime",
       "revision": "8b1f056fa9648207",
       "apiVersion": 2,

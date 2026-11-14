@@ -49,6 +49,7 @@ Most extensions use extension API 2 (preferences, feeds, pagination, typed error
 | YummyAnime | Russian | Public api.yani.tv API; dubs grouped per player; Kodik, CVH and Aksor play natively, Alloha in the web player; an optional application token can be set in the extension settings |
 | Anime365 (paid) | Russian | Browsing is free, watching needs an Anime365 subscription (sign in through the in-app browser); subtitles and voiceovers grouped by team; latest, ongoing and top rated feeds |
 | AniHub | Ukrainian | Recently updated, new episodes, popular, top rated and newly added feeds |
+| Unimay | Ukrainian | Unimay dub team; JSON API with 1080/720/480 HLS per episode; search |
 | Anitube.in.ua | Ukrainian | Player and dub preferences; opening and ending skips |
 | UAFlix | Ukrainian | Movies, series, cartoons and anime; section filter |
 | KinoUkr | Ukrainian | Movies, series and cartoons; section filter; Ashdi players resolved natively, series split into seasons with one audio track per dub; no search (the site guards it with a Cloudflare challenge) |

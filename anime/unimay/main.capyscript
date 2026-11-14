@@ -1,0 +1,274 @@
+import "http";
+import "json";
+import "converter";
+import "errors";
+import "anime_models";
+
+function unimayApiUrl() {
+    return "https://api.unimay.media/v1";
+}
+
+function unimaySiteUrl() {
+    return "https://unimay.media";
+}
+
+function unimayPageSize() {
+    return 24;
+}
+
+function unimayGet(path, requestParams, label) {
+    response = httpGet({
+        "url": unimayApiUrl() + path,
+        "params": requestParams,
+        "paths": {},
+        "headers": {
+            "Accept": "application/json",
+            "Origin": unimaySiteUrl(),
+            "Referer": unimaySiteUrl() + "/"
+        },
+        "throughWeb": false
+    });
+    statusCode = response["statusCode"];
+    if(statusCode == 200) {
+        return jsonDecode(response["body"]);
+    }
+    if(statusCode == 400 && label == "unimay search past the end") {
+        return null;
+    }
+    if(statusCode == 404) {
+        throwSourceError("notFound", "Unimay has no such release (" + label + ")");
+    }
+    if(statusCode == 429) {
+        throwSourceError("rateLimited", "Unimay asks to slow down (" + label + ")");
+    }
+    if(statusCode >= 500) {
+        throwSourceError("sourceDown", "Unimay answered HTTP " + parseString(statusCode) + " (" + label + ")");
+    }
+    throw "HTTP " + parseString(statusCode) + " (" + label + ")";
+}
+
+function unimayImage(imageUuid, width) {
+    if(imageUuid == null || imageUuid == "") {
+        return "";
+    }
+    return "https://img.unimay.media/" + imageUuid + "?width=" + parseString(width) + "&format=webp";
+}
+
+function unimayTitle(names) {
+    if(names == null) {
+        return "";
+    }
+    if(names["ukr"] != null && names["ukr"] != "") {
+        return names["ukr"];
+    }
+    if(names["eng"] != null && names["eng"] != "") {
+        return names["eng"];
+    }
+    if(names["romaji"] != null) {
+        return names["romaji"];
+    }
+    return "";
+}
+
+function unimayStatus(release) {
+    if(release["announcement"] == true) {
+        return statusAnnounce();
+    }
+    if(release["episodes"] != null && release["playlistSize"] != null) {
+        if(release["playlistSize"] >= release["episodes"] && release["episodes"] > 0) {
+            return statusReleased();
+        }
+        return statusOngoing();
+    }
+    return statusUndefined();
+}
+
+function getGallery(page, query, filters, feed, pageSize) {
+    searchParams = {
+        "page": parseString(page - 1),
+        "page_size": parseString(unimayPageSize())
+    };
+    if(query != null && parseString(query).trim() != "") {
+        searchParams["title"] = parseString(query).trim();
+    }
+    searchLabel = "unimay search";
+    if(page > 1) {
+        searchLabel = "unimay search past the end";
+    }
+    result = unimayGet("/release/search", searchParams, searchLabel);
+    if(result == null) {
+        return [];
+    }
+    if(result["totalPages"] != null && page > result["totalPages"]) {
+        return [];
+    }
+    releases = result["content"];
+    items = [];
+    if(releases == null) {
+        return items;
+    }
+    for(r = 0; r < releases.length; r = r + 1) {
+        release = releases[r];
+        posterUuid = null;
+        if(release["images"] != null) {
+            posterUuid = release["images"]["poster"];
+        }
+        items.push(buildGallery({
+            "uid": release["code"],
+            "title": unimayTitle(release["names"]),
+            "cover": unimayImage(posterUuid, 480),
+            "data": {},
+            "status": unimayStatus(release)
+        }));
+    }
+    return items;
+}
+
+function unimayPeople(people) {
+    names = [];
+    if(people == null) {
+        return names;
+    }
+    for(p = 0; p < people.length; p = p + 1) {
+        person = people[p];
+        personName = person["name"];
+        if(personName == null) {
+            personName = person["nickName"];
+        }
+        if(personName != null && names.contains(personName) == false) {
+            names.push(personName);
+        }
+    }
+    return names;
+}
+
+function getConcrete(uid, data) {
+    release = unimayGet("/release", {"code": uid}, "unimay release");
+    shownTitle = unimayTitle(release["names"]);
+    alternativeTitles = [];
+    names = release["names"];
+    if(names != null) {
+        nameKeys = ["eng", "romaji"];
+        for(n = 0; n < nameKeys.length; n = n + 1) {
+            altName = names[nameKeys[n]];
+            if(altName != null && altName != "" && altName != shownTitle && alternativeTitles.contains(altName) == false) {
+                alternativeTitles.push(altName);
+            }
+        }
+    }
+    tags = [];
+    if(release["type"] != null) {
+        tags.push(release["type"]);
+    }
+    if(release["genres"] != null) {
+        for(g = 0; g < release["genres"].length; g = g + 1) {
+            tags.push(release["genres"][g]);
+        }
+    }
+    videos = [];
+    playlist = release["playlist"];
+    if(playlist != null) {
+        for(e = 0; e < playlist.length; e = e + 1) {
+            episode = playlist[e];
+            if(episode["premium"] == true || episode["hls"] == null) {
+                continue;
+            }
+            episodeTitle = "Серія " + parseString(episode["number"]);
+            if(episode["title"] != null && parseString(episode["title"]).trim() != "") {
+                episodeTitle = episodeTitle + " — " + parseString(episode["title"]).trim();
+            }
+            episodeTime = null;
+            if(episode["creationTimestamp"] != null) {
+                episodeTime = parseString(episode["creationTimestamp"]);
+            }
+            videos.push(buildAnimeVideo({
+                "uid": uid + "#" + parseString(episode["number"]),
+                "src": episode["hls"]["master"],
+                "title": episodeTitle,
+                "timestamp": episodeTime,
+                "type": typeDirect(),
+                "data": {"qualities": episode["hls"]["qualities"], "master": episode["hls"]["master"]},
+                "number": episode["number"],
+                "season": null
+            }));
+        }
+    }
+    groups = [];
+    if(videos.length > 0) {
+        groups.push(buildAnimeVideoGroup({
+            "title": "Серії",
+            "videos": videos
+        }));
+    }
+    posterUuid = null;
+    if(release["images"] != null) {
+        posterUuid = release["images"]["poster"];
+    }
+    description = release["description"];
+    if(description == null) {
+        description = "";
+    }
+    return buildConcrete({
+        "uid": uid,
+        "title": shownTitle,
+        "cover": unimayImage(posterUuid, 960),
+        "description": description,
+        "tags": tags,
+        "status": unimayStatus(release),
+        "alternativeTitles": alternativeTitles,
+        "authors": unimayPeople(release["actors"]),
+        "year": release["year"],
+        "url": unimaySiteUrl() + "/releases/" + uid,
+        "groups": groups
+    });
+}
+
+function unimayQualitySource(streamUrl, qualityLabel) {
+    return {
+        "url": streamUrl,
+        "quality": qualityLabel,
+        "format": "hls",
+        "headers": {"Referer": unimaySiteUrl() + "/"}
+    };
+}
+
+function getVideoSources(uid, src, data) {
+    qualities = null;
+    if(data != null && data["qualities"] != null) {
+        qualities = data["qualities"];
+    }
+    if(qualities == null) {
+        uidParts = uid.split("#");
+        release = unimayGet("/release", {"code": uidParts[0]}, "unimay release");
+        playlist = release["playlist"];
+        for(e = 0; e < playlist.length; e = e + 1) {
+            if(parseString(playlist[e]["number"]) == uidParts[1] && playlist[e]["hls"] != null) {
+                qualities = playlist[e]["hls"]["qualities"];
+                src = playlist[e]["hls"]["master"];
+            }
+        }
+    }
+    sources = [];
+    if(qualities != null) {
+        qualityKeys = ["fhd", "hd", "sd"];
+        qualityLabels = ["1080p", "720p", "480p"];
+        for(q = 0; q < qualityKeys.length; q = q + 1) {
+            if(qualities[qualityKeys[q]] != null) {
+                sources.push(unimayQualitySource(qualities[qualityKeys[q]], qualityLabels[q]));
+            }
+        }
+    }
+    if(sources.isEmpty && src != null && src != "") {
+        sources.push(unimayQualitySource(src, "Auto"));
+    }
+    if(sources.isEmpty) {
+        throwSourceError("notFound", "Unimay has no stream for this episode");
+    }
+    return sources;
+}
+
+function getImageHeaders(uid) {
+    return {
+        "Referer": unimaySiteUrl() + "/"
+    };
+}
